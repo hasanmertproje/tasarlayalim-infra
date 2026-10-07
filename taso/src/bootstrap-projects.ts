@@ -2,11 +2,18 @@ import type { CreateProjectInput } from './project-registry.js';
 
 /**
  * Initial workspace catalog for the private Tasarlayalım Taso instance.
- * These are real isolated workspaces, not UI-only demo cards.
- * Repository values are logical identifiers for now and can be replaced
- * with exact GitHub repo slugs from the Projects screen in a later milestone.
+ * Existing customer workspaces keep their logical identifiers until their
+ * exact owner/repo slug is connected. The infra workspace is intentionally
+ * exact so READ missions can verify the autonomous executor safely.
  */
 export const bootstrapProjects: CreateProjectInput[] = [
+  {
+    slug: 'tasarlayalim-infra',
+    name: 'Tasarlayalım Infra',
+    repository: 'hasanmertproje/tasarlayalim-infra',
+    defaultBranch: 'main',
+    isExisting: true,
+  },
   {
     slug: 'reksa-reklam',
     name: 'Reksa Reklam',
