@@ -17,7 +17,7 @@ permissions:
 jobs:
   validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -33,10 +33,24 @@ jobs:
           NTFY_BASE_URL: ${{ secrets.NTFY_BASE_URL }}
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
           NTFY_TOKEN: ${{ secrets.NTFY_TOKEN }}
-          TITLE: "Tasarlayalim CI started"
-          MESSAGE: "${{ github.repository }} • ${{ github.ref_name }} • run #${{ github.run_number }}"
+          TITLE: "Taso CI • started"
+          MESSAGE: "Project: ${{ github.repository }} | Branch: ${{ github.ref_name }} | Run: #${{ github.run_number }} | Stage: validation started"
         run: |
           sh ./scripts/notify-ntfy.sh started
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install Taso dependencies
+        run: npm install --prefix taso
+
+      - name: Test Taso core
+        run: npm test --prefix taso
+
+      - name: Build Taso container
+        run: docker build -t tasarlayalim-taso-core ./taso
 
       - name: Build test image
         run: |
@@ -83,7 +97,7 @@ jobs:
           NTFY_BASE_URL: ${{ secrets.NTFY_BASE_URL }}
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
           NTFY_TOKEN: ${{ secrets.NTFY_TOKEN }}
-          TITLE: "Tasarlayalim CI ${{ job.status }}"
-          MESSAGE: "${{ github.repository }} • ${{ github.ref_name }} • run #${{ github.run_number }} • ${{ job.status }}"
+          TITLE: "Taso CI • ${{ job.status }}"
+          MESSAGE: "Project: ${{ github.repository }} | Branch: ${{ github.ref_name }} | Run: #${{ github.run_number }} | Result: ${{ job.status }}"
         run: |
           sh ./scripts/notify-ntfy.sh "${{ job.status }}"
