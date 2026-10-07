@@ -116,3 +116,36 @@ test('high impact mission waits for approval and records timeline events', () =>
   assert.ok(approved.approvedAt);
   assert.equal(engine.listEvents(mission.id).at(-1)?.type, 'mission.approved');
 });
+
+test('executor state records artifacts and failed missions can retry safely', () => {
+  const projects = new ProjectRegistry();
+  const project = projects.create({
+    slug: 'executor-test',
+    name: 'Executor Test',
+    repository: 'example/executor-test',
+    isExisting: true,
+  });
+  const engine = new TaskEngine(projects, new ProviderRouter(providers));
+  const mission = engine.createMission({
+    projectId: project.id,
+    objective: 'Improve the hero section',
+    riskLevel: 'WRITE',
+    dataClass: 'private_code',
+  });
+
+  engine.transitionMission(mission.id, 'running', 'Branch created.', undefined, {
+    branch: 'taso/executor-test/12345678',
+    pullRequestUrl: 'https://github.com/example/executor-test/pull/1',
+  });
+  const failed = engine.transitionMission(mission.id, 'failed', 'CI failed.', { checkState: 'failed' }, {
+    checkState: 'failed',
+    blockedReason: 'CI failed.',
+  });
+  assert.equal(failed.execution?.checkState, 'failed');
+  assert.equal(failed.execution?.blockedReason, 'CI failed.');
+
+  const retried = engine.retryMission(mission.id);
+  assert.equal(retried.status, 'queued');
+  assert.equal(retried.execution?.blockedReason, undefined);
+  assert.equal(engine.listEvents(mission.id).at(-1)?.type, 'mission.status_changed');
+});
