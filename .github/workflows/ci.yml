@@ -17,7 +17,7 @@ permissions:
 jobs:
   validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -43,14 +43,37 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Install Taso dependencies
+      - name: Install Taso Core dependencies
         run: npm install --prefix taso
 
-      - name: Test Taso core
+      - name: Test Taso Core
         run: npm test --prefix taso
 
-      - name: Build Taso container
+      - name: Build Taso Core container
         run: docker build -t tasarlayalim-taso-core ./taso
+
+      - name: Install Taso UI dependencies
+        run: npm install --prefix taso-ui
+
+      - name: Build Taso UI
+        run: npm run build --prefix taso-ui
+
+      - name: Build Taso UI container
+        run: docker build -t tasarlayalim-taso-ui ./taso-ui
+
+      - name: Start Taso UI container
+        run: docker run -d --rm --name tasarlayalim-taso-ui -p 4173:80 tasarlayalim-taso-ui
+
+      - name: Smoke test Taso UI
+        run: |
+          for i in $(seq 1 20); do
+            if curl -fsS http://127.0.0.1:4173/health >/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs tasarlayalim-taso-ui || true
+          exit 1
 
       - name: Build test image
         run: |
