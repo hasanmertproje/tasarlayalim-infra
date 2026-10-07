@@ -1,4 +1,9 @@
 import { createId, nowIso, type Project, type TechnologyPolicy } from './domain.js';
+import {
+  createManifest,
+  type ProjectManifest,
+  type UpsertProjectManifestInput,
+} from './project-manifest.js';
 
 export interface CreateProjectInput {
   slug: string;
@@ -18,6 +23,7 @@ function defaultTechnologyPolicy(isExisting: boolean): TechnologyPolicy {
 
 export class ProjectRegistry {
   private readonly projects = new Map<string, Project>();
+  private readonly manifests = new Map<string, ProjectManifest>();
 
   create(input: CreateProjectInput): Project {
     const slug = input.slug.trim().toLowerCase();
@@ -51,5 +57,16 @@ export class ProjectRegistry {
 
   get(id: string): Project | undefined {
     return this.projects.get(id);
+  }
+
+  upsertManifest(projectId: string, input: UpsertProjectManifestInput): ProjectManifest {
+    if (!this.projects.has(projectId)) throw new Error('Project not found.');
+    const manifest = createManifest(projectId, input, this.manifests.get(projectId));
+    this.manifests.set(projectId, manifest);
+    return manifest;
+  }
+
+  getManifest(projectId: string): ProjectManifest | undefined {
+    return this.manifests.get(projectId);
   }
 }
