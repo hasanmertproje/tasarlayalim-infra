@@ -4,7 +4,9 @@ import {
   nowIso,
   type AutonomousPolicy,
   type Mission,
+  type MissionExecution,
   type MissionInput,
+  type MissionStatus,
 } from './domain.js';
 import { MissionEventStore } from './mission-events.js';
 import { evaluateMissionPolicy } from './policy.js';
@@ -65,11 +67,7 @@ export class TaskEngine {
     });
 
     if (mission.approvalRequired) {
-      this.events.append(
-        mission.id,
-        'mission.approval_required',
-        decision.reason,
-      );
+      this.events.append(mission.id, 'mission.approval_required', decision.reason);
     }
 
     return mission;
@@ -80,9 +78,7 @@ export class TaskEngine {
   }
 
   listMissions(): Mission[] {
-    return [...this.missions.values()].sort((a, b) =>
-      b.createdAt.localeCompare(a.createdAt),
-    );
+    return [...this.missions.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }
 
   listEvents(id: string) {
@@ -94,9 +90,7 @@ export class TaskEngine {
     const mission = this.missions.get(id);
     if (!mission) throw new Error('Mission not found.');
     if (!mission.approvalRequired) return mission;
-    if (mission.status !== 'waiting_approval') {
-      throw new Error(`Mission cannot be approved from status ${mission.status}.`);
-    }
+    if (mission.status !== 'waiting_approval') throw new Error(`Mission cannot be approved from status ${mission.status}.`);
 
     mission.approvedAt = nowIso();
     mission.status = 'queued';
@@ -113,6 +107,31 @@ export class TaskEngine {
     mission.updatedAt = nowIso();
     this.missions.set(id, mission);
     this.events.append(id, 'mission.cancelled', 'Mission cancelled.');
+    return mission;
+  }
+
+  transitionMission(
+    id: string,
+    status: MissionStatus,
+    message: string,
+    metadata?: Record<string, unknown>,
+    execution?: Partial<MissionExecution>,
+  ): Mission {
+    const mission = this.missions.get(id);
+    if (!mission) throw new Error('Mission not found.');
+    if (mission.status === 'cancelled') throw new Error('Cancelled mission cannot transition.');
+    mission.status = status;
+    mission.updatedAt = nowIso();
+    if (execution) mission.execution = { ...(mission.execution ?? {}), ...execution };
+    this.missions.set(id, mission);
+    this.events.append(id, 'mission.status_changed', message, { status, ...(metadata ?? {}) });
+    return mission;
+  }
+
+  noteMission(id: string, message: string, metadata?: Record<string, unknown>): Mission {
+    const mission = this.missions.get(id);
+    if (!mission) throw new Error('Mission not found.');
+    this.events.append(id, 'mission.note', message, metadata);
     return mission;
   }
 }
