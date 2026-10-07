@@ -6,6 +6,7 @@ on:
       - main
       - 'bootstrap/**'
       - 'feature/**'
+      - 'phase4/**'
   pull_request:
     branches:
       - main
@@ -58,3 +59,7 @@ jobs:
             sleep 2
           done
           exit 1
+
+      - name: Build ntfy image
+        run: |
+          docker build -t tasarlayalim-ntfy ./docker/ntfy
