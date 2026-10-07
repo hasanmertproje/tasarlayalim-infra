@@ -59,6 +59,20 @@ export interface MissionInput {
   autonomous?: Partial<AutonomousPolicy>;
 }
 
+export interface MissionExecution {
+  summary?: string;
+  branch?: string;
+  commitSha?: string;
+  pullRequestNumber?: number;
+  pullRequestUrl?: string;
+  previewDeploymentUuid?: string;
+  previewUrl?: string;
+  productionDeploymentUuid?: string;
+  productionUrl?: string;
+  checkState?: 'success' | 'failed' | 'pending' | 'missing';
+  blockedReason?: string;
+}
+
 export interface Mission {
   id: string;
   projectId: string;
@@ -70,6 +84,7 @@ export interface Mission {
   autonomous: AutonomousPolicy;
   approvalRequired: boolean;
   approvedAt?: string;
+  execution?: MissionExecution;
   createdAt: string;
   updatedAt: string;
 }

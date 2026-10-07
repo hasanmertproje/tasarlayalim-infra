@@ -13,6 +13,7 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm install --omit=dev && npm cache clean --force
 COPY --from=build /app/dist ./dist
+RUN mkdir -p /data && chown -R node:node /data
 USER node
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \

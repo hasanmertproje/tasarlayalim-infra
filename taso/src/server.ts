@@ -1,9 +1,12 @@
 import Fastify from 'fastify';
 import { bootstrapProjects } from './bootstrap-projects.js';
 import type { DataClass, RiskLevel } from './domain.js';
+import { MissionEventStore } from './mission-events.js';
+import { MissionExecutor } from './mission-executor.js';
 import type { UpsertProjectManifestInput } from './project-manifest.js';
 import { ProjectRegistry, type CreateProjectInput } from './project-registry.js';
 import { ProviderRouter, defaultProviders } from './provider-router.js';
+import { JsonStateStore } from './state-store.js';
 import { TaskEngine } from './task-engine.js';
 
 interface CreateMissionBody {
@@ -32,37 +35,58 @@ function isDataClass(value: unknown): value is DataClass {
 
 export function buildServer() {
   const app = Fastify({ logger: true });
-  const projects = new ProjectRegistry();
+  const stateFile = process.env.TASO_STATE_FILE?.trim() || (process.env.NODE_ENV === 'production' ? '/data/taso-state.json' : undefined);
+  const stateStore = new JsonStateStore(stateFile);
+  const snapshot = stateStore.load();
+
+  let projects!: ProjectRegistry;
+  let tasks!: TaskEngine;
+  const persist = () => {
+    if (!projects || !tasks) return;
+    stateStore.save({
+      projects: projects.list(),
+      manifests: projects.listManifests(),
+      missions: tasks.listMissions(),
+      events: tasks.allEvents(),
+    });
+  };
+
+  projects = new ProjectRegistry(snapshot.projects, snapshot.manifests, persist);
   for (const project of bootstrapProjects) {
-    projects.create(project);
+    if (!projects.findBySlug(project.slug)) projects.create(project);
   }
   const router = new ProviderRouter(defaultProviders());
-  const tasks = new TaskEngine(projects, router);
+  const events = new MissionEventStore(snapshot.events, persist);
+  tasks = new TaskEngine(projects, router, events, snapshot.missions, persist);
+  tasks.recoverInterruptedMissions();
+  persist();
+
+  const executor = new MissionExecutor(tasks, projects);
   const gatewaySecret = process.env.TASO_GATEWAY_SECRET?.trim();
 
   app.addHook('onRequest', async (request, reply) => {
     if (!request.url.startsWith('/v1/')) return;
-
     if (!gatewaySecret) {
-      if (process.env.NODE_ENV === 'production') {
-        return reply.code(503).send({ error: 'Taso gateway is not configured.' });
-      }
+      if (process.env.NODE_ENV === 'production') return reply.code(503).send({ error: 'Taso gateway is not configured.' });
       return;
     }
-
     const supplied = request.headers['x-taso-gateway'];
-    if (typeof supplied !== 'string' || supplied !== gatewaySecret) {
-      return reply.code(401).send({ error: 'Unauthorized gateway.' });
-    }
+    if (typeof supplied !== 'string' || supplied !== gatewaySecret) return reply.code(401).send({ error: 'Unauthorized gateway.' });
   });
 
-  app.get('/health', async () => ({
-    ok: true,
-    service: 'taso-core',
-    version: '0.3.0',
-    gateway: gatewaySecret ? 'configured' : 'missing',
-  }));
+  app.get('/health', async () => {
+    const readiness = executor.readiness();
+    return {
+      ok: true,
+      service: 'taso-core',
+      version: '0.4.0',
+      gateway: gatewaySecret ? 'configured' : 'missing',
+      state: stateStore.enabled() ? 'persistent' : 'memory',
+      executor: { read: readiness.readyForRead, write: readiness.readyForWrite, deploy: readiness.readyForDeploy },
+    };
+  });
 
+  app.get('/v1/executor', async () => ({ executor: executor.readiness() }));
   app.get('/v1/providers', async () => ({ providers: router.safeSummary() }));
   app.get('/v1/projects', async () => ({ projects: projects.list() }));
   app.get('/v1/missions', async () => ({ missions: tasks.listMissions() }));
@@ -73,43 +97,33 @@ export function buildServer() {
       if (!body?.slug || !body?.name || !body?.repository || typeof body.isExisting !== 'boolean') {
         return reply.code(400).send({ error: 'slug, name, repository and isExisting are required.' });
       }
-      const project = projects.create(body);
-      return reply.code(201).send({ project });
+      return reply.code(201).send({ project: projects.create(body) });
     } catch (error) {
       return reply.code(400).send({ error: (error as Error).message });
     }
   });
 
   app.get<{ Params: { id: string } }>('/v1/projects/:id/manifest', async (request, reply) => {
-    if (!projects.get(request.params.id)) {
-      return reply.code(404).send({ error: 'Project not found.' });
-    }
+    if (!projects.get(request.params.id)) return reply.code(404).send({ error: 'Project not found.' });
     const manifest = projects.getManifest(request.params.id);
     if (!manifest) return reply.code(404).send({ error: 'Project manifest not found.' });
     return { manifest };
   });
 
-  app.put<{ Params: { id: string }; Body: UpsertProjectManifestInput }>(
-    '/v1/projects/:id/manifest',
-    async (request, reply) => {
-      try {
-        const manifest = projects.upsertManifest(request.params.id, request.body ?? {});
-        return { manifest };
-      } catch (error) {
-        return reply.code(400).send({ error: (error as Error).message });
-      }
-    },
-  );
+  app.put<{ Params: { id: string }; Body: UpsertProjectManifestInput }>('/v1/projects/:id/manifest', async (request, reply) => {
+    try {
+      return { manifest: projects.upsertManifest(request.params.id, request.body ?? {}) };
+    } catch (error) {
+      return reply.code(400).send({ error: (error as Error).message });
+    }
+  });
 
   app.post<{ Body: CreateMissionBody }>('/v1/missions', async (request, reply) => {
     try {
       const body = request.body;
       if (!body?.projectId || !body.objective || !isRiskLevel(body.riskLevel) || !isDataClass(body.dataClass)) {
-        return reply.code(400).send({
-          error: 'projectId, objective, riskLevel and dataClass are required.',
-        });
+        return reply.code(400).send({ error: 'projectId, objective, riskLevel and dataClass are required.' });
       }
-
       const mission = tasks.createMission({
         projectId: body.projectId,
         objective: body.objective,
@@ -117,6 +131,7 @@ export function buildServer() {
         dataClass: body.dataClass,
         autonomous: body.autonomous,
       });
+      if (mission.status === 'queued') executor.executeSoon(mission.id);
       return reply.code(201).send({ mission });
     } catch (error) {
       return reply.code(400).send({ error: (error as Error).message });
@@ -130,27 +145,41 @@ export function buildServer() {
   });
 
   app.get<{ Params: { id: string } }>('/v1/missions/:id/events', async (request, reply) => {
-    try {
-      return { events: tasks.listEvents(request.params.id) };
-    } catch (error) {
-      return reply.code(404).send({ error: (error as Error).message });
-    }
+    try { return { events: tasks.listEvents(request.params.id) }; }
+    catch (error) { return reply.code(404).send({ error: (error as Error).message }); }
   });
 
   app.post<{ Params: { id: string } }>('/v1/missions/:id/approve', async (request, reply) => {
     try {
-      return { mission: tasks.approveMission(request.params.id) };
+      const mission = tasks.approveMission(request.params.id);
+      if (mission.status === 'queued') executor.executeSoon(mission.id);
+      return { mission };
     } catch (error) {
       return reply.code(400).send({ error: (error as Error).message });
     }
   });
 
-  app.post<{ Params: { id: string } }>('/v1/missions/:id/cancel', async (request, reply) => {
+  app.post<{ Params: { id: string } }>('/v1/missions/:id/retry', async (request, reply) => {
     try {
-      return { mission: tasks.cancelMission(request.params.id) };
+      const mission = tasks.retryMission(request.params.id);
+      if (mission.status === 'queued') executor.executeSoon(mission.id);
+      return { mission };
     } catch (error) {
       return reply.code(400).send({ error: (error as Error).message });
     }
+  });
+
+  app.post<{ Params: { id: string } }>('/v1/missions/:id/execute', async (request, reply) => {
+    const mission = tasks.getMission(request.params.id);
+    if (!mission) return reply.code(404).send({ error: 'Mission not found.' });
+    if (mission.status !== 'queued') return reply.code(409).send({ error: `Mission cannot execute from status ${mission.status}.` });
+    executor.executeSoon(mission.id);
+    return reply.code(202).send({ mission });
+  });
+
+  app.post<{ Params: { id: string } }>('/v1/missions/:id/cancel', async (request, reply) => {
+    try { return { mission: tasks.cancelMission(request.params.id) }; }
+    catch (error) { return reply.code(400).send({ error: (error as Error).message }); }
   });
 
   return app;
