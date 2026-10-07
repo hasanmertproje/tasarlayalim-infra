@@ -6,6 +6,7 @@ import {
   type Mission,
   type MissionInput,
 } from './domain.js';
+import { MissionEventStore } from './mission-events.js';
 import { evaluateMissionPolicy } from './policy.js';
 import type { ProjectRegistry } from './project-registry.js';
 import type { ProviderRouter } from './provider-router.js';
@@ -16,6 +17,7 @@ export class TaskEngine {
   constructor(
     private readonly projects: ProjectRegistry,
     private readonly router: ProviderRouter,
+    private readonly events = new MissionEventStore(),
   ) {}
 
   createMission(input: MissionInput): Mission {
@@ -55,6 +57,21 @@ export class TaskEngine {
     };
 
     this.missions.set(mission.id, mission);
+    this.events.append(mission.id, 'mission.created', 'Mission created.', {
+      projectId: mission.projectId,
+      riskLevel: mission.riskLevel,
+      dataClass: mission.dataClass,
+      providerChain: mission.providerChain,
+    });
+
+    if (mission.approvalRequired) {
+      this.events.append(
+        mission.id,
+        'mission.approval_required',
+        decision.reason,
+      );
+    }
+
     return mission;
   }
 
@@ -66,6 +83,11 @@ export class TaskEngine {
     return [...this.missions.values()].sort((a, b) =>
       b.createdAt.localeCompare(a.createdAt),
     );
+  }
+
+  listEvents(id: string) {
+    if (!this.missions.has(id)) throw new Error('Mission not found.');
+    return this.events.list(id);
   }
 
   approveMission(id: string): Mission {
@@ -80,6 +102,7 @@ export class TaskEngine {
     mission.status = 'queued';
     mission.updatedAt = mission.approvedAt;
     this.missions.set(id, mission);
+    this.events.append(id, 'mission.approved', 'Mission approved by user.');
     return mission;
   }
 
@@ -89,6 +112,7 @@ export class TaskEngine {
     mission.status = 'cancelled';
     mission.updatedAt = nowIso();
     this.missions.set(id, mission);
+    this.events.append(id, 'mission.cancelled', 'Mission cancelled.');
     return mission;
   }
 }
