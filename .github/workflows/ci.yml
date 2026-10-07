@@ -1,0 +1,60 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - 'bootstrap/**'
+      - 'feature/**'
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate shell scripts
+        run: |
+          sh -n scripts/healthcheck.sh
+
+      - name: Build test image
+        run: |
+          docker build -t tasarlayalim-infra-test ./docker/test-app
+
+      - name: Start test container
+        run: |
+          docker run -d --rm --name tasarlayalim-infra-test -p 8080:80 tasarlayalim-infra-test
+
+      - name: Wait for service
+        run: |
+          for i in $(seq 1 20); do
+            if curl -fsS http://127.0.0.1:8080 >/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs tasarlayalim-infra-test || true
+          exit 1
+
+      - name: Smoke test
+        run: |
+          ./scripts/healthcheck.sh http://127.0.0.1:8080
+
+      - name: Container health
+        run: |
+          for i in $(seq 1 15); do
+            STATUS=$(docker inspect --format='{{.State.Health.Status}}' tasarlayalim-infra-test)
+            echo "health=$STATUS"
+            [ "$STATUS" = "healthy" ] && exit 0
+            [ "$STATUS" = "unhealthy" ] && exit 1
+            sleep 2
+          done
+          exit 1
