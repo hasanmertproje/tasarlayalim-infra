@@ -1,5 +1,6 @@
 import Fastify from 'fastify';
 import type { DataClass, RiskLevel } from './domain.js';
+import type { UpsertProjectManifestInput } from './project-manifest.js';
 import { ProjectRegistry, type CreateProjectInput } from './project-registry.js';
 import { ProviderRouter, defaultProviders } from './provider-router.js';
 import { TaskEngine } from './task-engine.js';
@@ -37,7 +38,7 @@ export function buildServer() {
   app.get('/health', async () => ({
     ok: true,
     service: 'taso-core',
-    version: '0.1.0',
+    version: '0.2.0',
   }));
 
   app.get('/v1/providers', async () => ({ providers: router.safeSummary() }));
@@ -56,6 +57,27 @@ export function buildServer() {
       return reply.code(400).send({ error: (error as Error).message });
     }
   });
+
+  app.get<{ Params: { id: string } }>('/v1/projects/:id/manifest', async (request, reply) => {
+    if (!projects.get(request.params.id)) {
+      return reply.code(404).send({ error: 'Project not found.' });
+    }
+    const manifest = projects.getManifest(request.params.id);
+    if (!manifest) return reply.code(404).send({ error: 'Project manifest not found.' });
+    return { manifest };
+  });
+
+  app.put<{ Params: { id: string }; Body: UpsertProjectManifestInput }>(
+    '/v1/projects/:id/manifest',
+    async (request, reply) => {
+      try {
+        const manifest = projects.upsertManifest(request.params.id, request.body ?? {});
+        return { manifest };
+      } catch (error) {
+        return reply.code(400).send({ error: (error as Error).message });
+      }
+    },
+  );
 
   app.post<{ Body: CreateMissionBody }>('/v1/missions', async (request, reply) => {
     try {
@@ -83,6 +105,14 @@ export function buildServer() {
     const mission = tasks.getMission(request.params.id);
     if (!mission) return reply.code(404).send({ error: 'Mission not found.' });
     return { mission };
+  });
+
+  app.get<{ Params: { id: string } }>('/v1/missions/:id/events', async (request, reply) => {
+    try {
+      return { events: tasks.listEvents(request.params.id) };
+    } catch (error) {
+      return reply.code(404).send({ error: (error as Error).message });
+    }
   });
 
   app.post<{ Params: { id: string } }>('/v1/missions/:id/approve', async (request, reply) => {

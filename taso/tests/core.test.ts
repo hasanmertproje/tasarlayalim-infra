@@ -61,7 +61,32 @@ test('existing projects preserve their architecture by default', () => {
   assert.equal(project.technology.architecture, 'preserve_existing');
 });
 
-test('high impact mission waits for approval and paid AI stays disabled', () => {
+test('project manifest stores discovered technology for later missions', () => {
+  const projects = new ProjectRegistry();
+  const project = projects.create({
+    slug: 'reksa-reklam',
+    name: 'Reksa Reklam',
+    repository: 'example/reksa-reklam',
+    isExisting: true,
+  });
+
+  const manifest = projects.upsertManifest(project.id, {
+    source: 'discovered',
+    languages: ['PHP', 'JavaScript'],
+    frameworks: ['Custom MVC'],
+    architecture: 'mvc',
+    packageManagers: ['composer'],
+    databases: ['mysql'],
+    commands: { test: 'php vendor/bin/phpunit' },
+    confidence: 0.9,
+  });
+
+  assert.equal(manifest.projectId, project.id);
+  assert.equal(manifest.architecture, 'mvc');
+  assert.deepEqual(projects.getManifest(project.id)?.languages, ['PHP', 'JavaScript']);
+});
+
+test('high impact mission waits for approval and records timeline events', () => {
   const projects = new ProjectRegistry();
   const project = projects.create({
     slug: 'reksa',
@@ -81,8 +106,13 @@ test('high impact mission waits for approval and paid AI stays disabled', () => 
   assert.equal(mission.status, 'waiting_approval');
   assert.equal(mission.autonomous.paidAi, false);
   assert.deepEqual(mission.providerChain, ['credit-private']);
+  assert.deepEqual(
+    engine.listEvents(mission.id).map((event) => event.type),
+    ['mission.created', 'mission.approval_required'],
+  );
 
   const approved = engine.approveMission(mission.id);
   assert.equal(approved.status, 'queued');
   assert.ok(approved.approvedAt);
+  assert.equal(engine.listEvents(mission.id).at(-1)?.type, 'mission.approved');
 });
