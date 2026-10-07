@@ -105,7 +105,7 @@ export class ProviderRouter {
     });
   }
 
-  safeSummary(): Omit<ProviderDescriptor, 'allowedDataClasses'> & { allowedDataClasses: DataClass[] }[] {
+  safeSummary(): ProviderDescriptor[] {
     return this.providers.map((provider) => ({ ...provider }));
   }
 }
