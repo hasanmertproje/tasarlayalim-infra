@@ -20,6 +20,14 @@ export interface MissionEvent {
 export class MissionEventStore {
   private readonly events = new Map<string, MissionEvent[]>();
 
+  constructor(initialEvents: MissionEvent[] = [], private readonly onChange: () => void = () => {}) {
+    for (const event of initialEvents) {
+      const list = this.events.get(event.missionId) ?? [];
+      list.push(structuredClone(event));
+      this.events.set(event.missionId, list);
+    }
+  }
+
   append(
     missionId: string,
     type: MissionEventType,
@@ -37,10 +45,15 @@ export class MissionEventStore {
     const list = this.events.get(missionId) ?? [];
     list.push(event);
     this.events.set(missionId, list);
+    this.onChange();
     return event;
   }
 
   list(missionId: string): MissionEvent[] {
     return [...(this.events.get(missionId) ?? [])];
+  }
+
+  all(): MissionEvent[] {
+    return [...this.events.values()].flat().sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   }
 }
