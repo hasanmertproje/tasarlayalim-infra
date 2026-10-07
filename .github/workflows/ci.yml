@@ -46,7 +46,7 @@ jobs:
 
       - name: Smoke test
         run: |
-          ./scripts/healthcheck.sh http://127.0.0.1:8080
+          sh ./scripts/healthcheck.sh http://127.0.0.1:8080
 
       - name: Container health
         run: |
