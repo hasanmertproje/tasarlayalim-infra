@@ -96,8 +96,7 @@ jobs:
 
       - name: Verify Core rejects direct unauthenticated API
         run: |
-          STATUS=$(docker exec tasarlayalim-taso-ui wget -qO- --server-response http://taso-core:3000/v1/projects 2>&1 | awk '/HTTP\// {code=$2} END {print code}')
-          [ "$STATUS" = "401" ]
+          docker exec taso-core node -e "fetch('http://127.0.0.1:3000/v1/projects').then((response) => { if (response.status !== 401) { console.error('expected 401, got', response.status); process.exit(1); } console.log('direct unauthenticated Core access rejected with 401'); }).catch((error) => { console.error(error); process.exit(1); })"
 
       - name: Build test image
         run: |
