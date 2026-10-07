@@ -151,7 +151,7 @@ export function buildServer() {
 
   app.post<{ Params: { id: string } }>('/v1/missions/:id/approve', async (request, reply) => {
     try {
-      const mission = tasks.apveMission(request.params.id);
+      const mission = tasks.approveMission(request.params.id);
       if (mission.status === 'queued') executor.executeSoon(mission.id);
       return { mission };
     } catch (error) {
