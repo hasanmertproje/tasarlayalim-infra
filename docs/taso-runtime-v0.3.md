@@ -9,7 +9,7 @@ Run the public Taso Command Center UI and the private Taso Core as separate Cool
 ```text
 Browser
   |
-  | HTTPS
+  | HTTPS + Coolify HTTP Basic Authentication
   v
 Taso UI / nginx (public)
   |
@@ -21,13 +21,14 @@ Taso Core :3000 (private, alias: taso-core)
 
 ## Security boundary
 
+- The Taso UI route must have Coolify HTTP Basic Authentication enabled until application-level auth exists.
 - Taso Core should not receive a public domain.
 - Core v1 routes require `TASO_GATEWAY_SECRET` in production.
 - The browser never receives the gateway secret.
 - nginx injects `X-Taso-Gateway` server-side.
 - The same random secret must be configured on both the UI and Core Coolify resources.
 - `/health` remains available for container health checks; `/v1/*` is gateway protected.
-- Do not commit the gateway secret to GitHub.
+- Do not commit the gateway secret, UI password, or other credentials to GitHub.
 
 ## Coolify resource: taso-core
 
@@ -45,6 +46,7 @@ Taso Core :3000 (private, alias: taso-core)
 - Base directory: `/taso-ui`
 - Port: `80`
 - Public domain: `https://taso.demo.tasarlayalim.com`
+- Coolify HTTP Basic Authentication: enabled
 - Runtime environment:
   - `TASO_CORE_UPSTREAM=http://taso-core:3000`
   - `TASO_GATEWAY_SECRET=<same random secret>`
