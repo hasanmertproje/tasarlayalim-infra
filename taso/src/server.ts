@@ -34,11 +34,29 @@ export function buildServer() {
   const projects = new ProjectRegistry();
   const router = new ProviderRouter(defaultProviders());
   const tasks = new TaskEngine(projects, router);
+  const gatewaySecret = process.env.TASO_GATEWAY_SECRET?.trim();
+
+  app.addHook('onRequest', async (request, reply) => {
+    if (!request.url.startsWith('/v1/')) return;
+
+    if (!gatewaySecret) {
+      if (process.env.NODE_ENV === 'production') {
+        return reply.code(503).send({ error: 'Taso gateway is not configured.' });
+      }
+      return;
+    }
+
+    const supplied = request.headers['x-taso-gateway'];
+    if (typeof supplied !== 'string' || supplied !== gatewaySecret) {
+      return reply.code(401).send({ error: 'Unauthorized gateway.' });
+    }
+  });
 
   app.get('/health', async () => ({
     ok: true,
     service: 'taso-core',
-    version: '0.2.0',
+    version: '0.3.0',
+    gateway: gatewaySecret ? 'configured' : 'missing',
   }));
 
   app.get('/v1/providers', async () => ({ providers: router.safeSummary() }));
