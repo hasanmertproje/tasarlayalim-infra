@@ -13,7 +13,8 @@ function assertRepository(repository: string) {
 
 function safeBranch(project: Project, mission: Mission) {
   const suffix = mission.id.replace(/^mission_/, '').slice(0, 8).toLowerCase();
-  return `taso/${project.slug.replace(/[^a-z0-9-]/g, '-')}/${suffix}`.slice(0, 120);
+  const attempt = Math.max(0, Date.parse(mission.updatedAt || mission.createdAt)).toString(36);
+  return `taso/${project.slug.replace(/[^a-z0-9-]/g, '-')}/${suffix}-${attempt}`.slice(0, 120);
 }
 
 function assertSafeChanges(mission: Mission, paths: string[], protectedPaths: string[] = []) {
