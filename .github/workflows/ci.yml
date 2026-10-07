@@ -78,6 +78,19 @@ jobs:
             -e TASO_GATEWAY_SECRET=ci-gateway-secret \
             tasarlayalim-taso-ui
 
+      - name: Wait for Taso Core
+        run: |
+          for i in $(seq 1 30); do
+            if docker exec taso-core node -e "fetch('http://127.0.0.1:3000/health').then((response) => { if (!response.ok) process.exit(1); }).catch(() => process.exit(1))"; then
+              echo "Taso Core is ready"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Taso Core did not become ready"
+          docker logs taso-core || true
+          exit 1
+
       - name: Smoke test Taso UI
         run: |
           for i in $(seq 1 20); do
@@ -91,8 +104,22 @@ jobs:
 
       - name: Smoke test Taso Core gateway
         run: |
-          curl -fsS http://127.0.0.1:4173/api/health | grep -q '"ok":true'
+          READY=0
+          for i in $(seq 1 20); do
+            if curl -fsS http://127.0.0.1:4173/api/health | grep -q '"ok":true'; then
+              READY=1
+              break
+            fi
+            sleep 1
+          done
+          if [ "$READY" -ne 1 ]; then
+            echo "Taso UI gateway did not become ready"
+            docker logs tasarlayalim-taso-ui || true
+            docker logs taso-core || true
+            exit 1
+          fi
           curl -fsS http://127.0.0.1:4173/api/v1/projects | grep -q '"projects"'
+          curl -fsS http://127.0.0.1:4173/api/v1/providers | grep -q '"providers"'
 
       - name: Verify Core rejects direct unauthenticated API
         run: |
