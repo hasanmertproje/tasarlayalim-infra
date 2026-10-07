@@ -61,8 +61,22 @@ jobs:
       - name: Build Taso UI container
         run: docker build -t tasarlayalim-taso-ui ./taso-ui
 
-      - name: Start Taso UI container
-        run: docker run -d --rm --name tasarlayalim-taso-ui -p 4173:80 tasarlayalim-taso-ui
+      - name: Start Taso integration stack
+        run: |
+          docker network create taso-ci
+          docker run -d --rm \
+            --name taso-core \
+            --network taso-ci \
+            --network-alias taso-core \
+            -e TASO_GATEWAY_SECRET=ci-gateway-secret \
+            tasarlayalim-taso-core
+          docker run -d --rm \
+            --name tasarlayalim-taso-ui \
+            --network taso-ci \
+            -p 4173:80 \
+            -e TASO_CORE_UPSTREAM=http://taso-core:3000 \
+            -e TASO_GATEWAY_SECRET=ci-gateway-secret \
+            tasarlayalim-taso-ui
 
       - name: Smoke test Taso UI
         run: |
@@ -74,6 +88,16 @@ jobs:
           done
           docker logs tasarlayalim-taso-ui || true
           exit 1
+
+      - name: Smoke test Taso Core gateway
+        run: |
+          curl -fsS http://127.0.0.1:4173/api/health | grep -q '"ok":true'
+          curl -fsS http://127.0.0.1:4173/api/v1/projects | grep -q '"projects"'
+
+      - name: Verify Core rejects direct unauthenticated API
+        run: |
+          STATUS=$(docker exec tasarlayalim-taso-ui wget -qO- --server-response http://taso-core:3000/v1/projects 2>&1 | awk '/HTTP\// {code=$2} END {print code}')
+          [ "$STATUS" = "401" ]
 
       - name: Build test image
         run: |
