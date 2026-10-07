@@ -1,0 +1,9 @@
+base-url: "https://notify.demo.tasarlayalim.com"
+listen-http: ":80"
+cache-file: "/var/lib/ntfy/cache.db"
+auth-file: "/var/lib/ntfy/auth.db"
+auth-default-access: "deny-all"
+behind-proxy: true
+attachment-cache-dir: "/var/lib/ntfy/attachments"
+enable-login: true
+require-login: true
