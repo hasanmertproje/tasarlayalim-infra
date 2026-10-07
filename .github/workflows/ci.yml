@@ -17,7 +17,7 @@ permissions:
 jobs:
   validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -43,14 +43,87 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Install Taso dependencies
+      - name: Install Taso Core dependencies
         run: npm install --prefix taso
 
-      - name: Test Taso core
+      - name: Test Taso Core
         run: npm test --prefix taso
 
-      - name: Build Taso container
+      - name: Build Taso Core container
         run: docker build -t tasarlayalim-taso-core ./taso
+
+      - name: Install Taso UI dependencies
+        run: npm install --prefix taso-ui
+
+      - name: Build Taso UI
+        run: npm run build --prefix taso-ui
+
+      - name: Build Taso UI container
+        run: docker build -t tasarlayalim-taso-ui ./taso-ui
+
+      - name: Start Taso integration stack
+        run: |
+          docker network create taso-ci
+          docker run -d --rm \
+            --name taso-core \
+            --network taso-ci \
+            --network-alias taso-core \
+            -e TASO_GATEWAY_SECRET=ci-gateway-secret \
+            tasarlayalim-taso-core
+          docker run -d --rm \
+            --name tasarlayalim-taso-ui \
+            --network taso-ci \
+            -p 4173:80 \
+            -e TASO_CORE_UPSTREAM=http://taso-core:3000 \
+            -e TASO_GATEWAY_SECRET=ci-gateway-secret \
+            tasarlayalim-taso-ui
+
+      - name: Wait for Taso Core
+        run: |
+          for i in $(seq 1 30); do
+            if docker exec taso-core node -e "fetch('http://127.0.0.1:3000/health').then((response) => { if (!response.ok) process.exit(1); }).catch(() => process.exit(1))"; then
+              echo "Taso Core is ready"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Taso Core did not become ready"
+          docker logs taso-core || true
+          exit 1
+
+      - name: Smoke test Taso UI
+        run: |
+          for i in $(seq 1 20); do
+            if curl -fsS http://127.0.0.1:4173/health >/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs tasarlayalim-taso-ui || true
+          exit 1
+
+      - name: Smoke test Taso Core gateway
+        run: |
+          READY=0
+          for i in $(seq 1 20); do
+            if curl -fsS http://127.0.0.1:4173/api/health | grep -q '"ok":true'; then
+              READY=1
+              break
+            fi
+            sleep 1
+          done
+          if [ "$READY" -ne 1 ]; then
+            echo "Taso UI gateway did not become ready"
+            docker logs tasarlayalim-taso-ui || true
+            docker logs taso-core || true
+            exit 1
+          fi
+          curl -fsS http://127.0.0.1:4173/api/v1/projects | grep -q '"projects"'
+          curl -fsS http://127.0.0.1:4173/api/v1/providers | grep -q '"providers"'
+
+      - name: Verify Core rejects direct unauthenticated API
+        run: |
+          docker exec taso-core node -e "fetch('http://127.0.0.1:3000/v1/projects').then((response) => { if (response.status !== 401) { console.error('expected 401, got', response.status); process.exit(1); } console.log('direct unauthenticated Core access rejected with 401'); }).catch((error) => { console.error(error); process.exit(1); })"
 
       - name: Build test image
         run: |
