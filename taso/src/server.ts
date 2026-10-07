@@ -1,4 +1,5 @@
 import Fastify from 'fastify';
+import { bootstrapProjects } from './bootstrap-projects.js';
 import type { DataClass, RiskLevel } from './domain.js';
 import type { UpsertProjectManifestInput } from './project-manifest.js';
 import { ProjectRegistry, type CreateProjectInput } from './project-registry.js';
@@ -32,6 +33,9 @@ function isDataClass(value: unknown): value is DataClass {
 export function buildServer() {
   const app = Fastify({ logger: true });
   const projects = new ProjectRegistry();
+  for (const project of bootstrapProjects) {
+    projects.create(project);
+  }
   const router = new ProviderRouter(defaultProviders());
   const tasks = new TaskEngine(projects, router);
   const gatewaySecret = process.env.TASO_GATEWAY_SECRET?.trim();
