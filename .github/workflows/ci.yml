@@ -25,6 +25,18 @@ jobs:
       - name: Validate shell scripts
         run: |
           sh -n scripts/healthcheck.sh
+          sh -n scripts/notify-ntfy.sh
+
+      - name: Notify CI started
+        continue-on-error: true
+        env:
+          NTFY_BASE_URL: ${{ secrets.NTFY_BASE_URL }}
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          NTFY_TOKEN: ${{ secrets.NTFY_TOKEN }}
+          TITLE: "Tasarlayalim CI started"
+          MESSAGE: "${{ github.repository }} • ${{ github.ref_name }} • run #${{ github.run_number }}"
+        run: |
+          sh ./scripts/notify-ntfy.sh started
 
       - name: Build test image
         run: |
@@ -63,3 +75,15 @@ jobs:
       - name: Build ntfy image
         run: |
           docker build -t tasarlayalim-ntfy ./docker/ntfy
+
+      - name: Notify CI result
+        if: always()
+        continue-on-error: true
+        env:
+          NTFY_BASE_URL: ${{ secrets.NTFY_BASE_URL }}
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          NTFY_TOKEN: ${{ secrets.NTFY_TOKEN }}
+          TITLE: "Tasarlayalim CI ${{ job.status }}"
+          MESSAGE: "${{ github.repository }} • ${{ github.ref_name }} • run #${{ github.run_number }} • ${{ job.status }}"
+        run: |
+          sh ./scripts/notify-ntfy.sh "${{ job.status }}"
