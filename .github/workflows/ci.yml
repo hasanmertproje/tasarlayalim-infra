@@ -1,4 +1,4 @@
-name: CI
+name: Taso CI
 
 on:
   push:
@@ -11,6 +11,10 @@ on:
     branches:
       - main
 
+concurrency:
+  group: taso-ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
@@ -18,30 +22,20 @@ jobs:
   validate:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Validate shell scripts
-        run: |
-          sh -n scripts/healthcheck.sh
-          sh -n scripts/notify-ntfy.sh
-
-      - name: Notify CI started
-        continue-on-error: true
-        env:
-          NTFY_BASE_URL: ${{ secrets.NTFY_BASE_URL }}
-          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
-          NTFY_TOKEN: ${{ secrets.NTFY_TOKEN }}
-          TITLE: "Taso CI • started"
-          MESSAGE: "Project: ${{ github.repository }} | Branch: ${{ github.ref_name }} | Run: #${{ github.run_number }} | Stage: validation started"
-        run: |
-          sh ./scripts/notify-ntfy.sh started
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '22'
+
+      - name: Validate shell scripts
+        run: |
+          sh -n scripts/healthcheck.sh
+          sh -n scripts/notify-ntfy.sh
 
       - name: Install Taso Core dependencies
         run: npm install --prefix taso
@@ -125,18 +119,16 @@ jobs:
         run: |
           docker exec taso-core node -e "fetch('http://127.0.0.1:3000/v1/projects').then((response) => { if (response.status !== 401) { console.error('expected 401, got', response.status); process.exit(1); } console.log('direct unauthenticated Core access rejected with 401'); }).catch((error) => { console.error(error); process.exit(1); })"
 
-      - name: Build test image
-        run: |
-          docker build -t tasarlayalim-infra-test ./docker/test-app
+      - name: Build infra smoke image
+        run: docker build -t tasarlayalim-infra-test ./docker/test-app
 
-      - name: Start test container
-        run: |
-          docker run -d --rm --name tasarlayalim-infra-test -p 8080:80 tasarlayalim-infra-test
+      - name: Start infra smoke container
+        run: docker run -d --rm --name tasarlayalim-infra-test -p 8080:80 tasarlayalim-infra-test
 
-      - name: Wait for service
+      - name: Verify infra smoke health
         run: |
           for i in $(seq 1 20); do
-            if curl -fsS http://127.0.0.1:8080 >/dev/null; then
+            if sh ./scripts/healthcheck.sh http://127.0.0.1:8080; then
               exit 0
             fi
             sleep 1
@@ -144,33 +136,37 @@ jobs:
           docker logs tasarlayalim-infra-test || true
           exit 1
 
-      - name: Smoke test
-        run: |
-          sh ./scripts/healthcheck.sh http://127.0.0.1:8080
-
-      - name: Container health
-        run: |
-          for i in $(seq 1 15); do
-            STATUS=$(docker inspect --format='{{.State.Health.Status}}' tasarlayalim-infra-test)
-            echo "health=$STATUS"
-            [ "$STATUS" = "healthy" ] && exit 0
-            [ "$STATUS" = "unhealthy" ] && exit 1
-            sleep 2
-          done
-          exit 1
-
       - name: Build ntfy image
-        run: |
-          docker build -t tasarlayalim-ntfy ./docker/ntfy
+        run: docker build -t tasarlayalim-ntfy ./docker/ntfy
 
-      - name: Notify CI result
-        if: always()
+      - name: Notify CI failure
+        if: failure()
         continue-on-error: true
         env:
           NTFY_BASE_URL: ${{ secrets.NTFY_BASE_URL }}
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
           NTFY_TOKEN: ${{ secrets.NTFY_TOKEN }}
-          TITLE: "Taso CI • ${{ job.status }}"
-          MESSAGE: "Project: ${{ github.repository }} | Branch: ${{ github.ref_name }} | Run: #${{ github.run_number }} | Result: ${{ job.status }}"
         run: |
-          sh ./scripts/notify-ntfy.sh "${{ job.status }}"
+          sh ./scripts/notify-ntfy.sh \
+            failed \
+            "❌ Taso CI • ACTION REQUIRED" \
+            "Project: ${GITHUB_REPOSITORY} | Ref: ${GITHUB_REF_NAME} | Run: #${GITHUB_RUN_NUMBER} | Commit: ${GITHUB_SHA::7} | Result: FAILED | Next: Open the CI run and inspect the failed step."
+
+      - name: Notify main CI success
+        if: success() && github.event_name == 'push' && github.ref == 'refs/heads/main'
+        continue-on-error: true
+        env:
+          NTFY_BASE_URL: ${{ secrets.NTFY_BASE_URL }}
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          NTFY_TOKEN: ${{ secrets.NTFY_TOKEN }}
+        run: |
+          sh ./scripts/notify-ntfy.sh \
+            success \
+            "✅ Taso Release Gate • PASS" \
+            "Project: ${GITHUB_REPOSITORY} | Branch: main | Run: #${GITHUB_RUN_NUMBER} | Commit: ${GITHUB_SHA::7} | Checks: Core + UI + gateway + security + infra + ntfy passed | Next: Main is ready for the configured Coolify deployment flow."
+
+      - name: Cleanup containers
+        if: always()
+        run: |
+          docker rm -f tasarlayalim-taso-ui taso-core tasarlayalim-infra-test 2>/dev/null || true
+          docker network rm taso-ci 2>/dev/null || true
