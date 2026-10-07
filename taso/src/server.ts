@@ -1,10 +1,12 @@
 import Fastify from 'fastify';
 import { bootstrapProjects } from './bootstrap-projects.js';
 import type { DataClass, RiskLevel } from './domain.js';
+import { MissionEventStore } from './mission-events.js';
 import { MissionExecutor } from './mission-executor.js';
 import type { UpsertProjectManifestInput } from './project-manifest.js';
 import { ProjectRegistry, type CreateProjectInput } from './project-registry.js';
 import { ProviderRouter, defaultProviders } from './provider-router.js';
+import { JsonStateStore } from './state-store.js';
 import { TaskEngine } from './task-engine.js';
 
 interface CreateMissionBody {
@@ -33,10 +35,32 @@ function isDataClass(value: unknown): value is DataClass {
 
 export function buildServer() {
   const app = Fastify({ logger: true });
-  const projects = new ProjectRegistry();
-  for (const project of bootstrapProjects) projects.create(project);
+  const stateFile = process.env.TASO_STATE_FILE?.trim() || (process.env.NODE_ENV === 'production' ? '/data/taso-state.json' : undefined);
+  const stateStore = new JsonStateStore(stateFile);
+  const snapshot = stateStore.load();
+
+  let projects!: ProjectRegistry;
+  let tasks!: TaskEngine;
+  const persist = () => {
+    if (!projects || !tasks) return;
+    stateStore.save({
+      projects: projects.list(),
+      manifests: projects.listManifests(),
+      missions: tasks.listMissions(),
+      events: tasks.allEvents(),
+    });
+  };
+
+  projects = new ProjectRegistry(snapshot.projects, snapshot.manifests, persist);
+  for (const project of bootstrapProjects) {
+    if (!projects.findBySlug(project.slug)) projects.create(project);
+  }
   const router = new ProviderRouter(defaultProviders());
-  const tasks = new TaskEngine(projects, router);
+  const events = new MissionEventStore(snapshot.events, persist);
+  tasks = new TaskEngine(projects, router, events, snapshot.missions, persist);
+  tasks.recoverInterruptedMissions();
+  persist();
+
   const executor = new MissionExecutor(tasks, projects);
   const gatewaySecret = process.env.TASO_GATEWAY_SECRET?.trim();
 
@@ -57,11 +81,8 @@ export function buildServer() {
       service: 'taso-core',
       version: '0.4.0',
       gateway: gatewaySecret ? 'configured' : 'missing',
-      executor: {
-        read: readiness.readyForRead,
-        write: readiness.readyForWrite,
-        deploy: readiness.readyForDeploy,
-      },
+      state: stateStore.enabled() ? 'persistent' : 'memory',
+      executor: { read: readiness.readyForRead, write: readiness.readyForWrite, deploy: readiness.readyForDeploy },
     };
   });
 
@@ -76,8 +97,7 @@ export function buildServer() {
       if (!body?.slug || !body?.name || !body?.repository || typeof body.isExisting !== 'boolean') {
         return reply.code(400).send({ error: 'slug, name, repository and isExisting are required.' });
       }
-      const project = projects.create(body);
-      return reply.code(201).send({ project });
+      return reply.code(201).send({ project: projects.create(body) });
     } catch (error) {
       return reply.code(400).send({ error: (error as Error).message });
     }
@@ -125,16 +145,13 @@ export function buildServer() {
   });
 
   app.get<{ Params: { id: string } }>('/v1/missions/:id/events', async (request, reply) => {
-    try {
-      return { events: tasks.listEvents(request.params.id) };
-    } catch (error) {
-      return reply.code(404).send({ error: (error as Error).message });
-    }
+    try { return { events: tasks.listEvents(request.params.id) }; }
+    catch (error) { return reply.code(404).send({ error: (error as Error).message }); }
   });
 
   app.post<{ Params: { id: string } }>('/v1/missions/:id/approve', async (request, reply) => {
     try {
-      const mission = tasks.approveMission(request.params.id);
+      const mission = tasks.apveMission(request.params.id);
       if (mission.status === 'queued') executor.executeSoon(mission.id);
       return { mission };
     } catch (error) {
@@ -153,23 +170,16 @@ export function buildServer() {
   });
 
   app.post<{ Params: { id: string } }>('/v1/missions/:id/execute', async (request, reply) => {
-    try {
-      const mission = tasks.getMission(request.params.id);
-      if (!mission) return reply.code(404).send({ error: 'Mission not found.' });
-      if (mission.status !== 'queued') return reply.code(409).send({ error: `Mission cannot execute from status ${mission.status}.` });
-      executor.executeSoon(mission.id);
-      return reply.code(202).send({ mission });
-    } catch (error) {
-      return reply.code(400).send({ error: (error as Error).message });
-    }
+    const mission = tasks.getMission(request.params.id);
+    if (!mission) return reply.code(404).send({ error: 'Mission not found.' });
+    if (mission.status !== 'queued') return reply.code(409).send({ error: `Mission cannot execute from status ${mission.status}.` });
+    executor.executeSoon(mission.id);
+    return reply.code(202).send({ mission });
   });
 
   app.post<{ Params: { id: string } }>('/v1/missions/:id/cancel', async (request, reply) => {
-    try {
-      return { mission: tasks.cancelMission(request.params.id) };
-    } catch (error) {
-      return reply.code(400).send({ error: (error as Error).message });
-    }
+    try { return { mission: tasks.cancelMission(request.params.id) }; }
+    catch (error) { return reply.code(400).send({ error: (error as Error).message }); }
   });
 
   return app;
