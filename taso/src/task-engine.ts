@@ -20,7 +20,11 @@ export class TaskEngine {
     private readonly projects: ProjectRegistry,
     private readonly router: ProviderRouter,
     private readonly events = new MissionEventStore(),
-  ) {}
+    initialMissions: Mission[] = [],
+    private readonly onChange: () => void = () => {},
+  ) {
+    for (const mission of initialMissions) this.missions.set(mission.id, structuredClone(mission));
+  }
 
   createMission(input: MissionInput): Mission {
     const project = this.projects.get(input.projectId);
@@ -58,6 +62,7 @@ export class TaskEngine {
       providerChain: mission.providerChain,
     });
     if (mission.approvalRequired) this.events.append(mission.id, 'mission.approval_required', decision.reason);
+    this.onChange();
     return mission;
   }
 
@@ -72,6 +77,8 @@ export class TaskEngine {
     return this.events.list(id);
   }
 
+  allEvents() { return this.events.all(); }
+
   approveMission(id: string): Mission {
     const mission = this.missions.get(id);
     if (!mission) throw new Error('Mission not found.');
@@ -82,6 +89,7 @@ export class TaskEngine {
     mission.updatedAt = mission.approvedAt;
     this.missions.set(id, mission);
     this.events.append(id, 'mission.approved', 'Mission approved by user.');
+    this.onChange();
     return mission;
   }
 
@@ -92,6 +100,7 @@ export class TaskEngine {
     mission.updatedAt = nowIso();
     this.missions.set(id, mission);
     this.events.append(id, 'mission.cancelled', 'Mission cancelled.');
+    this.onChange();
     return mission;
   }
 
@@ -104,7 +113,25 @@ export class TaskEngine {
     mission.execution = mission.execution ? { ...mission.execution, blockedReason: undefined } : undefined;
     this.missions.set(id, mission);
     this.events.append(id, 'mission.status_changed', 'Mission queued for retry.', { status: mission.status });
+    this.onChange();
     return mission;
+  }
+
+  recoverInterruptedMissions(): Mission[] {
+    const recovered: Mission[] = [];
+    for (const mission of this.missions.values()) {
+      if (!['planning', 'running', 'testing'].includes(mission.status)) continue;
+      mission.status = 'failed';
+      mission.updatedAt = nowIso();
+      mission.execution = {
+        ...(mission.execution ?? {}),
+        blockedReason: 'Taso Core restarted while this mission was executing. Review and retry it explicitly.',
+      };
+      this.events.append(mission.id, 'mission.status_changed', 'Interrupted mission marked failed after Taso Core restart.', { status: 'failed' });
+      recovered.push(mission);
+    }
+    if (recovered.length) this.onChange();
+    return recovered;
   }
 
   transitionMission(
@@ -122,6 +149,7 @@ export class TaskEngine {
     if (execution) mission.execution = { ...(mission.execution ?? {}), ...execution };
     this.missions.set(id, mission);
     this.events.append(id, 'mission.status_changed', message, { status, ...(metadata ?? {}) });
+    this.onChange();
     return mission;
   }
 
@@ -129,6 +157,7 @@ export class TaskEngine {
     const mission = this.missions.get(id);
     if (!mission) throw new Error('Mission not found.');
     this.events.append(id, 'mission.note', message, metadata);
+    this.onChange();
     return mission;
   }
 }
