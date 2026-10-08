@@ -1,5 +1,4 @@
 import { createHash } from 'node:crypto';
-import type { Project } from './domain.js';
 
 function enabled(value: string | undefined) {
   return value?.trim().toLowerCase() === 'true';
@@ -15,6 +14,11 @@ export interface VoiceRealtimeStatus {
   model: string;
   voice: string;
   fallback: 'browser-stt-tts';
+}
+
+export interface VoiceWorkspaceContext {
+  projectId: string;
+  workspaceName?: string;
 }
 
 export class VoiceRealtimeRuntime {
@@ -46,26 +50,27 @@ export class VoiceRealtimeRuntime {
     return createHash('sha256').update(`${this.safetySalt}:${projectId}`).digest('hex');
   }
 
-  private instructions(project: Project) {
+  private instructions(context: VoiceWorkspaceContext) {
     return [
       'Sen Taso\'sun; Tasarlayalım için çalışan canlı sesli operasyon asistanısın.',
       'Daima doğal, akıcı ve iyi İstanbul Türkçesiyle konuş. İngilizceye geçme; yalnız özel adları gerektiği kadar kullan.',
-      'Ses karakterin sakin, tok, kontrollü, profesyonel ve kendinden emin olsun. Cümleleri kısa tut, robotik veya aşırı neşeli konuşma.',
+      'Ses karakterin sakin, tok, kontrollü, profesyonel ve kendinden emin olsun. Cümleleri kısa tut; robotik veya aşırı neşeli konuşma.',
       'Bu oturum konuşma modudur. CHAT ile MISSION kesin olarak ayrıdır.',
       'Repository, kod, test, PR, CI, deployment, silme, ödeme, rol/yetki veya production işlemi yapma. Bu oturumda hiçbir tool yetkin yoktur.',
       'Kullanıcı yürütme isteyen bir talep verirse isteği kısa biçimde anladığını söyle ve arayüzde ayrı mission önerisinin onaylanması gerektiğini belirt.',
       'Runtime bağlamında açıkça doğrulanmayan bir değişikliğin, testin, PR\'ın veya deployment\'ın gerçekleştiğini asla iddia etme.',
       'Başka workspace verisini kullanma veya sızdırma.',
-      `Aktif workspace: ${project.name}`,
-      `Repository: ${project.repository}`,
+      `Aktif workspace kimliği: ${context.projectId}`,
+      context.workspaceName ? `Aktif workspace adı: ${context.workspaceName}` : 'Aktif workspace adı sağlanmadı.',
     ].join('\n');
   }
 
-  async createSession(project: Project, sdp: string) {
+  async createSession(context: VoiceWorkspaceContext, sdp: string) {
     const status = this.status();
     if (!status.enabled) throw new Error('Realtime voice is disabled.');
     if (!status.paidAllowed) throw new Error('Paid realtime voice is not allowed by policy.');
     if (!this.apiKey) throw new Error('Realtime voice API key is not configured.');
+    if (!context.projectId.trim()) throw new Error('projectId is required.');
     if (!sdp.trim() || sdp.length > 128_000) throw new Error('Invalid SDP offer.');
 
     const form = new FormData();
@@ -73,12 +78,12 @@ export class VoiceRealtimeRuntime {
     form.set('session', JSON.stringify({
       type: 'realtime',
       model: this.model,
-      instructions: this.instructions(project),
+      instructions: this.instructions(context),
       audio: { output: { voice: this.voice } },
     }));
 
     const headers: Record<string, string> = { authorization: `Bearer ${this.apiKey}` };
-    const safetyIdentifier = this.safetyIdentifier(project.id);
+    const safetyIdentifier = this.safetyIdentifier(context.projectId);
     if (safetyIdentifier) headers['OpenAI-Safety-Identifier'] = safetyIdentifier;
 
     const response = await fetch(`${this.baseUrl}/v1/realtime/calls`, {
