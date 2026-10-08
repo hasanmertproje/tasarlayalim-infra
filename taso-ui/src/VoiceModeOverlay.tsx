@@ -6,6 +6,7 @@ import {
   type RealtimeVoiceStatus,
   type VoiceMissionSuggestion,
 } from './RealtimeVoiceClient';
+import { navigateTaso } from './navigation';
 
 const API_URL = ((import.meta.env.VITE_TASO_API_URL as string | undefined) || '/api').replace(/\/$/, '');
 
@@ -53,11 +54,6 @@ function stateLabel(state: DisplayVoiceState) {
   if (state === 'speaking') return 'Yanıtlıyorum';
   if (state === 'error') return 'Ses bağlantısında sorun var';
   return 'Hazırım';
-}
-
-function commandCenterButton() {
-  return [...document.querySelectorAll<HTMLButtonElement>('button')]
-    .find((button) => button.textContent?.trim() === 'Command Center' && !button.closest('.mobile-screen-sheet'));
 }
 
 function conversationMic() {
@@ -122,9 +118,7 @@ export default function VoiceModeOverlay() {
     }
   }
 
-  useEffect(() => {
-    void refreshRealtimeStatus();
-  }, []);
+  useEffect(() => { void refreshRealtimeStatus(); }, []);
 
   useEffect(() => {
     const sync = () => {
@@ -169,7 +163,7 @@ export default function VoiceModeOverlay() {
 
   function navigateToCommandCenter() {
     if (document.querySelector('.conversation-bridge')) return true;
-    commandCenterButton()?.click();
+    navigateTaso('Command Center');
     return false;
   }
 
@@ -204,7 +198,6 @@ export default function VoiceModeOverlay() {
       const [status, project] = await Promise.all([refreshRealtimeStatus(), resolveActiveProject()]);
       if (!status?.ready) throw new Error('Realtime voice hazır değil. Cihaz sesiyle devam ediliyor.');
       if (!project) throw new Error('Aktif workspace bulunamadı.');
-
       await clientRef.current?.connect({
         projectId: project.id,
         workspaceName: project.name,
@@ -263,35 +256,26 @@ export default function VoiceModeOverlay() {
   }, []);
 
   function endSession() {
-    if (realtimeActiveRef.current) {
-      endRealtime();
-      return;
-    }
+    if (realtimeActiveRef.current) { endRealtime(); return; }
     if (document.querySelector('.conversation-bridge.live-session')) conversationMic()?.click();
   }
 
   function interrupt() {
-    if (realtimeActiveRef.current) {
-      clientRef.current?.interrupt();
-      return;
-    }
+    if (realtimeActiveRef.current) { clientRef.current?.interrupt(); return; }
     if ('speechSynthesis' in window) window.speechSynthesis.cancel();
     const mic = conversationMic();
     if (!mic) return;
     if (document.querySelector('.conversation-bridge.live-session')) {
       mic.click();
       window.setTimeout(() => mic.click(), 110);
-    } else {
-      mic.click();
-    }
+    } else mic.click();
   }
 
   function openVoiceSettings() {
     endSession();
     navigateToCommandCenter();
     window.setTimeout(() => {
-      const button = [...document.querySelectorAll<HTMLButtonElement>('.conversation-meta button')]
-        .find((item) => item.textContent?.includes('Ses ayarları'));
+      const button = [...document.querySelectorAll<HTMLButtonElement>('.conversation-meta button')].find((item) => item.textContent?.includes('Ses ayarları'));
       button?.click();
     }, 180);
   }
@@ -299,79 +283,35 @@ export default function VoiceModeOverlay() {
   async function createSuggestedMission() {
     if (!suggestedMission) return;
     try {
-      const payload = await request<{ mission: Mission }>('/v1/missions', {
-        method: 'POST',
-        body: JSON.stringify(suggestedMission),
-      });
+      const payload = await request<{ mission: Mission }>('/v1/missions', { method: 'POST', body: JSON.stringify(suggestedMission) });
       setCreatedMission(payload.mission);
       setSuggestedMission(undefined);
-      window.dispatchEvent(new CustomEvent('taso:mission-created', {
-        detail: { mission: payload.mission, projectId: suggestedMission.projectId },
-      }));
-    } catch (error) {
-      setRealtimeError((error as Error).message);
-    }
+      window.dispatchEvent(new CustomEvent('taso:mission-created', { detail: { mission: payload.mission, projectId: suggestedMission.projectId } }));
+    } catch (error) { setRealtimeError((error as Error).message); }
   }
 
   if (!open) return null;
 
-  const engineLabel = realtimeActive
-    ? `NEURAL · ${realtimeStatus?.model ?? 'REALTIME'}`
-    : 'CİHAZ TTS';
-
-  const interruptDisabled = realtimeActive
-    ? state !== 'speaking'
-    : state === 'thinking' || state === 'connecting';
+  const engineLabel = realtimeActive ? `NEURAL · ${realtimeStatus?.model ?? 'REALTIME'}` : 'CİHAZ TTS';
+  const interruptDisabled = realtimeActive ? state !== 'speaking' : state === 'thinking' || state === 'connecting';
 
   return (
     <section className={`taso-voice-mode state-${state} ${realtimeActive ? 'engine-realtime' : 'engine-browser'}`} aria-label="Taso canlı konuşma modu">
-      <div className="taso-voice-mode-ambient ambient-a" />
-      <div className="taso-voice-mode-ambient ambient-b" />
-      <header className="taso-voice-mode-header">
-        <div>
-          <span>TASO LIVE · {engineLabel}</span>
-          <strong>Canlı konuşma</strong>
-        </div>
-        <button type="button" onClick={openVoiceSettings}>Ses ayarları</button>
-      </header>
-
+      <div className="taso-voice-mode-ambient ambient-a" /><div className="taso-voice-mode-ambient ambient-b" />
+      <header className="taso-voice-mode-header"><div><span>TASO LIVE · {engineLabel}</span><strong>Canlı konuşma</strong></div><button type="button" onClick={openVoiceSettings}>Ses ayarları</button></header>
       <main className="taso-voice-mode-main">
-        <div className="taso-voice-mode-orb" aria-hidden="true">
-          <i /><i /><i />
-          <div className="taso-voice-mode-core">T</div>
-        </div>
-        <div className="taso-voice-mode-state">
-          <span>{stateLabel(state)}</span>
-          <div className="taso-voice-wave"><i/><i/><i/><i/><i/><i/><i/></div>
-        </div>
-
+        <div className="taso-voice-mode-orb" aria-hidden="true"><i /><i /><i /><div className="taso-voice-mode-core">T</div></div>
+        <div className="taso-voice-mode-state"><span>{stateLabel(state)}</span><div className="taso-voice-wave"><i/><i/><i/><i/><i/><i/><i/></div></div>
         <div className="taso-voice-mode-transcript" aria-live="polite">
           {heard && <div className="heard"><span>SEN</span><p>{heard}</p></div>}
           {reply && <div className="reply"><span>TASO</span><p>{reply}</p></div>}
           {!heard && !reply && <p className="voice-mode-hint">Konuşmaya başlayabilirsin. Taso seni dinliyor.</p>}
         </div>
-
-        {realtimeActive && suggestedMission && (
-          <div className="voice-mission-proposal">
-            <div>
-              <span>MISSION ÖNERİSİ · {suggestedMission.riskLevel}</span>
-              <strong>{suggestedMission.objective}</strong>
-              <small>Sesli sohbet bunu otomatik çalıştırmaz. Yalnız bu düğmeye basarsan mission oluşur.</small>
-            </div>
-            <button type="button" onClick={() => void createSuggestedMission()}>Mission oluştur</button>
-          </div>
-        )}
+        {realtimeActive && suggestedMission && <div className="voice-mission-proposal"><div><span>MISSION ÖNERİSİ · {suggestedMission.riskLevel}</span><strong>{suggestedMission.objective}</strong><small>Sesli sohbet bunu otomatik çalıştırmaz. Yalnız bu düğmeye basarsan mission oluşur.</small></div><button type="button" onClick={() => void createSuggestedMission()}>Mission oluştur</button></div>}
         {createdMission && <div className="voice-mission-created">Mission oluşturuldu · {createdMission.status} · {createdMission.id}</div>}
         {realtimeError && <div className="voice-realtime-error">{realtimeError}</div>}
       </main>
-
-      <footer className="taso-voice-mode-controls">
-        <button type="button" className="voice-interrupt" onClick={interrupt} disabled={interruptDisabled}>
-          <span>{state === 'speaking' ? 'Sözünü kes' : realtimeActive ? 'Dinlemede' : 'Konuş'}</span>
-        </button>
-        <button type="button" className="voice-end" onClick={endSession} aria-label="Canlı konuşmayı bitir">■</button>
-        <div className="voice-mode-footnote">Chat ≠ Mission · Görevler yalnız açık onayla başlar</div>
-      </footer>
+      <footer className="taso-voice-mode-controls"><button type="button" className="voice-interrupt" onClick={interrupt} disabled={interruptDisabled}><span>{state === 'speaking' ? 'Sözünü kes' : realtimeActive ? 'Dinlemede' : 'Konuş'}</span></button><button type="button" className="voice-end" onClick={endSession} aria-label="Canlı konuşmayı bitir">■</button><div className="voice-mode-footnote">Chat ≠ Mission · Görevler yalnız açık onayla başlar</div></footer>
     </section>
   );
 }
