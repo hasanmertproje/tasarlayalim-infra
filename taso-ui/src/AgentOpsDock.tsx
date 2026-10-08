@@ -84,6 +84,10 @@ function statusLabel(status: AgentStatus) {
   return labels[status];
 }
 
+function openMission(missionId: string) {
+  window.dispatchEvent(new CustomEvent('taso:open-mission', { detail: { missionId } }));
+}
+
 export default function AgentOpsDock({ mode = 'dock' }: AgentOpsDockProps) {
   const [open, setOpen] = useState(false);
   const [snapshot, setSnapshot] = useState<OperationsSnapshot>();
@@ -115,11 +119,11 @@ export default function AgentOpsDock({ mode = 'dock' }: AgentOpsDockProps) {
   }, [mode]);
 
   const overall = useMemo(() => {
-    if (!snapshot) return error ? 'offline' : 'offline';
+    if (!snapshot) return 'offline';
     if (snapshot.agents.some((agent) => agent.status === 'degraded')) return 'degraded';
     if (snapshot.agents.some((agent) => agent.status === 'busy')) return 'busy';
     return 'ready';
-  }, [snapshot, error]);
+  }, [snapshot]);
 
   const activity = snapshot?.activity.slice(0, mode === 'page' ? 30 : 12) ?? [];
   const improvement = snapshot?.selfImprovement.missions.slice(0, mode === 'page' ? 16 : 8) ?? [];
@@ -214,14 +218,15 @@ export default function AgentOpsDock({ mode = 'dock' }: AgentOpsDockProps) {
               <div className="agent-ops-section-head"><span>SELF IMPROVEMENT</span><small>{snapshot?.selfImprovement.detection ?? 'objective-keywords'}</small></div>
               <div className="agent-improvement-list">
                 {improvement.map((mission) => (
-                  <article key={mission.missionId} className={`agent-improvement-row state-${mission.status}`}>
+                  <button type="button" onClick={() => openMission(mission.missionId)} key={mission.missionId} className={`agent-improvement-row agent-action-row state-${mission.status}`}>
                     <span className="agent-runtime-dot" />
                     <div>
                       <strong>{mission.objective}</strong>
                       <p>{mission.projectName} • {mission.status.toUpperCase()} • {formatTime(mission.updatedAt)}</p>
                       {mission.blockedReason && <small>{mission.blockedReason}</small>}
+                      <em>Mission detayını aç →</em>
                     </div>
-                  </article>
+                  </button>
                 ))}
                 {snapshot && improvement.length === 0 && <div className="agent-ops-empty">Taso self-improvement mission bulunamadı.</div>}
               </div>
@@ -231,14 +236,15 @@ export default function AgentOpsDock({ mode = 'dock' }: AgentOpsDockProps) {
               <div className="agent-ops-section-head"><span>LIVE ACTIVITY</span><small>{activity.length} recent events</small></div>
               <div className="agent-activity-list">
                 {activity.map((item) => (
-                  <article key={item.id} className={`agent-activity-row state-${item.missionStatus}`}>
+                  <button type="button" onClick={() => openMission(item.missionId)} key={item.id} className={`agent-activity-row agent-action-row state-${item.missionStatus}`}>
                     <span className="agent-runtime-dot" />
                     <div>
                       <strong>{item.projectName} • {item.type.replace('mission.', '')}</strong>
                       <p>{item.message}</p>
                       <small>{item.objective} • {formatTime(item.createdAt)}</small>
+                      <em>Mission detayını aç →</em>
                     </div>
-                  </article>
+                  </button>
                 ))}
                 {snapshot && activity.length === 0 && <div className="agent-ops-empty">Henüz mission event yok.</div>}
               </div>
