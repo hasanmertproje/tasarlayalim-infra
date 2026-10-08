@@ -1,0 +1,13 @@
+@media(max-width:820px){
+  .self-improve-shell{left:12px!important;bottom:calc(100px + env(safe-area-inset-bottom))!important}
+  .agent-ops-shell.mode-dock{right:12px!important;bottom:calc(100px + env(safe-area-inset-bottom))!important}
+  .self-improve-toggle,.agent-ops-toggle{height:42px!important;min-height:42px!important;border-radius:14px!important}
+  .self-improve-panel,.agent-ops-shell.mode-dock .agent-ops-panel{bottom:52px!important;max-height:calc(100svh - 178px)!important}
+}
+
+@media(max-width:520px){
+  .self-improve-shell{right:auto!important;width:auto!important}
+  .agent-ops-shell.mode-dock{left:auto!important;width:auto!important}
+  .self-improve-panel{position:fixed!important;left:10px!important;right:10px!important;bottom:calc(152px + env(safe-area-inset-bottom))!important;width:auto!important;max-height:calc(100svh - 174px)!important}
+  .agent-ops-shell.mode-dock .agent-ops-panel{position:fixed!important;left:10px!important;right:10px!important;bottom:calc(152px + env(safe-area-inset-bottom))!important;width:auto!important;max-height:calc(100svh - 174px)!important}
+}
