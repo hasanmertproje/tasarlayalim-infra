@@ -34,6 +34,7 @@ export interface ConversationDecision {
 }
 
 const normalize = (value: string) => value.trim().toLocaleLowerCase('tr-TR');
+const includesAny = (value: string, terms: string[]) => terms.some((term) => value.includes(term));
 
 export function classifyConversationIntent(text: string): ConversationDecision {
   const value = normalize(text);
@@ -56,30 +57,38 @@ export function classifyConversationIntent(text: string): ConversationDecision {
     return { intent: 'HIGH_IMPACT_REQUEST', executionRequested: true, suggestedRisk: 'HIGH_IMPACT', confidence: 0.95 };
   }
 
-  if (/\b(ben yatıyorum|ben çıkıyorum|dönene kadar|sabaha kadar|night shift|otonom çalış|autonomous session)\b/i.test(value)) {
+  if (includesAny(value, ['ben yatıyorum', 'ben çıkıyorum', 'dönene kadar', 'sabaha kadar', 'night shift', 'otonom çalış', 'autonomous session'])) {
     return { intent: 'AUTONOMOUS_SESSION', executionRequested: true, suggestedRisk: 'WRITE', confidence: 0.93 };
   }
 
-  if (/\b(düzelt|geliştir|ekle|uygula|kodla|oluştur|refactor|değiştir|fix|implement|build|hazırla|üret|başlat|kur)\b/i.test(value)) {
+  // Turkish verbs are often inflected (geliştirmeye, geliştirerek, üretsin, etc.).
+  // Stem matching is more reliable here than JavaScript \b, which is ASCII-centric.
+  if (includesAny(value, [
+    'düzelt', 'geliştir', 'ekle', 'uygula', 'kodla', 'oluştur', 'refactor',
+    'değiştir', 'fix', 'implement', 'build', 'hazırla', 'üret', 'başlat', 'başla', 'kur',
+  ])) {
     return { intent: 'WRITE_REQUEST', executionRequested: true, suggestedRisk: 'WRITE', confidence: 0.9 };
   }
 
   // Read/research requests are normal assistant capabilities. They stay conversational and
   // may use read-only tools later, but they do not become missions by default.
-  if (/\b(incele|analiz et|araştır|kontrol et|nedenini bul|tespit et|review|analyze|inspect|bak|karşılaştır|özetle)\b/i.test(value)) {
+  if (includesAny(value, [
+    'incele', 'analiz et', 'araştır', 'kontrol et', 'nedenini bul', 'tespit et',
+    'review', 'analyze', 'inspect', 'bak', 'karşılaştır', 'özetle',
+  ])) {
     return { intent: 'READ_REQUEST', executionRequested: false, suggestedRisk: 'READ', confidence: 0.9 };
   }
 
-  if (/\b(ne yapıyorsun|durum ne|son durum|ne oldu|status|hangi aşama|sistem durumu|sistem ne durumda|sistem nasıl|core durumu|core ne durumda|servisler|agent durumu|agentlar|health)\b/i.test(value)) {
+  if (includesAny(value, ['ne yapıyorsun', 'durum ne', 'son durum', 'ne oldu', 'status', 'hangi aşama', 'sistem durumu', 'sistem ne durumda', 'sistem nasıl', 'core durumu', 'core ne durumda', 'servisler', 'agent durumu', 'agentlar', 'health'])) {
     return { intent: 'STATUS', executionRequested: false, confidence: 0.96 };
   }
-  if (/\b(plan|nasıl yaparız|nasıl ilerleriz|yol haritası|fikir ver|öneri ver)\b/i.test(value)) {
+  if (includesAny(value, ['plan', 'nasıl yaparız', 'nasıl ilerleriz', 'yol haritası', 'fikir ver', 'öneri ver'])) {
     return { intent: 'PLAN', executionRequested: false, confidence: 0.86 };
   }
-  if (/\b(workspace|projeye geç|projesine geç)\b/i.test(value)) {
+  if (includesAny(value, ['workspace', 'projeye geç', 'projesine geç'])) {
     return { intent: 'WORKSPACE_SWITCH', executionRequested: false, confidence: 0.72 };
   }
-  if (/[?？]$/.test(text.trim()) || /\b(ne|neden|nasıl|hangi|kim|nerede|kaç|nedir|mı|mi|mu|mü)\b/i.test(value)) {
+  if (/[?？]$/.test(text.trim()) || includesAny(value, [' ne ', 'neden', 'nasıl', 'hangi', 'kim', 'nerede', 'kaç', 'nedir', ' mı', ' mi', ' mu', ' mü'])) {
     return { intent: 'QUESTION', executionRequested: false, confidence: 0.82 };
   }
   return { intent: 'CHAT', executionRequested: false, confidence: 0.92 };
