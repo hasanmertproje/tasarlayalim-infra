@@ -19,6 +19,11 @@ function stateLabel(state: VoiceState) {
   return 'Hazırım';
 }
 
+function commandCenterButton() {
+  return [...document.querySelectorAll<HTMLButtonElement>('button')]
+    .find((button) => button.textContent?.trim() === 'Command Center' && !button.closest('.mobile-screen-sheet'));
+}
+
 export default function VoiceModeOverlay() {
   const [open, setOpen] = useState(false);
   const [state, setState] = useState<VoiceState>('idle');
@@ -53,6 +58,37 @@ export default function VoiceModeOverlay() {
       window.clearInterval(timer);
       document.body.classList.remove('taso-voice-mode-open');
     };
+  }, []);
+
+  useEffect(() => {
+    const interceptGlobalMobileMic = (event: Event) => {
+      const origin = event.target as Element | null;
+      const mobileMic = origin?.closest?.('.mobile-nav .mobile-taso');
+      if (!mobileMic) return;
+
+      // Command Center'da ConversationBridge bu tıklamayı kendisi yönetir.
+      if (document.querySelector('.conversation-bridge')) return;
+
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
+      commandCenterButton()?.click();
+
+      let attempts = 0;
+      const timer = window.setInterval(() => {
+        attempts += 1;
+        const mic = document.querySelector<HTMLButtonElement>('.conversation-bridge .conversation-mic');
+        if (mic) {
+          window.clearInterval(timer);
+          mic.click();
+          return;
+        }
+        if (attempts >= 30) window.clearInterval(timer);
+      }, 50);
+    };
+
+    document.addEventListener('click', interceptGlobalMobileMic, true);
+    return () => document.removeEventListener('click', interceptGlobalMobileMic, true);
   }, []);
 
   function conversationMic() {
