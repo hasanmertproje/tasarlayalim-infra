@@ -18,7 +18,7 @@
   }
 
   .main-area {
-    padding-bottom: calc(124px + env(safe-area-inset-bottom)) !important;
+    padding-bottom: calc(176px + env(safe-area-inset-bottom)) !important;
   }
 
   .mobile-nav {
@@ -35,7 +35,7 @@
     right: auto !important;
     bottom: var(--taso-mobile-utility-bottom) !important;
     z-index: 650 !important;
-    max-width: calc(50vw - 18px) !important;
+    max-width: calc((100vw - 94px) / 2) !important;
   }
 
   .agent-ops-shell.mode-dock {
@@ -43,7 +43,7 @@
     left: auto !important;
     bottom: var(--taso-mobile-utility-bottom) !important;
     z-index: 650 !important;
-    max-width: calc(50vw - 18px) !important;
+    max-width: calc((100vw - 94px) / 2) !important;
   }
 
   .self-improve-toggle,
@@ -56,13 +56,15 @@
   }
 
   .mobile-screen-menu-trigger {
-    top: calc(76px + env(safe-area-inset-top)) !important;
-    right: 12px !important;
-    bottom: auto !important;
-    z-index: 9200 !important;
+    left: 50% !important;
+    right: auto !important;
+    top: auto !important;
+    bottom: var(--taso-mobile-utility-bottom) !important;
+    z-index: 680 !important;
     width: 46px !important;
     height: 46px !important;
     border-radius: 15px !important;
+    transform: translateX(-50%);
     transition: opacity .18s ease, transform .18s ease !important;
   }
 
@@ -114,12 +116,17 @@
   }
 
   .app-shell:has(input:focus) .mobile-nav,
-  body:has(input:focus) .mobile-screen-menu-trigger,
   body:has(input:focus) .self-improve-shell,
   body:has(input:focus) .agent-ops-shell.mode-dock {
     opacity: 0 !important;
     pointer-events: none !important;
     transform: translateY(16px) !important;
+  }
+
+  body:has(input:focus) .mobile-screen-menu-trigger {
+    opacity: 0 !important;
+    pointer-events: none !important;
+    transform: translateX(-50%) translateY(16px) !important;
   }
 
   .screen-grid,
@@ -150,19 +157,21 @@
 }
 
 @media (max-width: 430px) {
-  .mobile-screen-menu-trigger {
-    top: calc(70px + env(safe-area-inset-top)) !important;
-  }
-
   .self-improve-shell,
   .agent-ops-shell.mode-dock {
-    max-width: calc(50vw - 14px) !important;
+    max-width: calc((100vw - 86px) / 2) !important;
   }
 
   .self-improve-toggle,
   .agent-ops-toggle {
-    padding-inline: 10px !important;
-    font-size: 10px !important;
+    padding-inline: 9px !important;
+    font-size: 9px !important;
+  }
+
+  .mobile-screen-menu-trigger {
+    width: 42px !important;
+    height: 42px !important;
+    border-radius: 14px !important;
   }
 
   .mobile-screen-sheet-panel {
