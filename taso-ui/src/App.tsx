@@ -48,10 +48,10 @@ type CoreHealth = {
 type ApiStatus = 'checking' | 'online' | 'offline';
 type RiskLevel = 'READ' | 'WRITE' | 'HIGH_IMPACT';
 type Theme = 'dark' | 'light';
-type NavItem = 'Command Center' | 'Projects' | 'Tasks' | 'Approvals' | 'Deployments' | 'Notifications' | 'Infrastructure';
+type NavItem = 'Command Center' | 'Projects' | 'Tasks' | 'Approvals' | 'Deployments' | 'AI Agents' | 'Knowledge' | 'Integrations' | 'Monitoring' | 'Settings' | 'Notifications' | 'Infrastructure';
 
 const API_URL = ((import.meta.env.VITE_TASO_API_URL as string | undefined) || '/api').replace(/\/$/, '');
-const navItems: NavItem[] = ['Command Center', 'Projects', 'Tasks', 'Approvals', 'Deployments', 'Notifications', 'Infrastructure'];
+const navItems: NavItem[] = ['Command Center', 'Projects', 'Tasks', 'Approvals', 'Deployments', 'AI Agents', 'Knowledge', 'Integrations', 'Monitoring', 'Settings'];
 
 function stateLabel(status: string) {
   const labels: Record<string, string> = {
@@ -127,6 +127,7 @@ export default function App() {
   const [isListening, setIsListening] = useState(false);
   const [voiceReplies, setVoiceReplies] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [lastSyncAt, setLastSyncAt] = useState('');
   const [theme, setTheme] = useState<Theme>(() => (localStorage.getItem('taso-theme') as Theme) || 'dark');
   const [notice, setNotice] = useState('Taso hazır. Bir workspace seçip görev verebilirsin.');
   const [error, setError] = useState('');
@@ -206,6 +207,7 @@ export default function App() {
       setMissions(missionsResponse.missions ?? []);
       setProviders(providersResponse.providers ?? []);
       setApiStatus('online');
+      setLastSyncAt(new Date().toISOString());
       setActiveProjectId((current) => current || projectsResponse.projects?.[0]?.id || '');
       setNotice('Taso Core senkronize. Workspace verileri güncel.');
     } catch (cause) {
@@ -282,7 +284,8 @@ export default function App() {
     try {
       const payload = await api<{ mission: Mission }>(`/v1/missions/${mission.id}/approve`, { method: 'POST' });
       setMissions((current) => current.map((item) => item.id === mission.id ? payload.mission : item));
-      setNotice(`${mission.id} onaylandı ve kuyruğa alındı.`);
+      setNotice(`${mission.id} onaylandı ve yürütme kuyruğuna alındı.`);
+      window.setTimeout(() => void refreshData(true), 800);
       speak('Onay verildi. Görev kuyruğa alındı.');
     } catch (cause) {
       showError(`Onay başarısız: ${(cause as Error).message}`);
@@ -496,6 +499,10 @@ export default function App() {
     return <section className="screen-grid two"><article className="panel screen-panel"><div className="section-head"><span>ACTIVITY FEED</span><small>Core state</small></div><div className="notification-feed">{recent.length ? recent.map((mission) => <button type="button" key={mission.id} onClick={() => { setSelectedMissionId(mission.id); setActiveNav('Tasks'); }}><span className={`state-dot state-${mission.status}`} /><div><strong>{stateLabel(mission.status)} • {mission.objective}</strong><p>{projects.find((project) => project.id === mission.projectId)?.name ?? mission.projectId} • {formatDate(mission.updatedAt ?? mission.createdAt)}</p></div></button>) : <div className="empty-state"><strong>Aktivite yok.</strong></div>}</div></article><article className="panel screen-panel"><div className="section-head"><span>DELIVERY CHANNELS</span><small>operator alerts</small></div><div className="channel-card"><Icon name="bell" /><div><strong>Browser notifications</strong><p>Bu cihazda Taso paneli için yerel izin iste.</p></div><button className="ghost-button compact-button" type="button" onClick={requestBrowserNotifications}>İzin ver</button></div><div className="channel-card"><span className="channel-mark">N</span><div><strong>ntfy / agent-ci</strong><p>CI başlangıç ve sonuç bildirimleri GitHub Actions tarafından güvenli secret'larla gönderilir.</p></div><span className="badge">CI</span></div><div className="channel-card"><span className="channel-mark">T</span><div><strong>Taso voice</strong><p>Türkçe konuşma tanıma ve tarayıcı speech synthesis aktif.</p></div><button className="ghost-button compact-button" type="button" onClick={() => setVoiceReplies((value) => !value)}>{voiceReplies ? 'Açık' : 'Kapalı'}</button></div></article></section>;
   }
 
+  function PlaceholderScreen({ title, description }: { title: string; description: string }) {
+    return <section className="screen-stack"><article className="panel screen-panel placeholder-product"><span className="eyebrow">TASO DEV CLOUD</span><h2>{title}</h2><p>{description}</p><div className="boundary-list"><div><span className={`system-pulse ${apiStatus}`} /><strong>Taso Core</strong><small>{apiStatus === 'online' ? 'Canlı Core verisine bağlı' : 'Core erişilemiyor'}</small></div><div><span className="system-pulse neutral" /><strong>Workspace</strong><small>{activeProject?.name ?? 'Seçilmedi'}</small></div></div></article></section>;
+  }
+
   function InfrastructureScreen() {
     return <section className="screen-stack"><div className="metric-grid"><div className="metric-card"><span>CORE</span><strong>{apiStatus === 'online' ? 'ONLINE' : 'OFFLINE'}</strong><small>{health.service ?? 'taso-core'} {health.version ? `v${health.version}` : ''}</small></div><div className="metric-card"><span>GATEWAY</span><strong>{health.gateway?.toUpperCase() ?? 'UNKNOWN'}</strong><small>Browser → nginx → Core</small></div><div className="metric-card"><span>WORKSPACES</span><strong>{projects.length}</strong><small>project-scoped</small></div><div className="metric-card"><span>MISSIONS</span><strong>{missions.length}</strong><small>{pendingApprovals.length} approval pending</small></div></div><section className="screen-grid two"><article className="panel screen-panel"><div className="section-head"><span>AI PROVIDER ROUTER</span><small>{providers.length} slots</small></div>{providers.length ? <div className="provider-list">{providers.map((provider, index) => <div className="provider-row" key={provider.id ?? index}><span className={provider.enabled === false ? 'provider-light offline' : 'provider-light'} /><div><strong>{provider.name ?? provider.id ?? `Provider ${index + 1}`}</strong><small>{provider.dataClasses?.join(', ') || 'policy scoped'}</small></div><span className="badge">{provider.paid ? 'PAID' : 'FREE/FLEX'}</span></div>)}</div> : <div className="empty-state"><strong>Provider özeti yok.</strong><span>Core provider endpoint'i boş döndü.</span></div>}</article><article className="panel screen-panel"><div className="section-head"><span>RUNTIME BOUNDARIES</span><small>verified / external</small></div><div className="boundary-list"><div><span className={`system-pulse ${apiStatus}`} /><strong>Taso Core API</strong><small>{apiStatus === 'online' ? 'Verified live' : 'Unavailable'}</small></div><div><span className="system-pulse neutral" /><strong>GitHub Actions</strong><small>External CI — status comes through ntfy/GitHub</small></div><div><span className="system-pulse neutral" /><strong>Coolify</strong><small>External deploy plane</small></div><div><span className="system-pulse neutral" /><strong>ntfy</strong><small>External notification plane</small></div></div><p className="callout">Taso UI sahte “healthy” işaretleri üretmez. Bu ekranda yalnız Core'dan doğruladığımız durum canlı gösterilir; dış sistemler entegrasyon düzlemi olarak işaretlenir.</p></article></section></section>;
   }
@@ -506,6 +513,11 @@ export default function App() {
       case 'Tasks': return <TasksScreen />;
       case 'Approvals': return <ApprovalsScreen />;
       case 'Deployments': return <DeploymentsScreen />;
+      case 'AI Agents': return <PlaceholderScreen title="AI Agents" description="Taso executor ve provider çalışma durumlarının yönetim yüzeyi." />;
+      case 'Knowledge': return <PlaceholderScreen title="Knowledge" description="Workspace kararları, runbook ve proje bağlamı için ayrılmış bilgi yüzeyi." />;
+      case 'Integrations': return <PlaceholderScreen title="Integrations" description="GitHub, Coolify ve bildirim entegrasyonlarının doğrulanmış durum yüzeyi." />;
+      case 'Monitoring': return <InfrastructureScreen />;
+      case 'Settings': return <PlaceholderScreen title="Settings" description="Taso çalışma politikaları ve yönetici ayarları için ürün yüzeyi." />;
       case 'Notifications': return <NotificationsScreen />;
       case 'Infrastructure': return <InfrastructureScreen />;
       default: return <CommandCenter />;
@@ -523,7 +535,7 @@ export default function App() {
         <header className="topbar"><div><span className="eyebrow">TASARLAYALIM / AI OPERATIONS</span><h1>{activeNav}</h1></div><div className="top-actions"><button className="theme-toggle" type="button" aria-label={theme === 'dark' ? 'Açık temaya geç' : 'Koyu temaya geç'} onClick={() => setTheme((current) => current === 'dark' ? 'light' : 'dark')}><span>{theme === 'dark' ? '☀' : '☾'}</span><b>{theme === 'dark' ? 'Açık' : 'Koyu'}</b></button><button className={busy ? 'icon-button spinning' : 'icon-button'} type="button" aria-label="Yenile" onClick={() => void refreshData()} disabled={busy}><Icon name="refresh" /></button><button className="icon-button" type="button" aria-label="Bildirimler" onClick={() => switchNav('Notifications')}><Icon name="bell" /></button><div className="operator-chip"><span>HM</span><div><strong>Operator</strong><small>Admin</small></div></div></div></header>
         {error && <div className="error-banner"><strong>⚠ Taso</strong><span>{error}</span><button type="button" onClick={() => setError('')}>×</button></div>}
         {renderScreen()}
-        <footer className="status-footer"><span>PROJECT CONTEXT: <b>{activeProject?.slug ?? 'none'}</b></span><span>SECURITY: <b>PROJECT-SCOPED</b></span><span>TASO UI v1.0</span></footer>
+        <footer className="status-footer"><span>PROJECT CONTEXT: <b>{activeProject?.slug ?? 'none'}</b></span><span>SECURITY: <b>PROJECT-SCOPED</b></span><span>TASO UI v2 • {lastSyncAt ? `SYNC ${formatDate(lastSyncAt)}` : 'SYNCING'}</span></footer>
       </main>
       <nav className="mobile-nav" aria-label="Mobil navigasyon"><button className={activeNav === 'Command Center' ? 'active' : ''} type="button" onClick={() => switchNav('Command Center')}><Icon name="grid" /><span>Home</span></button><button className={activeNav === 'Projects' ? 'active' : ''} type="button" onClick={() => switchNav('Projects')}><Icon name="git" /><span>Projects</span></button><button className={isListening ? 'mobile-taso listening' : 'mobile-taso'} type="button" onClick={startVoice}><Icon name="mic" /></button><button className={activeNav === 'Approvals' ? 'active' : ''} type="button" onClick={() => switchNav('Approvals')}><Icon name="shield" /><span>Approve</span></button><button className={activeNav === 'Notifications' ? 'active' : ''} type="button" onClick={() => switchNav('Notifications')}><Icon name="bell" /><span>Alerts</span></button></nav>
     </div>
