@@ -3,15 +3,16 @@ const API_URL = ((import.meta.env.VITE_TASO_API_URL as string | undefined) || '/
 export type RealtimeVoiceState = 'idle' | 'connecting' | 'listening' | 'thinking' | 'speaking' | 'error';
 
 export type RealtimeVoiceStatus = {
-  provider: 'openai-realtime';
-  transport: 'webrtc';
+  provider: 'gemini-live' | 'openai-realtime';
+  transport: 'websocket' | 'webrtc';
   enabled: boolean;
-  paidAllowed: boolean;
+  paidAllowed?: boolean;
   configured: boolean;
   ready: boolean;
   model: string;
   voice: string;
-  fallback: 'browser-stt-tts';
+  fallback: 'local-neural-manual' | 'browser-stt-tts';
+  ephemeralTokens?: boolean;
 };
 
 export type VoiceMissionSuggestion = {
