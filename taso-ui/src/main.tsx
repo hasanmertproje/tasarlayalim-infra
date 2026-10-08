@@ -5,7 +5,9 @@ import AgentOpsDock from './AgentOpsDock';
 import ConversationBridge from './ConversationBridge';
 import IntegrationsCenter from './IntegrationsCenter';
 import KnowledgeCenter from './KnowledgeCenter';
+import MobileNavigationHub from './MobileNavigationHub';
 import SelfImprovementLane from './SelfImprovementLane';
+import VoiceModeOverlay from './VoiceModeOverlay';
 import './styles.css';
 import './final.css';
 import './premium.css';
@@ -21,6 +23,8 @@ import './taso-voice-signature.css';
 import './mobile-command-center-v3.css';
 import './mobile-light-contrast-v3.css';
 import './mobile-floating-controls-v3.css';
+import './mobile-navigation-hub.css';
+import './voice-mode-overlay.css';
 
 const rootElement = document.getElementById('root')!;
 
@@ -81,6 +85,8 @@ ReactDOM.createRoot(rootElement).render(
   <React.StrictMode>
     <App />
     <OperationsSurfaceBridge />
+    <MobileNavigationHub />
+    <VoiceModeOverlay />
     <SelfImprovementLane />
   </React.StrictMode>,
 );
