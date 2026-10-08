@@ -55,7 +55,7 @@ function stateLabel(state: DisplayVoiceState) {
   if (state === 'listening') return 'Seni dinliyorum';
   if (state === 'thinking') return 'Düşünüyorum';
   if (state === 'speaking') return 'Yanıtlıyorum';
-  if (state === 'error') return 'Ses bağlantısında sorun var';
+  if (state === 'error') return 'Bağlantı hazır değil';
   return 'Hazırım';
 }
 
@@ -96,13 +96,18 @@ export default function VoiceModeOverlay() {
         setSuggestedMission(suggestion);
         setCreatedMission(undefined);
       },
-      onError: setRealtimeError,
-      onConnected: () => setRealtimeError(''),
+      onError: (message) => {
+        setRealtimeError(message);
+        setRealtimeState('error');
+      },
+      onConnected: () => {
+        setRealtimeError('');
+        setRealtimeState('listening');
+      },
       onDisconnected: () => {
-        if (realtimeActiveRef.current) {
-          realtimeActiveRef.current = false;
-          setRealtimeActive(false);
-        }
+        if (!realtimeActiveRef.current) return;
+        setRealtimeState('error');
+        setRealtimeError((current) => current || 'Canlı ses oturumu kapandı. Tekrar bağlanabilirsin.');
       },
     };
     return provider === 'gemini-live'
@@ -189,7 +194,7 @@ export default function VoiceModeOverlay() {
   }
 
   async function startRealtime() {
-    if (realtimeActiveRef.current) return;
+    if (realtimeActiveRef.current && realtimeState !== 'error') return;
     setRealtimeError('');
     setSuggestedMission(undefined);
     setCreatedMission(undefined);
@@ -213,21 +218,20 @@ export default function VoiceModeOverlay() {
         volume: storedNumber('taso-voice-volume', 1),
       });
     } catch (error) {
-      clientRef.current?.stop();
-      realtimeActiveRef.current = false;
-      setRealtimeActive(false);
       setRealtimeError((error as Error).message);
-      // Important: do not silently switch a Gemini/Freya session to device TTS.
-      // Browser fallback remains available only when no realtime provider is configured.
+      setRealtimeState('error');
+      // Keep the voice screen open. No silent Samsung/browser TTS fallback.
     }
   }
 
   function endRealtime() {
-    clientRef.current?.stop();
     realtimeActiveRef.current = false;
     setRealtimeActive(false);
+    clientRef.current?.stop();
+    clientRef.current = null;
     setRealtimeState('idle');
     setSuggestedMission(undefined);
+    setRealtimeError('');
   }
 
   useEffect(() => {
@@ -262,7 +266,7 @@ export default function VoiceModeOverlay() {
 
     window.addEventListener('click', interceptVoiceButton, true);
     return () => window.removeEventListener('click', interceptVoiceButton, true);
-  }, []);
+  }, [realtimeState]);
 
   function endSession() {
     if (realtimeActiveRef.current) { endRealtime(); return; }
@@ -318,13 +322,13 @@ export default function VoiceModeOverlay() {
         <div className="taso-voice-mode-transcript" aria-live="polite">
           {heard && <div className="heard"><span>SEN</span><p>{heard}</p></div>}
           {reply && <div className="reply"><span>TASO</span><p>{reply}</p></div>}
-          {!heard && !reply && <p className="voice-mode-hint">Konuşmaya başlayabilirsin. Taso seni dinliyor.</p>}
+          {!heard && !reply && <p className="voice-mode-hint">{state === 'error' ? 'Bağlantı kapanmadı; hata burada tutuluyor. Tekrar bağlanmayı deneyebilirsin.' : 'Konuşmaya başlayabilirsin. Taso seni dinliyor.'}</p>}
         </div>
-        {realtimeActive && suggestedMission && <div className="voice-mission-proposal"><div><span>MISSION ÖNERİSİ · {suggestedMission.riskLevel}</span><strong>{suggestedMission.objective}</strong><small>Sesli sohbet bunu otomatik çalıştırmaz. Yalnız bu düğmeye basarsan mission oluşur.</small></div><button type="button" onClick={() => void createSuggestedMission()}>Mission oluştur</button></div>}
+        {realtimeActive && suggestedMission && <div className="voice-mission-proposal"><div><span>MISSION ÖNERİSİ · {suggestedMission.riskLevel}</span><strong>{suggestedMission.objective}</strong><small>Sohbet bunu otomatik çalıştırmaz. Yalnız açık görev talebi ve bu onay ile mission oluşur.</small></div><button type="button" onClick={() => void createSuggestedMission()}>Mission oluştur</button></div>}
         {createdMission && <div className="voice-mission-created">Mission oluşturuldu · {createdMission.status} · {createdMission.id}</div>}
         {realtimeError && <div className="voice-realtime-error">{realtimeError}</div>}
       </main>
-      <footer className="taso-voice-mode-controls"><button type="button" className="voice-interrupt" onClick={interrupt} disabled={interruptDisabled}><span>{state === 'speaking' ? 'Sözünü kes' : realtimeActive ? 'Dinlemede' : 'Konuş'}</span></button><button type="button" className="voice-end" onClick={endSession} aria-label="Canlı konuşmayı bitir">■</button><div className="voice-mode-footnote">Chat ≠ Mission · Görevler yalnız açık onayla başlar</div></footer>
+      <footer className="taso-voice-mode-controls"><button type="button" className="voice-interrupt" onClick={state === 'error' ? () => void startRealtime() : interrupt} disabled={state !== 'error' && interruptDisabled}><span>{state === 'error' ? 'Tekrar bağlan' : state === 'speaking' ? 'Sözünü kes' : realtimeActive ? 'Dinlemede' : 'Konuş'}</span></button><button type="button" className="voice-end" onClick={endSession} aria-label="Canlı konuşmayı bitir">■</button><div className="voice-mode-footnote">Sohbet · bilgi · plan ≠ Mission · Yalnız açık yürütme isteği görev olur</div></footer>
     </section>
   );
 }
