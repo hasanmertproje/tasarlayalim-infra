@@ -122,7 +122,7 @@ export class MultiProviderPlanner {
             temperature: 0.15,
             messages: [{ role: 'system', content: system }, { role: 'user', content: user }],
           }),
-          signal: AbortSignal.timeout(120_000),
+          signal: AbortSignal.timeout(240_000),
         });
         if (!response.ok) throw new Error(`HTTP ${response.status}: ${(await response.text()).slice(0, 300)}`);
         const payload = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
