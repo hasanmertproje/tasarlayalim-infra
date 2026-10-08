@@ -19,7 +19,7 @@ FREYA_MODEL = os.getenv("TASO_FREYA_MODEL", "freyavoice/freya-tts")
 FREYA_DEVICE = os.getenv("TASO_FREYA_DEVICE", "cpu")
 FREYA_STEPS = max(12, min(48, int(os.getenv("TASO_FREYA_STEPS", "16"))))
 
-app = FastAPI(title="Taso Local Neural Voice", version="0.2.1")
+app = FastAPI(title="Taso Local Neural Voice", version="0.3.0")
 
 
 class VoiceProfile(BaseModel):
@@ -39,6 +39,12 @@ class SynthesisRequest(BaseModel):
     speed: float | None = Field(default=None, ge=0.72, le=1.12)
 
 
+# Seed 9 is FreyaTTS-small's canonical Leyla voice. The remaining seeds are
+# deliberately unlabeled Voice Lab candidates. Freya guarantees deterministic
+# speaker selection by seed, but does not publish a seed-to-gender map. We only
+# promote a candidate to Taso Signature Male/Female after a human listening test.
+VOICE_LAB_SEEDS = [1, 5, 11, 23, 37, 53, 61, 73, 89, 101, 127, 151, 181, 211, 257]
+
 DEFAULT_VOICES = [
     VoiceProfile(
         id="taso-signature-female",
@@ -49,33 +55,18 @@ DEFAULT_VOICES = [
         commercialAllowed=True,
         character="signature",
     ),
-    VoiceProfile(
-        id="taso-candidate-17",
-        label="Taso Aday 17",
-        gender="neutral",
-        seed=17,
-        license="Apache-2.0 · FreyaTTS-small",
-        commercialAllowed=True,
-        character="candidate",
-    ),
-    VoiceProfile(
-        id="taso-candidate-31",
-        label="Taso Aday 31",
-        gender="neutral",
-        seed=31,
-        license="Apache-2.0 · FreyaTTS-small",
-        commercialAllowed=True,
-        character="candidate",
-    ),
-    VoiceProfile(
-        id="taso-candidate-47",
-        label="Taso Aday 47",
-        gender="neutral",
-        seed=47,
-        license="Apache-2.0 · FreyaTTS-small",
-        commercialAllowed=True,
-        character="candidate",
-    ),
+    *[
+        VoiceProfile(
+            id=f"taso-lab-{seed}",
+            label=f"Taso Voice Lab · Seed {seed}",
+            gender="neutral",
+            seed=seed,
+            license="Apache-2.0 · FreyaTTS-small",
+            commercialAllowed=True,
+            character="voice-lab",
+        )
+        for seed in VOICE_LAB_SEEDS
+    ],
 ]
 
 _tts = None
