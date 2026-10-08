@@ -2,11 +2,13 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
 import AgentOpsDock from './AgentOpsDock';
+import SelfImprovementLane from './SelfImprovementLane';
 import './styles.css';
 import './final.css';
 import './premium.css';
 import './agent-ops.css';
 import './milestones.css';
+import './self-improvement.css';
 
 const rootElement = document.getElementById('root')!;
 
@@ -14,6 +16,7 @@ ReactDOM.createRoot(rootElement).render(
   <React.StrictMode>
     <App />
     <AgentOpsDock />
+    <SelfImprovementLane />
   </React.StrictMode>,
 );
 
