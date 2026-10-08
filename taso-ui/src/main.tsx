@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
 import AgentOpsDock from './AgentOpsDock';
+import ConversationBridge from './ConversationBridge';
 import IntegrationsCenter from './IntegrationsCenter';
 import KnowledgeCenter from './KnowledgeCenter';
 import SelfImprovementLane from './SelfImprovementLane';
@@ -15,6 +16,9 @@ import './agent-ops-page.css';
 import './agent-ops-interactions.css';
 import './integrations-center.css';
 import './knowledge-center.css';
+import './conversation-bridge.css';
+import './mobile-command-center-v3.css';
+import './mobile-light-contrast-v3.css';
 
 const rootElement = document.getElementById('root')!;
 
@@ -63,6 +67,7 @@ function OperationsSurfaceBridge() {
 
   return (
     <>
+      {activeHeading === 'Command Center' && <ConversationBridge />}
       <AgentOpsDock mode={activeHeading === 'AI Agents' ? 'page' : 'dock'} />
       {activeHeading === 'Integrations' && <IntegrationsCenter />}
       {activeHeading === 'Knowledge' && <KnowledgeCenter />}
