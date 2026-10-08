@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client';
 import App from './App';
 import AgentOpsDock from './AgentOpsDock';
 import IntegrationsCenter from './IntegrationsCenter';
+import KnowledgeCenter from './KnowledgeCenter';
 import SelfImprovementLane from './SelfImprovementLane';
 import './styles.css';
 import './final.css';
@@ -13,6 +14,7 @@ import './self-improvement.css';
 import './agent-ops-page.css';
 import './agent-ops-interactions.css';
 import './integrations-center.css';
+import './knowledge-center.css';
 
 const rootElement = document.getElementById('root')!;
 
@@ -63,6 +65,7 @@ function OperationsSurfaceBridge() {
     <>
       <AgentOpsDock mode={activeHeading === 'AI Agents' ? 'page' : 'dock'} />
       {activeHeading === 'Integrations' && <IntegrationsCenter />}
+      {activeHeading === 'Knowledge' && <KnowledgeCenter />}
     </>
   );
 }
