@@ -1,5 +1,6 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
+import type { ConversationMessage } from './conversation.js';
 import type { Mission, Project } from './domain.js';
 import type { MissionEvent } from './mission-events.js';
 import type { ProjectManifest } from './project-manifest.js';
@@ -9,9 +10,16 @@ export interface TasoStateSnapshot {
   manifests: ProjectManifest[];
   missions: Mission[];
   events: MissionEvent[];
+  conversations: ConversationMessage[];
 }
 
-const emptyState: TasoStateSnapshot = { projects: [], manifests: [], missions: [], events: [] };
+const emptyState: TasoStateSnapshot = {
+  projects: [],
+  manifests: [],
+  missions: [],
+  events: [],
+  conversations: [],
+};
 
 export class JsonStateStore {
   constructor(private readonly filePath?: string) {}
@@ -29,6 +37,7 @@ export class JsonStateStore {
         manifests: Array.isArray(parsed.manifests) ? parsed.manifests : [],
         missions: Array.isArray(parsed.missions) ? parsed.missions : [],
         events: Array.isArray(parsed.events) ? parsed.events : [],
+        conversations: Array.isArray(parsed.conversations) ? parsed.conversations : [],
       };
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code;
