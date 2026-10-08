@@ -1,0 +1,37 @@
+@media(max-width:820px){
+  :root[data-theme="light"] .topbar h1,
+  :root[data-theme="light"] .section-head span,
+  :root[data-theme="light"] .data-main strong,
+  :root[data-theme="light"] .system-card strong,
+  :root[data-theme="light"] .detail-head h3,
+  :root[data-theme="light"] .live-metric>strong,
+  :root[data-theme="light"] .context-panel h3{
+    color:#17334f!important;
+    text-shadow:none!important;
+  }
+
+  :root[data-theme="light"] .eyebrow,
+  :root[data-theme="light"] .project-switcher-label,
+  :root[data-theme="light"] .section-head small,
+  :root[data-theme="light"] .data-main small,
+  :root[data-theme="light"] .system-card small,
+  :root[data-theme="light"] .live-metric>small,
+  :root[data-theme="light"] .meta-row span,
+  :root[data-theme="light"] .muted-copy{
+    color:#64788e!important;
+  }
+
+  :root[data-theme="light"] .project-tab{color:#607388!important;background:rgba(255,255,255,.78)!important}
+  :root[data-theme="light"] .project-tab.active{color:#173b59!important;background:linear-gradient(135deg,rgba(255,255,255,.98),rgba(239,248,255,.95))!important;border-color:rgba(34,151,205,.24)!important}
+  :root[data-theme="light"] .tasks-panel,
+  :root[data-theme="light"] .systems-panel,
+  :root[data-theme="light"] .context-panel,
+  :root[data-theme="light"] .approval-panel,
+  :root[data-theme="light"] .live-metric{
+    background:linear-gradient(160deg,rgba(255,255,255,.97),rgba(242,248,255,.94))!important;
+  }
+  :root[data-theme="light"] .data-row{background:rgba(240,247,255,.55)!important}
+  :root[data-theme="light"] .system-card{background:rgba(239,246,253,.74)!important}
+  :root[data-theme="light"] .conversation-response p,
+  :root[data-theme="light"] .conversation-mission-proposal strong{color:#17334f!important}
+}
