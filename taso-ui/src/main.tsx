@@ -17,6 +17,7 @@ import './agent-ops-interactions.css';
 import './integrations-center.css';
 import './knowledge-center.css';
 import './conversation-bridge.css';
+import './taso-voice-signature.css';
 import './mobile-command-center-v3.css';
 import './mobile-light-contrast-v3.css';
 import './mobile-floating-controls-v3.css';
