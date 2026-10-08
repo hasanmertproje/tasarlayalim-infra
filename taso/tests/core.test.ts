@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { ProviderDescriptor } from '../src/provider-router.js';
-import { ProviderRouter } from '../src/provider-router.js';
+import { ProviderRouter, defaultProviders } from '../src/provider-router.js';
 import { ProjectRegistry } from '../src/project-registry.js';
 import { TaskEngine } from '../src/task-engine.js';
 
@@ -148,4 +148,26 @@ test('executor state records artifacts and failed missions can retry safely', ()
   assert.equal(retried.status, 'queued');
   assert.equal(retried.execution?.blockedReason, undefined);
   assert.equal(engine.listEvents(mission.id).at(-1)?.type, 'mission.status_changed');
+});
+
+
+test('scoped provider credentials enable routing without legacy provider keys', () => {
+  const previousKey = process.env.TASO_PROVIDER_NVIDIA_API_KEY;
+  const previousData = process.env.TASO_PROVIDER_NVIDIA_DATA;
+  const previousLegacy = process.env.NVIDIA_API_KEY;
+  try {
+    delete process.env.NVIDIA_API_KEY;
+    process.env.TASO_PROVIDER_NVIDIA_API_KEY = 'test-only';
+    process.env.TASO_PROVIDER_NVIDIA_DATA = 'public,private_code';
+    const nvidia = defaultProviders().find((provider) => provider.id === 'nvidia');
+    assert.equal(nvidia?.enabled, true);
+    assert.deepEqual(nvidia?.allowedDataClasses, ['public', 'private_code']);
+  } finally {
+    if (previousKey === undefined) delete process.env.TASO_PROVIDER_NVIDIA_API_KEY;
+    else process.env.TASO_PROVIDER_NVIDIA_API_KEY = previousKey;
+    if (previousData === undefined) delete process.env.TASO_PROVIDER_NVIDIA_DATA;
+    else process.env.TASO_PROVIDER_NVIDIA_DATA = previousData;
+    if (previousLegacy === undefined) delete process.env.NVIDIA_API_KEY;
+    else process.env.NVIDIA_API_KEY = previousLegacy;
+  }
 });
