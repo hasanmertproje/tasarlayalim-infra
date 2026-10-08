@@ -62,7 +62,12 @@ export function buildServer() {
   persist();
 
   const executor = new MissionExecutor(tasks, projects);
+  const stopWatchdog = executor.startWatchdog();
   const gatewaySecret = process.env.TASO_GATEWAY_SECRET?.trim();
+
+  app.addHook('onClose', async () => {
+    stopWatchdog();
+  });
 
   app.addHook('onRequest', async (request, reply) => {
     if (!request.url.startsWith('/v1/')) return;
@@ -79,7 +84,7 @@ export function buildServer() {
     return {
       ok: true,
       service: 'taso-core',
-      version: '0.4.0',
+      version: '0.5.0',
       gateway: gatewaySecret ? 'configured' : 'missing',
       state: stateStore.enabled() ? 'persistent' : 'memory',
       executor: { read: readiness.readyForRead, write: readiness.readyForWrite, deploy: readiness.readyForDeploy },
