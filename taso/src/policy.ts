@@ -30,6 +30,14 @@ export function evaluateMissionPolicy(
     };
   }
 
+  if (project.slug === 'taso-self-improvement' && mission.riskLevel !== 'READ') {
+    return {
+      allowed: true,
+      approvalRequired: true,
+      reason: 'Taso self-improvement code changes always require explicit operator approval.',
+    };
+  }
+
   if (mission.riskLevel === 'HIGH_IMPACT') {
     return {
       allowed: true,
