@@ -1,5 +1,6 @@
 import type { Mission, Project } from './domain.js';
 import type { MissionEvent } from './mission-events.js';
+import { summarizeMilestones, type ProjectMilestone, type ProjectMilestoneProgress } from './project-milestones.js';
 
 const activeStatuses = new Set(['queued', 'planning', 'running', 'testing']);
 const deliveredStatuses = new Set(['completed', 'preview_ready']);
@@ -29,6 +30,8 @@ export type ProjectOperationsSummary = {
   retryingMissions: number;
   missionCompletionPercent: number;
   terminalSuccessPercent: number | null;
+  milestoneProgress: ProjectMilestoneProgress;
+  milestones: ProjectMilestone[];
   lastActivityAt?: string;
 };
 
@@ -86,8 +89,9 @@ function latestTimestamp(values: Array<string | undefined>) {
   return values.filter((value): value is string => Boolean(value)).sort().at(-1);
 }
 
-function summarizeProject(project: Project, missions: Mission[]): ProjectOperationsSummary {
+function summarizeProject(project: Project, missions: Mission[], milestones: ProjectMilestone[]): ProjectOperationsSummary {
   const scoped = missions.filter((mission) => mission.projectId === project.id);
+  const scopedMilestones = milestones.filter((milestone) => milestone.projectId === project.id);
   const deliveredMissions = scoped.filter((mission) => deliveredStatuses.has(mission.status)).length;
   const terminal = scoped.filter((mission) => terminalStatuses.has(mission.status));
   const successfulTerminal = terminal.filter((mission) => deliveredStatuses.has(mission.status)).length;
@@ -105,12 +109,18 @@ function summarizeProject(project: Project, missions: Mission[]): ProjectOperati
     retryingMissions: scoped.filter((mission) => mission.status === 'queued' && Boolean(mission.execution?.nextRetryAt)).length,
     missionCompletionPercent: scoped.length ? Math.round((deliveredMissions / scoped.length) * 100) : 0,
     terminalSuccessPercent: terminal.length ? Math.round((successfulTerminal / terminal.length) * 100) : null,
-    lastActivityAt: latestTimestamp(scoped.map((mission) => mission.updatedAt)),
+    milestoneProgress: summarizeMilestones(scopedMilestones),
+    milestones: scopedMilestones,
+    lastActivityAt: latestTimestamp([
+      ...scoped.map((mission) => mission.updatedAt),
+      ...scopedMilestones.map((milestone) => milestone.updatedAt),
+    ]),
   };
 }
 
 export function buildOperationsSnapshot(input: {
   projects: Project[];
+  milestones: ProjectMilestone[];
   missions: Mission[];
   events: MissionEvent[];
   readiness: RuntimeReadiness;
@@ -203,7 +213,7 @@ export function buildOperationsSnapshot(input: {
         detail: coolifyReady ? 'Deployment broker configured.' : 'Production/preview deploy broker is not configured.',
       },
     ],
-    projects: input.projects.map((project) => summarizeProject(project, input.missions)),
+    projects: input.projects.map((project) => summarizeProject(project, input.missions, input.milestones)),
     activity,
     selfImprovement: {
       detection: 'objective-keywords',

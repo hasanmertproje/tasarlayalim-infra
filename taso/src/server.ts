@@ -5,6 +5,11 @@ import { MissionEventStore } from './mission-events.js';
 import { MissionExecutor } from './mission-executor.js';
 import { buildOperationsSnapshot } from './operations-snapshot.js';
 import type { UpsertProjectManifestInput } from './project-manifest.js';
+import {
+  ProjectMilestoneStore,
+  type CreateProjectMilestoneInput,
+  type UpdateProjectMilestoneInput,
+} from './project-milestones.js';
 import { ProjectRegistry, type CreateProjectInput } from './project-registry.js';
 import { ProviderRouter, defaultProviders } from './provider-router.js';
 import { JsonStateStore } from './state-store.js';
@@ -41,12 +46,14 @@ export function buildServer() {
   const snapshot = stateStore.load();
 
   let projects!: ProjectRegistry;
+  let milestones!: ProjectMilestoneStore;
   let tasks!: TaskEngine;
   const persist = () => {
-    if (!projects || !tasks) return;
+    if (!projects || !milestones || !tasks) return;
     stateStore.save({
       projects: projects.list(),
       manifests: projects.listManifests(),
+      milestones: milestones.list(),
       missions: tasks.listMissions(),
       events: tasks.allEvents(),
     });
@@ -56,6 +63,7 @@ export function buildServer() {
   for (const project of bootstrapProjects) {
     if (!projects.findBySlug(project.slug)) projects.create(project);
   }
+  milestones = new ProjectMilestoneStore(snapshot.milestones, (projectId) => Boolean(projects.get(projectId)), persist);
   const router = new ProviderRouter(defaultProviders());
   const events = new MissionEventStore(snapshot.events, persist);
   tasks = new TaskEngine(projects, router, events, snapshot.missions, persist);
@@ -85,7 +93,7 @@ export function buildServer() {
     return {
       ok: true,
       service: 'taso-core',
-      version: '0.6.0',
+      version: '0.7.0',
       gateway: gatewaySecret ? 'configured' : 'missing',
       state: stateStore.enabled() ? 'persistent' : 'memory',
       executor: { read: readiness.readyForRead, write: readiness.readyForWrite, deploy: readiness.readyForDeploy },
@@ -101,6 +109,7 @@ export function buildServer() {
     return {
       operations: buildOperationsSnapshot({
         projects: projects.list(),
+        milestones: milestones.list(),
         missions: tasks.listMissions(),
         events: tasks.allEvents(),
         readiness: executor.readiness(),
@@ -132,6 +141,34 @@ export function buildServer() {
   app.put<{ Params: { id: string }; Body: UpsertProjectManifestInput }>('/v1/projects/:id/manifest', async (request, reply) => {
     try {
       return { manifest: projects.upsertManifest(request.params.id, request.body ?? {}) };
+    } catch (error) {
+      return reply.code(400).send({ error: (error as Error).message });
+    }
+  });
+
+  app.get<{ Params: { id: string } }>('/v1/projects/:id/milestones', async (request, reply) => {
+    try {
+      if (!projects.get(request.params.id)) return reply.code(404).send({ error: 'Project not found.' });
+      return {
+        milestones: milestones.list(request.params.id),
+        progress: milestones.progress(request.params.id),
+      };
+    } catch (error) {
+      return reply.code(400).send({ error: (error as Error).message });
+    }
+  });
+
+  app.post<{ Params: { id: string }; Body: CreateProjectMilestoneInput }>('/v1/projects/:id/milestones', async (request, reply) => {
+    try {
+      return reply.code(201).send({ milestone: milestones.create(request.params.id, request.body ?? ({} as CreateProjectMilestoneInput)) });
+    } catch (error) {
+      return reply.code(400).send({ error: (error as Error).message });
+    }
+  });
+
+  app.patch<{ Params: { id: string; milestoneId: string }; Body: UpdateProjectMilestoneInput }>('/v1/projects/:id/milestones/:milestoneId', async (request, reply) => {
+    try {
+      return { milestone: milestones.update(request.params.id, request.params.milestoneId, request.body ?? {}) };
     } catch (error) {
       return reply.code(400).send({ error: (error as Error).message });
     }

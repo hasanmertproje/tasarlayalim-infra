@@ -3,15 +3,17 @@ import { dirname } from 'node:path';
 import type { Mission, Project } from './domain.js';
 import type { MissionEvent } from './mission-events.js';
 import type { ProjectManifest } from './project-manifest.js';
+import type { ProjectMilestone } from './project-milestones.js';
 
 export interface TasoStateSnapshot {
   projects: Project[];
   manifests: ProjectManifest[];
+  milestones: ProjectMilestone[];
   missions: Mission[];
   events: MissionEvent[];
 }
 
-const emptyState: TasoStateSnapshot = { projects: [], manifests: [], missions: [], events: [] };
+const emptyState: TasoStateSnapshot = { projects: [], manifests: [], milestones: [], missions: [], events: [] };
 
 export class JsonStateStore {
   constructor(private readonly filePath?: string) {}
@@ -27,6 +29,7 @@ export class JsonStateStore {
       return {
         projects: Array.isArray(parsed.projects) ? parsed.projects : [],
         manifests: Array.isArray(parsed.manifests) ? parsed.manifests : [],
+        milestones: Array.isArray(parsed.milestones) ? parsed.milestones : [],
         missions: Array.isArray(parsed.missions) ? parsed.missions : [],
         events: Array.isArray(parsed.events) ? parsed.events : [],
       };
