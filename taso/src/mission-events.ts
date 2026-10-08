@@ -5,6 +5,7 @@ export type MissionEventType =
   | 'mission.approval_required'
   | 'mission.approved'
   | 'mission.cancelled'
+  | 'mission.retry_scheduled'
   | 'mission.status_changed'
   | 'mission.note';
 
