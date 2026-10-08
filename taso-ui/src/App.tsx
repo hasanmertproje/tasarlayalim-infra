@@ -15,10 +15,26 @@ type Mission = {
   status: string;
   riskLevel?: 'READ' | 'WRITE' | 'HIGH_IMPACT';
   dataClass?: 'public' | 'private_code' | 'sensitive';
-  approvalRequired?: boolean;
   providerChain?: string[];
   createdAt?: string;
   updatedAt?: string;
+  approvalRequired?: boolean;
+  approvedAt?: string;
+  autonomous?: {
+    enabled?: boolean;
+    previewRequired?: boolean;
+  };
+  execution?: {
+    summary?: string;
+    branch?: string;
+    commitSha?: string;
+    pullRequestNumber?: number;
+    pullRequestUrl?: string;
+    previewUrl?: string;
+    productionUrl?: string;
+    checkState?: 'success' | 'failed' | 'pending' | 'missing';
+    blockedReason?: string;
+  };
 };
 
 type MissionEvent = {
@@ -43,6 +59,12 @@ type CoreHealth = {
   service?: string;
   version?: string;
   gateway?: string;
+  state?: string;
+  executor?: {
+    read?: boolean;
+    write?: boolean;
+    deploy?: boolean;
+  };
 };
 
 type ApiStatus = 'checking' | 'online' | 'offline';
@@ -132,6 +154,7 @@ export default function App() {
   const [notice, setNotice] = useState('Taso hazır. Bir workspace seçip görev verebilirsin.');
   const [error, setError] = useState('');
   const [newProject, setNewProject] = useState({ name: '', slug: '', repository: '', isExisting: true });
+  const [executorReady, setExecutorReady] = useState(false);
   const recognitionRef = useRef<any>(null);
 
   const activeProject = useMemo(
@@ -196,16 +219,18 @@ export default function App() {
   async function refreshData(silent = false) {
     if (!silent) setBusy(true);
     try {
-      const [healthResponse, projectsResponse, missionsResponse, providersResponse] = await Promise.all([
+      const [healthResponse, projectsResponse, missionsResponse, providersResponse, executorResponse] = await Promise.all([
         api<CoreHealth>('/health'),
         api<{ projects: Project[] }>('/v1/projects'),
         api<{ missions: Mission[] }>('/v1/missions'),
         api<{ providers: Provider[] }>('/v1/providers'),
+        api<{ executor: { readyForRead?: boolean; readyForWrite?: boolean } }>('/v1/executor'),
       ]);
       setHealth(healthResponse);
       setProjects(projectsResponse.projects ?? []);
       setMissions(missionsResponse.missions ?? []);
       setProviders(providersResponse.providers ?? []);
+      setExecutorReady(Boolean(executorResponse.executor?.readyForRead && executorResponse.executor?.readyForWrite));
       setApiStatus('online');
       setLastSyncAt(new Date().toISOString());
       setActiveProjectId((current) => current || projectsResponse.projects?.[0]?.id || '');
@@ -472,7 +497,22 @@ export default function App() {
         </section>
         <section className="lower-grid">
           <article className="panel tasks-panel"><div className="section-head"><span>ACTIVE MISSIONS</span><small>{projectMissions.length} workspace</small></div><MissionTable items={projectMissions.slice(0, 4)} /></article>
-          <article className="panel systems-panel"><div className="section-head"><span>SYSTEMS</span><small>verified state</small></div><div className="systems-grid"><div className="system-card"><span className={`system-pulse ${apiStatus}`} /><div><strong>Taso Core</strong><small>{apiStatus === 'online' ? 'Connected' : 'Unavailable'}</small></div></div><div className="system-card"><span className="system-pulse neutral" /><div><strong>GitHub</strong><small>CI managed externally</small></div></div><div className="system-card"><span className="system-pulse neutral" /><div><strong>Coolify</strong><small>Deploy managed externally</small></div></div><div className="system-card"><span className="system-pulse neutral" /><div><strong>ntfy</strong><small>CI notification channel</small></div></div></div></article>
+          <article className="panel systems-panel"><div className="section-head"><span>SYSTEMS</span><small>verified state</small></div>
+            <div className="systems-grid">
+              <div className="system-card">
+                <span className={`system-pulse ${apiStatus}`} />
+                <div><strong>Taso Core</strong><small>{apiStatus === 'online' ? 'Connected' : 'Unavailable'}</small></div>
+              </div>
+              <div className="system-card">
+                <span className={`system-pulse ${executorReady ? 'online' : 'offline'}`} />
+                <div><strong>Executor</strong><small>{executorReady ? 'Ready' : 'Not ready'}</small></div>
+              </div>
+              <div className="system-card">
+                <span className={`system-pulse ${apiStatus}`} />
+                <div><strong>GitHub</strong><small>CI managed externally</small></div>
+              </div>
+            </div>
+          </article>
         </section>
       </>
     );
@@ -487,7 +527,7 @@ export default function App() {
   }
 
   function ApprovalsScreen() {
-    return <section className="screen-grid task-layout"><article className="panel screen-panel"><div className="section-head"><span>HUMAN APPROVAL QUEUE</span><small>{pendingApprovals.length} pending</small></div>{pendingApprovals.length ? <div className="approval-list">{pendingApprovals.map((mission) => <div className="approval-card" key={mission.id}><div><span>HIGH IMPACT</span><strong>{mission.objective}</strong><p>{projects.find((project) => project.id === mission.projectId)?.name ?? mission.projectId} • {mission.id}</p></div><div className="approval-actions"><button className="primary-button" type="button" onClick={() => void approveMission(mission)}><Icon name="check" /> Onayla</button><button className="danger-button" type="button" onClick={() => void cancelMission(mission)}><Icon name="x" /> Reddet</button></div></div>)}</div> : <div className="empty-state"><strong>Onay kuyruğu temiz.</strong><span>HIGH_IMPACT görevler burada insan onayı bekler.</span></div>}</article><article className="panel screen-panel"><div className="section-head"><span>APPROVAL POLICY</span><small>guardrail</small></div><div className="policy-card"><Icon name="shield" /><h3>Yetki sende kalır.</h3><p>Production, yıkıcı veya yüksek etkili görevler otomatik onaylanmaz. Taso Core bunları beklemeye alır ve yalnızca sen onayladıktan sonra kuyruğa geçirir.</p></div></article></section>;
+    return <section className="screen-grid task-layout"><article className="panel screen-panel"><div className="section-head"><span>HUMAN APPROVAL QUEUE</span><small>{pendingApprovals.length} pending</small></div>{pendingApprovals.length ? <div className="approval-list">{pendingApprovals.map((mission) => <div className="approval-card" key={mission.id}><div><span>HIGH IMPACT</span><strong>{mission.objective}</strong><p>{projects.find((project) => project.id === mission.projectId)?.name ?? mission.projectId} • {mission.id}</p></div><div className="approval-actions"><button className="primary-button" type="button" onClick={() => void approveMission(mission)}><Icon name="check" /> Onayla</button><button className="danger-button" type="button" onClick={() => void cancelMission(mission)}><Icon name="x" /> Reddet</button></div></div>)}</div> : <div className="empty-state"><strong>Onay kuyruğu temiz.</strong><span>HIGH_IMPACT görevler burada insan onayı bekler.</span></div>}</article><article className="panel screen-panel"><div className="section-head"><span>APPROVAL POLICY</span><small>guardrail</small></div><div className="policy-card"><Icon name="shield" /><h3>Yetki sende kalır.</h3><p>Production, yıkıcı veya yüksek etkili görevler otomatik onaylanmaz. Taso Core bunları beklemeye alır ve yalnız sen onayladıktan sonra kuyruğa geçirir.</p></div></article></section>;
   }
 
   function DeploymentsScreen() {
