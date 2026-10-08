@@ -144,11 +144,12 @@ export class TaskEngine {
     const mission = this.missions.get(id);
     if (!mission) throw new Error('Mission not found.');
     if (mission.status === 'cancelled') throw new Error('Cancelled mission cannot transition.');
+    if (['failed', 'completed', 'preview_ready'].includes(mission.status)) throw new Error(`Terminal mission cannot transition from ${mission.status}.`);
     mission.status = status;
     mission.updatedAt = nowIso();
     if (execution) mission.execution = { ...(mission.execution ?? {}), ...execution };
     this.missions.set(id, mission);
-    this.events.append(id, 'mission.status_changed', message, { status, ...(metadata ?? {}) });
+    this.events.append(id, 'mission.status_changed', message, { status, ...(metadata ?? {}), ...(execution?.blockedReason ? { blockedReason: execution.blockedReason } : {}) });
     this.onChange();
     return mission;
   }
