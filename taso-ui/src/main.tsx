@@ -6,6 +6,7 @@ import './styles.css';
 import './final.css';
 import './premium.css';
 import './agent-ops.css';
+import './milestones.css';
 
 const rootElement = document.getElementById('root')!;
 
