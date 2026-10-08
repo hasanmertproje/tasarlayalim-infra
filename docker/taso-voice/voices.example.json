@@ -1,0 +1,26 @@
+{
+  "voices": [
+    {
+      "id": "taso-signature-male",
+      "label": "Taso Signature Erkek",
+      "gender": "male",
+      "locale": "tr-TR",
+      "model": "taso-signature-male.onnx",
+      "config": "taso-signature-male.onnx.json",
+      "license": "REPLACE_WITH_ACTUAL_LICENSE",
+      "commercialAllowed": false,
+      "character": "signature"
+    },
+    {
+      "id": "taso-signature-female",
+      "label": "Taso Signature Kadın",
+      "gender": "female",
+      "locale": "tr-TR",
+      "model": "taso-signature-female.onnx",
+      "config": "taso-signature-female.onnx.json",
+      "license": "REPLACE_WITH_ACTUAL_LICENSE",
+      "commercialAllowed": false,
+      "character": "signature"
+    }
+  ]
+}
