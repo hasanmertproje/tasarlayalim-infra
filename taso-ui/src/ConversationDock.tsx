@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 
 const API_URL = ((import.meta.env.VITE_TASO_API_URL as string | undefined) || '/api').replace(/\/$/, '');
 
@@ -20,6 +20,7 @@ type ConversationResponse = {
   conversation?: { configured?: boolean; provider?: string; model?: string };
 };
 type Mission = { id: string; status: string; objective: string; riskLevel?: string };
+type VoiceState = 'idle' | 'listening' | 'thinking' | 'speaking' | 'unsupported' | 'error';
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_URL}${path}`, {
@@ -39,6 +40,18 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+function voiceStateLabel(state: VoiceState) {
+  const labels: Record<VoiceState, string> = {
+    idle: 'Hazır',
+    listening: 'Dinliyor',
+    thinking: 'Düşünüyor',
+    speaking: 'Konuşuyor',
+    unsupported: 'Desteklenmiyor',
+    error: 'Ses hatası',
+  };
+  return labels[state];
+}
+
 export default function ConversationDock() {
   const [open, setOpen] = useState(false);
   const [projects, setProjects] = useState<Project[]>([]);
@@ -51,8 +64,24 @@ export default function ConversationDock() {
   const [decision, setDecision] = useState<ConversationResponse['decision']>();
   const [suggestedMission, setSuggestedMission] = useState<SuggestedMission>();
   const [createdMission, setCreatedMission] = useState<Mission>();
+  const [voiceState, setVoiceState] = useState<VoiceState>('idle');
+  const [interimTranscript, setInterimTranscript] = useState('');
+  const [voiceReplies, setVoiceReplies] = useState(() => localStorage.getItem('taso-voice-replies') !== 'false');
+  const [handsFree, setHandsFree] = useState(() => localStorage.getItem('taso-hands-free') === 'true');
+  const recognitionRef = useRef<any>(null);
+  const shouldRestartListeningRef = useRef(false);
+  const speakingRef = useRef(false);
 
   const activeProject = useMemo(() => projects.find((project) => project.id === projectId), [projects, projectId]);
+  const speechRecognitionSupported = typeof window !== 'undefined' && Boolean((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition);
+  const speechSynthesisSupported = typeof window !== 'undefined' && 'speechSynthesis' in window;
+
+  function publishVoiceState(next: VoiceState, transcript = interimTranscript) {
+    setVoiceState(next);
+    window.dispatchEvent(new CustomEvent('taso:conversation-state', {
+      detail: { state: next, projectId, transcript },
+    }));
+  }
 
   async function loadProjects() {
     const payload = await request<{ projects: Project[] }>('/v1/projects');
@@ -67,6 +96,14 @@ export default function ConversationDock() {
   }
 
   useEffect(() => {
+    localStorage.setItem('taso-voice-replies', String(voiceReplies));
+  }, [voiceReplies]);
+
+  useEffect(() => {
+    localStorage.setItem('taso-hands-free', String(handsFree));
+  }, [handsFree]);
+
+  useEffect(() => {
     if (!open) return;
     void loadProjects().catch((cause) => setError((cause as Error).message));
   }, [open]);
@@ -76,32 +113,159 @@ export default function ConversationDock() {
     setDecision(undefined);
     setSuggestedMission(undefined);
     setCreatedMission(undefined);
+    setInterimTranscript('');
+    shouldRestartListeningRef.current = false;
+    recognitionRef.current?.stop?.();
+    publishVoiceState('idle', '');
     void loadMessages(projectId).catch((cause) => setError((cause as Error).message));
   }, [open, projectId]);
+
+  useEffect(() => () => {
+    shouldRestartListeningRef.current = false;
+    recognitionRef.current?.stop?.();
+    if (speechSynthesisSupported) window.speechSynthesis.cancel();
+  }, [speechSynthesisSupported]);
+
+  function speakAssistant(text: string) {
+    if (!voiceReplies || !speechSynthesisSupported || !text.trim()) {
+      publishVoiceState('idle', '');
+      if (handsFree && shouldRestartListeningRef.current) window.setTimeout(() => startVoice(true), 250);
+      return;
+    }
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = 'tr-TR';
+    utterance.rate = 1;
+    utterance.pitch = 1;
+    utterance.onstart = () => {
+      speakingRef.current = true;
+      publishVoiceState('speaking', '');
+    };
+    utterance.onerror = () => {
+      speakingRef.current = false;
+      publishVoiceState('error', '');
+    };
+    utterance.onend = () => {
+      speakingRef.current = false;
+      publishVoiceState('idle', '');
+      if (handsFree && shouldRestartListeningRef.current) window.setTimeout(() => startVoice(true), 300);
+    };
+    window.speechSynthesis.speak(utterance);
+  }
+
+  async function sendConversation(text: string, source: 'text' | 'voice' = 'text') {
+    const trimmed = text.trim();
+    if (!trimmed || !projectId || busy) return;
+    setBusy(true);
+    setError('');
+    setSuggestedMission(undefined);
+    setCreatedMission(undefined);
+    if (source === 'voice') publishVoiceState('thinking', trimmed);
+    try {
+      const payload = await request<ConversationResponse>('/v1/conversations/messages', {
+        method: 'POST',
+        body: JSON.stringify({ projectId, text: trimmed, source }),
+      });
+      setMessages((current) => [...current, payload.userMessage, payload.assistantMessage]);
+      setDecision(payload.decision);
+      setSuggestedMission(payload.suggestedMission);
+      setInterimTranscript('');
+      if (payload.conversation?.model) setProvider(`${payload.conversation.provider ?? 'AI'} · ${payload.conversation.model}`);
+      if (source === 'voice') speakAssistant(payload.assistantMessage.content);
+      else publishVoiceState('idle', '');
+      window.dispatchEvent(new CustomEvent('taso:conversation-response', {
+        detail: {
+          projectId,
+          decision: payload.decision,
+          assistantMessage: payload.assistantMessage,
+          suggestedMission: payload.suggestedMission,
+        },
+      }));
+    } catch (cause) {
+      const message = (cause as Error).message;
+      setError(message);
+      publishVoiceState(source === 'voice' ? 'error' : 'idle', '');
+      if (source === 'voice' && voiceReplies) speakAssistant('Bu isteği işlerken bir hata oluştu. Executor ve bağlantı durumunu kontrol edebilirsin.');
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function submit(event: FormEvent) {
     event.preventDefault();
     const text = input.trim();
     if (!text || !projectId || busy) return;
-    setBusy(true);
     setInput('');
-    setError('');
-    setSuggestedMission(undefined);
-    setCreatedMission(undefined);
-    try {
-      const payload = await request<ConversationResponse>('/v1/conversations/messages', {
-        method: 'POST',
-        body: JSON.stringify({ projectId, text }),
-      });
-      setMessages((current) => [...current, payload.userMessage, payload.assistantMessage]);
-      setDecision(payload.decision);
-      setSuggestedMission(payload.suggestedMission);
-      if (payload.conversation?.model) setProvider(`${payload.conversation.provider ?? 'AI'} · ${payload.conversation.model}`);
-    } catch (cause) {
-      setError((cause as Error).message);
-    } finally {
-      setBusy(false);
+    await sendConversation(text, 'text');
+  }
+
+  function startVoice(restart = false) {
+    if (!speechRecognitionSupported) {
+      publishVoiceState('unsupported', '');
+      setError('Bu tarayıcı konuşma tanımayı desteklemiyor. Android Chrome veya uyumlu bir tarayıcı kullan.');
+      return;
     }
+
+    if (!restart && (voiceState === 'listening' || voiceState === 'speaking')) {
+      shouldRestartListeningRef.current = false;
+      recognitionRef.current?.stop?.();
+      if (speechSynthesisSupported) window.speechSynthesis.cancel();
+      speakingRef.current = false;
+      setInterimTranscript('');
+      publishVoiceState('idle', '');
+      return;
+    }
+
+    if (speakingRef.current && speechSynthesisSupported) window.speechSynthesis.cancel();
+
+    const Recognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    const recognition = new Recognition();
+    recognition.lang = 'tr-TR';
+    recognition.continuous = false;
+    recognition.interimResults = true;
+    recognition.maxAlternatives = 1;
+
+    recognition.onstart = () => {
+      shouldRestartListeningRef.current = handsFree;
+      setInterimTranscript('');
+      publishVoiceState('listening', '');
+    };
+
+    recognition.onresult = (event: any) => {
+      let interim = '';
+      let finalText = '';
+      for (let index = event.resultIndex; index < event.results.length; index += 1) {
+        const part = event.results[index][0]?.transcript ?? '';
+        if (event.results[index].isFinal) finalText += part;
+        else interim += part;
+      }
+      const liveText = (finalText || interim).trim();
+      setInterimTranscript(liveText);
+      publishVoiceState('listening', liveText);
+      if (finalText.trim()) {
+        recognition.stop();
+        void sendConversation(finalText.trim(), 'voice');
+      }
+    };
+
+    recognition.onerror = (event: any) => {
+      const code = event.error ?? 'unknown';
+      if (code === 'aborted' || code === 'no-speech') {
+        publishVoiceState('idle', '');
+        return;
+      }
+      shouldRestartListeningRef.current = false;
+      setError(`Sesli giriş hatası: ${code}`);
+      publishVoiceState('error', '');
+    };
+
+    recognition.onend = () => {
+      recognitionRef.current = null;
+      if (voiceState === 'listening' && !busy && !speakingRef.current) publishVoiceState('idle', '');
+    };
+
+    recognitionRef.current = recognition;
+    recognition.start();
   }
 
   async function createSuggestedMission() {
@@ -115,6 +279,7 @@ export default function ConversationDock() {
       });
       setCreatedMission(payload.mission);
       setSuggestedMission(undefined);
+      window.dispatchEvent(new CustomEvent('taso:mission-created', { detail: { mission: payload.mission, projectId } }));
     } catch (cause) {
       setError((cause as Error).message);
     } finally {
@@ -123,10 +288,10 @@ export default function ConversationDock() {
   }
 
   return (
-    <div className={open ? 'conversation-v2 open' : 'conversation-v2'}>
+    <div className={open ? `conversation-v2 open voice-${voiceState}` : `conversation-v2 voice-${voiceState}`}>
       <button className="conversation-v2-toggle" type="button" onClick={() => setOpen((value) => !value)}>
-        <span className="conversation-v2-orb">T</span>
-        <span><b>TASO CONVERSATION V2</b><small>{open ? 'Workspace sohbeti' : 'Taso ile konuş'}</small></span>
+        <span className={`conversation-v2-orb state-${voiceState}`}>T</span>
+        <span><b>TASO CONVERSATION V2</b><small>{open ? `${activeProject?.name ?? 'Workspace'} · ${voiceStateLabel(voiceState)}` : 'Taso ile konuş'}</small></span>
         <span>{open ? '×' : '↑'}</span>
       </button>
       {open && <section className="conversation-v2-panel">
@@ -137,8 +302,23 @@ export default function ConversationDock() {
         <select value={projectId} onChange={(event) => setProjectId(event.target.value)} aria-label="Conversation workspace">
           {projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
         </select>
+
+        <div className={`conversation-v2-voice-state state-${voiceState}`} aria-live="polite">
+          <div className="voice-wave" aria-hidden="true"><i /><i /><i /><i /><i /></div>
+          <div><strong>{voiceStateLabel(voiceState)}</strong><small>{interimTranscript || (voiceState === 'listening' ? 'Konuşabilirsin…' : voiceState === 'thinking' ? 'Taso yanıt hazırlıyor…' : voiceState === 'speaking' ? 'Taso yanıt veriyor…' : 'Metin veya ses ile devam et')}</small></div>
+          <button type="button" className={voiceState === 'listening' || voiceState === 'speaking' ? 'voice-session-button active' : 'voice-session-button'} onClick={() => startVoice(false)} disabled={busy && voiceState !== 'speaking'} aria-label={voiceState === 'listening' || voiceState === 'speaking' ? 'Ses oturumunu durdur' : 'Taso ile konuş'}>
+            {voiceState === 'listening' || voiceState === 'speaking' ? '■' : '🎙'}
+          </button>
+        </div>
+
+        <div className="conversation-v2-voice-options">
+          <button type="button" className={voiceReplies ? 'active' : ''} onClick={() => setVoiceReplies((value) => !value)}>Sesli yanıt {voiceReplies ? 'Açık' : 'Kapalı'}</button>
+          <button type="button" className={handsFree ? 'active' : ''} onClick={() => setHandsFree((value) => !value)}>Hands-free {handsFree ? 'Açık' : 'Kapalı'}</button>
+          <span>Chat ≠ Mission</span>
+        </div>
+
         <div className="conversation-v2-messages">
-          {!messages.length && <div className="conversation-v2-empty"><strong>Taso hazır.</strong><span>Normal sohbet mission oluşturmaz. Bir işlem istersen Taso bunu execution intent olarak ayırır.</span></div>}
+          {!messages.length && <div className="conversation-v2-empty"><strong>Taso hazır.</strong><span>Normal sohbet mission oluşturmaz. Konuşabilir, soru sorabilir veya bir işlem isteyebilirsin. Yürütme gerekiyorsa Taso önce açık bir mission önerisi gösterir.</span></div>}
           {messages.map((message) => <article key={message.id} className={`conversation-v2-message ${message.role}`}>
             <small>{message.role === 'user' ? 'SEN' : message.role === 'assistant' ? 'TASO' : 'SYSTEM'} {message.intent ? `· ${message.intent}` : ''}</small>
             <p>{message.content}</p>
@@ -148,15 +328,15 @@ export default function ConversationDock() {
         {suggestedMission && <div className="conversation-v2-mission-card">
           <div><span>MISSION ÖNERİSİ</span><strong>{suggestedMission.riskLevel}</strong><p>{suggestedMission.objective}</p></div>
           <button type="button" onClick={() => void createSuggestedMission()} disabled={busy}>{busy ? '…' : 'Mission oluştur'}</button>
-          <small>Bu buton açıkça yürütme başlatır. Sohbet tek başına repository işlemi yapmaz.</small>
+          <small>Bu aksiyon yürütmeyi açıkça başlatır. Sesli veya yazılı sohbet tek başına repository işlemi yapmaz.</small>
         </div>}
         {createdMission && <div className="conversation-v2-created"><strong>Mission oluşturuldu</strong><span>{createdMission.status} · {createdMission.id}</span>{createdMission.status === 'waiting_approval' && <small>HIGH IMPACT: insan onayı bekleniyor.</small>}</div>}
         {error && <div className="conversation-v2-error">{error}</div>}
         <form onSubmit={submit}>
-          <input value={input} onChange={(event) => setInput(event.target.value)} placeholder="Taso'ya yaz…" disabled={busy || !projectId} />
+          <input value={input} onChange={(event) => setInput(event.target.value)} placeholder="Taso'ya yaz veya mikrofonu kullan…" disabled={busy || !projectId} />
           <button type="submit" disabled={busy || !projectId || !input.trim()}>{busy ? '…' : 'Gönder'}</button>
         </form>
-        <footer>Chat ≠ Mission · Project isolated · Explicit execution boundary · V2 Preview</footer>
+        <footer>Conversational voice · Project isolated · Explicit execution boundary · V2 Preview</footer>
       </section>}
     </div>
   );
