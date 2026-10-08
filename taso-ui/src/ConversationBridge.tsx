@@ -102,6 +102,30 @@ export default function ConversationBridge() {
     localStorage.setItem('taso-voice-replies', String(voiceReplies));
   }, [voiceReplies]);
 
+  useEffect(() => {
+    if (!target) return;
+    target.classList.toggle('conversation-listening', voiceState === 'listening');
+    target.classList.toggle('conversation-thinking', voiceState === 'thinking');
+    target.classList.toggle('conversation-speaking', voiceState === 'speaking');
+    return () => {
+      target.classList.remove('conversation-listening', 'conversation-thinking', 'conversation-speaking');
+    };
+  }, [target, voiceState]);
+
+  useEffect(() => {
+    const interceptMobileTaso = (event: Event) => {
+      const origin = event.target as Element | null;
+      const button = origin?.closest?.('.mobile-nav .mobile-taso');
+      if (!button) return;
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
+      startVoice();
+    };
+    document.addEventListener('click', interceptMobileTaso, true);
+    return () => document.removeEventListener('click', interceptMobileTaso, true);
+  }, [voiceState, busy, projectId]);
+
   useEffect(() => () => {
     recognitionRef.current?.stop?.();
     if ('speechSynthesis' in window) window.speechSynthesis.cancel();
@@ -158,8 +182,14 @@ export default function ConversationBridge() {
   }
 
   function startVoice() {
+    if (busy) return;
     if (voiceState === 'listening') {
       recognitionRef.current?.stop?.();
+      setVoiceState('idle');
+      return;
+    }
+    if (voiceState === 'speaking' && 'speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
       setVoiceState('idle');
       return;
     }
