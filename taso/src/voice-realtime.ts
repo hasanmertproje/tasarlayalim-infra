@@ -4,6 +4,11 @@ function enabled(value: string | undefined) {
   return value?.trim().toLowerCase() === 'true';
 }
 
+function clamp(value: number | undefined, min: number, max: number, fallback: number) {
+  if (!Number.isFinite(value)) return fallback;
+  return Math.min(max, Math.max(min, value as number));
+}
+
 export interface VoiceRealtimeStatus {
   provider: 'openai-realtime';
   transport: 'webrtc';
@@ -19,6 +24,10 @@ export interface VoiceRealtimeStatus {
 export interface VoiceWorkspaceContext {
   projectId: string;
   workspaceName?: string;
+}
+
+export interface VoiceSessionOptions {
+  speed?: number;
 }
 
 export class VoiceRealtimeRuntime {
@@ -65,7 +74,7 @@ export class VoiceRealtimeRuntime {
     ].join('\n');
   }
 
-  async createSession(context: VoiceWorkspaceContext, sdp: string) {
+  async createSession(context: VoiceWorkspaceContext, sdp: string, options: VoiceSessionOptions = {}) {
     const status = this.status();
     if (!status.enabled) throw new Error('Realtime voice is disabled.');
     if (!status.paidAllowed) throw new Error('Paid realtime voice is not allowed by policy.');
@@ -73,13 +82,33 @@ export class VoiceRealtimeRuntime {
     if (!context.projectId.trim()) throw new Error('projectId is required.');
     if (!sdp.trim() || sdp.length > 128_000) throw new Error('Invalid SDP offer.');
 
+    const speed = clamp(options.speed, 0.75, 1.15, 0.95);
     const form = new FormData();
     form.set('sdp', sdp);
     form.set('session', JSON.stringify({
       type: 'realtime',
       model: this.model,
       instructions: this.instructions(context),
-      audio: { output: { voice: this.voice } },
+      output_modalities: ['audio'],
+      audio: {
+        input: {
+          transcription: {
+            model: 'gpt-realtime-whisper',
+            language: 'tr',
+            delay: 'low',
+          },
+          turn_detection: {
+            type: 'semantic_vad',
+            eagerness: 'medium',
+            create_response: true,
+            interrupt_response: true,
+          },
+        },
+        output: {
+          voice: this.voice,
+          speed,
+        },
+      },
     }));
 
     const headers: Record<string, string> = { authorization: `Bearer ${this.apiKey}` };
@@ -102,6 +131,7 @@ export class VoiceRealtimeRuntime {
       provider: status.provider,
       model: status.model,
       voice: status.voice,
+      speed,
       transport: status.transport,
     };
   }
