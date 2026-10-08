@@ -10,6 +10,7 @@ from typing import Literal
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
+from starlette.background import BackgroundTask
 
 VOICE_DIR = Path(os.getenv("TASO_VOICE_PACK_DIR", "/voices"))
 MANIFEST_PATH = Path(os.getenv("TASO_VOICE_MANIFEST", str(VOICE_DIR / "voices.json")))
@@ -47,12 +48,13 @@ def load_manifest() -> list[VoicePack]:
         raise RuntimeError(f"Invalid voice manifest: {exc}") from exc
 
     available: list[VoicePack] = []
+    voice_root = VOICE_DIR.resolve()
     for pack in packs:
         if not pack.commercialAllowed:
             continue
         model = (VOICE_DIR / pack.model).resolve()
         config = (VOICE_DIR / pack.config).resolve()
-        if VOICE_DIR.resolve() not in model.parents or VOICE_DIR.resolve() not in config.parents:
+        if voice_root not in model.parents or voice_root not in config.parents:
             continue
         if model.is_file() and config.is_file():
             available.append(pack)
@@ -103,7 +105,6 @@ def synthesize(req: SynthesisRequest):
         "--output_file", output.name,
     ]
     if req.speed:
-        # Piper uses length scale inversely: lower = faster, higher = slower.
         command.extend(["--length_scale", str(round(1 / req.speed, 3))])
 
     try:
@@ -127,5 +128,5 @@ def synthesize(req: SynthesisRequest):
         output.name,
         media_type="audio/wav",
         filename="taso.wav",
-        background=None,
+        background=BackgroundTask(Path(output.name).unlink, missing_ok=True),
     )
