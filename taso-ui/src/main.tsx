@@ -7,6 +7,7 @@ import './final.css';
 import './premium.css';
 import './agent-ops.css';
 import './agent-ops-page.css';
+import './agent-ops-interactions.css';
 
 const rootElement = document.getElementById('root')!;
 
