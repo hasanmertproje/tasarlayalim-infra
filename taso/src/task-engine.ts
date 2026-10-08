@@ -159,7 +159,7 @@ export class TaskEngine {
         nextRetryAt: undefined,
       };
       this.missions.set(id, mission);
-      this.events.append(id, 'mission.status_changed', 'Planning failed and the automatic retry budget is exhausted.', {
+      this.events.append(id, 'mission.status_changed', `Planning failed and the automatic retry budget is exhausted: ${safeReason}`, {
         status: 'failed',
         retryCount,
         maxRetries,
@@ -183,7 +183,7 @@ export class TaskEngine {
       nextRetryAt,
     };
     this.missions.set(id, mission);
-    this.events.append(id, 'mission.retry_scheduled', `Planning failed; automatic retry ${nextRetryCount}/${maxRetries} scheduled.`, {
+    this.events.append(id, 'mission.retry_scheduled', `Planning failed: ${safeReason} Automatic retry ${nextRetryCount}/${maxRetries} scheduled.`, {
       status: 'queued',
       retryCount: nextRetryCount,
       maxRetries,
