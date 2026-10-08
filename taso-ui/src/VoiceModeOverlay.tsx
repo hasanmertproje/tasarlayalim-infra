@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
+import { GeminiLiveVoiceClient } from './GeminiLiveVoiceClient';
 import {
   RealtimeVoiceClient,
   getRealtimeVoiceStatus,
+  type RealtimeVoiceCallbacks,
   type RealtimeVoiceState,
   type RealtimeVoiceStatus,
   type VoiceMissionSuggestion,
@@ -14,6 +16,7 @@ type BrowserVoiceState = 'idle' | 'listening' | 'thinking' | 'speaking' | 'error
 type Project = { id: string; name: string };
 type Mission = { id: string; status: string; objective: string };
 type DisplayVoiceState = BrowserVoiceState | RealtimeVoiceState;
+type LiveClient = Pick<RealtimeVoiceClient, 'connect' | 'interrupt' | 'setVolume' | 'stop'>;
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_URL}${path}`, {
@@ -75,16 +78,17 @@ export default function VoiceModeOverlay() {
   const [suggestedMission, setSuggestedMission] = useState<VoiceMissionSuggestion>();
   const [createdMission, setCreatedMission] = useState<Mission>();
 
-  const clientRef = useRef<RealtimeVoiceClient | null>(null);
+  const clientRef = useRef<LiveClient | null>(null);
   const realtimeStatusRef = useRef<RealtimeVoiceStatus | undefined>(undefined);
   const realtimeActiveRef = useRef(false);
   const fallbackBypassRef = useRef(false);
 
   useEffect(() => { realtimeStatusRef.current = realtimeStatus; }, [realtimeStatus]);
   useEffect(() => { realtimeActiveRef.current = realtimeActive; }, [realtimeActive]);
+  useEffect(() => () => clientRef.current?.stop(), []);
 
-  useEffect(() => {
-    const client = new RealtimeVoiceClient({
+  function buildLiveClient(provider: RealtimeVoiceStatus['provider']): LiveClient {
+    const callbacks: RealtimeVoiceCallbacks = {
       onState: setRealtimeState,
       onUserTranscript: (text) => setRealtimeHeard(text),
       onAssistantTranscript: (text) => setRealtimeReply(text),
@@ -100,10 +104,11 @@ export default function VoiceModeOverlay() {
           setRealtimeActive(false);
         }
       },
-    });
-    clientRef.current = client;
-    return () => client.stop();
-  }, []);
+    };
+    return provider === 'gemini-live'
+      ? new GeminiLiveVoiceClient(callbacks)
+      : new RealtimeVoiceClient(callbacks);
+  }
 
   async function refreshRealtimeStatus() {
     try {
@@ -196,9 +201,12 @@ export default function VoiceModeOverlay() {
 
     try {
       const [status, project] = await Promise.all([refreshRealtimeStatus(), resolveActiveProject()]);
-      if (!status?.ready) throw new Error('Realtime voice hazır değil. Cihaz sesiyle devam ediliyor.');
+      if (!status?.ready) throw new Error('Canlı neural voice hazır değil. Otomatik cihaz TTS fallback kapalı.');
       if (!project) throw new Error('Aktif workspace bulunamadı.');
-      await clientRef.current?.connect({
+      clientRef.current?.stop();
+      const client = buildLiveClient(status.provider);
+      clientRef.current = client;
+      await client.connect({
         projectId: project.id,
         workspaceName: project.name,
         speed: storedNumber('taso-voice-rate', 0.95),
@@ -209,7 +217,8 @@ export default function VoiceModeOverlay() {
       realtimeActiveRef.current = false;
       setRealtimeActive(false);
       setRealtimeError((error as Error).message);
-      startBrowserFallback();
+      // Important: do not silently switch a Gemini/Freya session to device TTS.
+      // Browser fallback remains available only when no realtime provider is configured.
     }
   }
 
@@ -292,7 +301,11 @@ export default function VoiceModeOverlay() {
 
   if (!open) return null;
 
-  const engineLabel = realtimeActive ? `NEURAL · ${realtimeStatus?.model ?? 'REALTIME'}` : 'CİHAZ TTS';
+  const engineLabel = realtimeActive
+    ? realtimeStatus?.provider === 'gemini-live'
+      ? `GEMINI LIVE · ${realtimeStatus.model}`
+      : `NEURAL · ${realtimeStatus?.model ?? 'REALTIME'}`
+    : 'LOCAL / CİHAZ';
   const interruptDisabled = realtimeActive ? state !== 'speaking' : state === 'thinking' || state === 'connecting';
 
   return (
