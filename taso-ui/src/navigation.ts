@@ -51,7 +51,9 @@ export function navigateTaso(screen: TasoScreen) {
 
 export function subscribeTasoNavigation(listener: Listener) {
   listeners.add(listener);
-  return () => listeners.delete(listener);
+  return () => {
+    listeners.delete(listener);
+  };
 }
 
 export function useTasoNavigation(): readonly [TasoScreen, (screen: TasoScreen) => void] {
