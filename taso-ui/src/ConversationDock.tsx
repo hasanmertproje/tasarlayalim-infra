@@ -11,7 +11,11 @@ type ConversationMessage = {
   intent?: string;
   createdAt: string;
 };
-type SuggestedMission = { objective: string; riskLevel: 'READ' | 'WRITE' | 'HIGH_IMPACT'; dataClass: 'public' | 'private_code' | 'sensitive' };
+type SuggestedMission = {
+  objective: string;
+  riskLevel: 'READ' | 'WRITE' | 'HIGH_IMPACT';
+  dataClass: 'public' | 'private_code' | 'sensitive';
+};
 type ConversationResponse = {
   decision: { intent: string; executionRequested: boolean; suggestedRisk?: string; confidence: number };
   userMessage: ConversationMessage;
@@ -53,7 +57,7 @@ function voiceStateLabel(state: VoiceState) {
 }
 
 export default function ConversationDock() {
-  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectId, setProjectId] = useState('');
   const [messages, setMessages] = useState<ConversationMessage[]>([]);
@@ -78,9 +82,7 @@ export default function ConversationDock() {
 
   function publishVoiceState(next: VoiceState, transcript = interimTranscript) {
     setVoiceState(next);
-    window.dispatchEvent(new CustomEvent('taso:conversation-state', {
-      detail: { state: next, projectId, transcript },
-    }));
+    window.dispatchEvent(new CustomEvent('taso:conversation-state', { detail: { state: next, projectId, transcript } }));
   }
 
   async function loadProjects() {
@@ -96,6 +98,28 @@ export default function ConversationDock() {
   }
 
   useEffect(() => {
+    void loadProjects().catch((cause) => setError((cause as Error).message));
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      const activeTab = document.querySelector<HTMLButtonElement>('.project-tab.active');
+      const name = activeTab?.textContent?.trim();
+      if (!name) return;
+      const match = projects.find((project) => project.name === name);
+      if (match && match.id !== projectId) setProjectId(match.id);
+    }, 350);
+    return () => window.clearInterval(timer);
+  }, [projects, projectId]);
+
+  useEffect(() => {
+    const node = rootRef.current;
+    const target = document.querySelector('.taso-panel');
+    if (!node || !target || target.contains(node)) return;
+    target.appendChild(node);
+  });
+
+  useEffect(() => {
     localStorage.setItem('taso-voice-replies', String(voiceReplies));
   }, [voiceReplies]);
 
@@ -104,12 +128,7 @@ export default function ConversationDock() {
   }, [handsFree]);
 
   useEffect(() => {
-    if (!open) return;
-    void loadProjects().catch((cause) => setError((cause as Error).message));
-  }, [open]);
-
-  useEffect(() => {
-    if (!open || !projectId) return;
+    if (!projectId) return;
     setDecision(undefined);
     setSuggestedMission(undefined);
     setCreatedMission(undefined);
@@ -118,7 +137,7 @@ export default function ConversationDock() {
     recognitionRef.current?.stop?.();
     publishVoiceState('idle', '');
     void loadMessages(projectId).catch((cause) => setError((cause as Error).message));
-  }, [open, projectId]);
+  }, [projectId]);
 
   useEffect(() => () => {
     shouldRestartListeningRef.current = false;
@@ -160,7 +179,7 @@ export default function ConversationDock() {
     setError('');
     setSuggestedMission(undefined);
     setCreatedMission(undefined);
-    if (source === 'voice') publishVoiceState('thinking', trimmed);
+    publishVoiceState('thinking', trimmed);
     try {
       const payload = await request<ConversationResponse>('/v1/conversations/messages', {
         method: 'POST',
@@ -171,21 +190,14 @@ export default function ConversationDock() {
       setSuggestedMission(payload.suggestedMission);
       setInterimTranscript('');
       if (payload.conversation?.model) setProvider(`${payload.conversation.provider ?? 'AI'} · ${payload.conversation.model}`);
-      if (source === 'voice') speakAssistant(payload.assistantMessage.content);
+      if (voiceReplies) speakAssistant(payload.assistantMessage.content);
       else publishVoiceState('idle', '');
       window.dispatchEvent(new CustomEvent('taso:conversation-response', {
-        detail: {
-          projectId,
-          decision: payload.decision,
-          assistantMessage: payload.assistantMessage,
-          suggestedMission: payload.suggestedMission,
-        },
+        detail: { projectId, decision: payload.decision, assistantMessage: payload.assistantMessage, suggestedMission: payload.suggestedMission },
       }));
     } catch (cause) {
-      const message = (cause as Error).message;
-      setError(message);
-      publishVoiceState(source === 'voice' ? 'error' : 'idle', '');
-      if (source === 'voice' && voiceReplies) speakAssistant('Bu isteği işlerken bir hata oluştu. Executor ve bağlantı durumunu kontrol edebilirsin.');
+      setError((cause as Error).message);
+      publishVoiceState('error', '');
     } finally {
       setBusy(false);
     }
@@ -205,7 +217,6 @@ export default function ConversationDock() {
       setError('Bu tarayıcı konuşma tanımayı desteklemiyor. Android Chrome veya uyumlu bir tarayıcı kullan.');
       return;
     }
-
     if (!restart && (voiceState === 'listening' || voiceState === 'speaking')) {
       shouldRestartListeningRef.current = false;
       recognitionRef.current?.stop?.();
@@ -215,22 +226,18 @@ export default function ConversationDock() {
       publishVoiceState('idle', '');
       return;
     }
-
     if (speakingRef.current && speechSynthesisSupported) window.speechSynthesis.cancel();
-
     const Recognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     const recognition = new Recognition();
     recognition.lang = 'tr-TR';
     recognition.continuous = false;
     recognition.interimResults = true;
     recognition.maxAlternatives = 1;
-
     recognition.onstart = () => {
       shouldRestartListeningRef.current = handsFree;
       setInterimTranscript('');
       publishVoiceState('listening', '');
     };
-
     recognition.onresult = (event: any) => {
       let interim = '';
       let finalText = '';
@@ -247,7 +254,6 @@ export default function ConversationDock() {
         void sendConversation(finalText.trim(), 'voice');
       }
     };
-
     recognition.onerror = (event: any) => {
       const code = event.error ?? 'unknown';
       if (code === 'aborted' || code === 'no-speech') {
@@ -258,12 +264,10 @@ export default function ConversationDock() {
       setError(`Sesli giriş hatası: ${code}`);
       publishVoiceState('error', '');
     };
-
     recognition.onend = () => {
       recognitionRef.current = null;
-      if (voiceState === 'listening' && !busy && !speakingRef.current) publishVoiceState('idle', '');
+      if (!busy && !speakingRef.current) publishVoiceState('idle', '');
     };
-
     recognitionRef.current = recognition;
     recognition.start();
   }
@@ -288,37 +292,26 @@ export default function ConversationDock() {
   }
 
   return (
-    <div className={open ? `conversation-v2 open voice-${voiceState}` : `conversation-v2 voice-${voiceState}`}>
-      <button className="conversation-v2-toggle" type="button" onClick={() => setOpen((value) => !value)}>
-        <span className={`conversation-v2-orb state-${voiceState}`}>T</span>
-        <span><b>TASO CONVERSATION V2</b><small>{open ? `${activeProject?.name ?? 'Workspace'} · ${voiceStateLabel(voiceState)}` : 'Taso ile konuş'}</small></span>
-        <span>{open ? '×' : '↑'}</span>
-      </button>
-      {open && <section className="conversation-v2-panel">
+    <div ref={rootRef} className={`conversation-v2 embedded voice-${voiceState}`}>
+      <section className="conversation-v2-panel">
         <header>
-          <div><span>CONVERSATION</span><strong>{activeProject?.name ?? 'Workspace seç'}</strong></div>
+          <div><span>CONVERSATION</span><strong>{activeProject?.name ?? 'Workspace'}</strong></div>
           <small>{provider}</small>
         </header>
-        <select value={projectId} onChange={(event) => setProjectId(event.target.value)} aria-label="Conversation workspace">
-          {projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
-        </select>
-
         <div className={`conversation-v2-voice-state state-${voiceState}`} aria-live="polite">
           <div className="voice-wave" aria-hidden="true"><i /><i /><i /><i /><i /></div>
-          <div><strong>{voiceStateLabel(voiceState)}</strong><small>{interimTranscript || (voiceState === 'listening' ? 'Konuşabilirsin…' : voiceState === 'thinking' ? 'Taso yanıt hazırlıyor…' : voiceState === 'speaking' ? 'Taso yanıt veriyor…' : 'Metin veya ses ile devam et')}</small></div>
-          <button type="button" className={voiceState === 'listening' || voiceState === 'speaking' ? 'voice-session-button active' : 'voice-session-button'} onClick={() => startVoice(false)} disabled={busy && voiceState !== 'speaking'} aria-label={voiceState === 'listening' || voiceState === 'speaking' ? 'Ses oturumunu durdur' : 'Taso ile konuş'}>
+          <div><strong>{voiceStateLabel(voiceState)}</strong><small>{interimTranscript || (voiceState === 'listening' ? 'Konuşabilirsin…' : voiceState === 'thinking' ? 'Taso yanıt hazırlıyor…' : voiceState === 'speaking' ? 'Taso yanıt veriyor…' : 'Taso ile yaz veya konuş')}</small></div>
+          <button type="button" className={voiceState === 'listening' || voiceState === 'speaking' ? 'voice-session-button active' : 'voice-session-button'} onClick={() => startVoice(false)} disabled={busy && voiceState !== 'speaking'} aria-label="Taso ile konuş">
             {voiceState === 'listening' || voiceState === 'speaking' ? '■' : '🎙'}
           </button>
         </div>
-
         <div className="conversation-v2-voice-options">
           <button type="button" className={voiceReplies ? 'active' : ''} onClick={() => setVoiceReplies((value) => !value)}>Sesli yanıt {voiceReplies ? 'Açık' : 'Kapalı'}</button>
           <button type="button" className={handsFree ? 'active' : ''} onClick={() => setHandsFree((value) => !value)}>Hands-free {handsFree ? 'Açık' : 'Kapalı'}</button>
           <span>Chat ≠ Mission</span>
         </div>
-
         <div className="conversation-v2-messages">
-          {!messages.length && <div className="conversation-v2-empty"><strong>Taso hazır.</strong><span>Normal sohbet mission oluşturmaz. Konuşabilir, soru sorabilir veya bir işlem isteyebilirsin. Yürütme gerekiyorsa Taso önce açık bir mission önerisi gösterir.</span></div>}
+          {!messages.length && <div className="conversation-v2-empty"><strong>Taso hazır.</strong><span>Normal sohbet mission oluşturmaz. Yürütme gerektiren bir istek algılanırsa önce açık bir mission önerisi gösterilir.</span></div>}
           {messages.map((message) => <article key={message.id} className={`conversation-v2-message ${message.role}`}>
             <small>{message.role === 'user' ? 'SEN' : message.role === 'assistant' ? 'TASO' : 'SYSTEM'} {message.intent ? `· ${message.intent}` : ''}</small>
             <p>{message.content}</p>
@@ -328,16 +321,16 @@ export default function ConversationDock() {
         {suggestedMission && <div className="conversation-v2-mission-card">
           <div><span>MISSION ÖNERİSİ</span><strong>{suggestedMission.riskLevel}</strong><p>{suggestedMission.objective}</p></div>
           <button type="button" onClick={() => void createSuggestedMission()} disabled={busy}>{busy ? '…' : 'Mission oluştur'}</button>
-          <small>Bu aksiyon yürütmeyi açıkça başlatır. Sesli veya yazılı sohbet tek başına repository işlemi yapmaz.</small>
+          <small>Bu butona basılmadan repository, branch, CI veya deploy işlemi başlamaz.</small>
         </div>}
         {createdMission && <div className="conversation-v2-created"><strong>Mission oluşturuldu</strong><span>{createdMission.status} · {createdMission.id}</span>{createdMission.status === 'waiting_approval' && <small>HIGH IMPACT: insan onayı bekleniyor.</small>}</div>}
         {error && <div className="conversation-v2-error">{error}</div>}
         <form onSubmit={submit}>
-          <input value={input} onChange={(event) => setInput(event.target.value)} placeholder="Taso'ya yaz veya mikrofonu kullan…" disabled={busy || !projectId} />
+          <input value={input} onChange={(event) => setInput(event.target.value)} placeholder={`${activeProject?.name ?? 'Workspace'} için Taso'ya yaz…`} disabled={busy || !projectId} />
           <button type="submit" disabled={busy || !projectId || !input.trim()}>{busy ? '…' : 'Gönder'}</button>
         </form>
-        <footer>Conversational voice · Project isolated · Explicit execution boundary · V2 Preview</footer>
-      </section>}
+        <footer>Tek konuşma yüzeyi · Project isolated · Explicit execution boundary · V2 Preview</footer>
+      </section>
     </div>
   );
 }
