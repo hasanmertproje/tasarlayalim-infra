@@ -495,6 +495,12 @@ export default function App() {
             </article>
           </aside>
         </section>
+        <section className="live-metrics" aria-label="Canlı operasyon özeti">
+          <article className="panel live-metric"><span>WORKSPACES</span><strong>{projects.length}</strong><small>Core üzerinden kayıtlı</small></article>
+          <article className="panel live-metric"><span>GÖREVLER</span><strong>{projectMissions.length}</strong><small>Seçili workspace</small></article>
+          <article className="panel live-metric"><span>AKTİF İŞLEMLER</span><strong>{projectMissions.filter((mission) => ['queued', 'planning', 'running', 'testing'].includes(mission.status)).length}</strong><small>Core görev durumları</small></article>
+          <article className="panel live-metric"><span>ONAY BEKLEYEN</span><strong>{pendingApprovals.length}</strong><small>Tüm workspace'ler</small></article>
+        </section>
         <section className="lower-grid">
           <article className="panel tasks-panel"><div className="section-head"><span>ACTIVE MISSIONS</span><small>{projectMissions.length} workspace</small></div><MissionTable items={projectMissions.slice(0, 4)} /></article>
           <article className="panel systems-panel"><div className="section-head"><span>SYSTEMS</span><small>verified state</small></div>
@@ -508,8 +514,8 @@ export default function App() {
                 <div><strong>Executor</strong><small>{executorReady ? 'Ready' : 'Not ready'}</small></div>
               </div>
               <div className="system-card">
-                <span className={`system-pulse ${apiStatus}`} />
-                <div><strong>GitHub</strong><small>CI managed externally</small></div>
+                <span className="system-pulse offline" />
+                <div><strong>GitHub CI</strong><small>Canlı CI durumu doğrulanmadı</small></div>
               </div>
             </div>
           </article>
