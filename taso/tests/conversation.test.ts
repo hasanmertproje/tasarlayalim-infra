@@ -3,10 +3,13 @@ import test from 'node:test';
 import { classifyConversationIntent, ConversationStore } from '../src/conversation.js';
 
 test('casual greeting never requests execution', () => {
-  const decision = classifyConversationIntent('hey taso nasılsın');
-  assert.equal(decision.intent, 'CHAT');
-  assert.equal(decision.executionRequested, false);
-  assert.equal(decision.suggestedRisk, undefined);
+  const greetings = ['hey taso nasılsın', 'Hey emo şu anda nasılsın'];
+  for (const greeting of greetings) {
+    const decision = classifyConversationIntent(greeting);
+    assert.equal(decision.intent, 'CHAT');
+    assert.equal(decision.executionRequested, false);
+    assert.equal(decision.suggestedRisk, undefined);
+  }
 });
 
 test('question never requests execution', () => {
