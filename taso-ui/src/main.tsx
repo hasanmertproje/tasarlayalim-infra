@@ -2,14 +2,13 @@ import React, { useEffect } from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
 import AgentOpsDock from './AgentOpsDock';
-import ConversationBridge from './ConversationBridge';
+import ConversationBridgeV2 from './ConversationBridgeV2';
 import IntegrationsCenter from './IntegrationsCenter';
 import KnowledgeCenter from './KnowledgeCenter';
 import MobileNavigationHub from './MobileNavigationHub';
 import SelfImprovementLane from './SelfImprovementLane';
 import TruthSurfaces from './TruthSurfaces';
 import VoiceModeOverlay from './VoiceModeOverlay';
-import { installAndroidTtsCompat } from './android-tts-compat';
 import { isTasoScreen, navigateTaso, useTasoNavigation } from './navigation';
 import './styles.css';
 import './final.css';
@@ -31,8 +30,6 @@ import './voice-mode-overlay.css';
 import './mobile-shell-v4.css';
 import './command-center-v10.css';
 import './truth-surfaces.css';
-
-installAndroidTtsCompat();
 
 const rootElement = document.getElementById('root')!;
 const requestedScreen = new URLSearchParams(window.location.search).get('screen');
@@ -71,7 +68,7 @@ function OperationsSurfaceBridge() {
 
   return (
     <>
-      {activeScreen === 'Command Center' && <ConversationBridge />}
+      {activeScreen === 'Command Center' && <ConversationBridgeV2 />}
       <AgentOpsDock mode={activeScreen === 'AI Agents' ? 'page' : 'dock'} />
       {activeScreen === 'Integrations' && <IntegrationsCenter />}
       {activeScreen === 'Knowledge' && <KnowledgeCenter />}
