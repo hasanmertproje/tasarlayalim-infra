@@ -48,6 +48,43 @@ test('ordinary voice chat never becomes a mission suggestion', async () => {
   }
 });
 
+test('assistant research request stays conversational and creates no mission', async () => {
+  const app = buildVoiceServer();
+  try {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/v1/voice/classify',
+      payload: { projectId: 'workspace-a', text: 'Nvidia içindeki ücretsiz modelleri araştır ve bana karşılaştır.' },
+    });
+    assert.equal(response.statusCode, 200);
+    const payload = response.json();
+    assert.equal(payload.decision.intent, 'READ_REQUEST');
+    assert.equal(payload.decision.executionRequested, false);
+    assert.equal(payload.suggestedMission, undefined);
+  } finally {
+    await app.close();
+  }
+});
+
+test('mentioning secrets or permissions in a question never becomes high impact execution', async () => {
+  const app = buildVoiceServer();
+  try {
+    for (const text of ['Secret key nedir?', 'Yetki sistemi nasıl çalışıyor?', 'Production durumu nedir?']) {
+      const response = await app.inject({
+        method: 'POST',
+        url: '/v1/voice/classify',
+        payload: { projectId: 'workspace-a', text },
+      });
+      assert.equal(response.statusCode, 200);
+      const payload = response.json();
+      assert.equal(payload.decision.executionRequested, false, text);
+      assert.equal(payload.suggestedMission, undefined, text);
+    }
+  } finally {
+    await app.close();
+  }
+});
+
 test('runtime status voice question is deterministic and never execution', async () => {
   const app = buildVoiceServer();
   try {
