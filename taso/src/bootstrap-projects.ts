@@ -15,6 +15,13 @@ export const bootstrapProjects: CreateProjectInput[] = [
     isExisting: true,
   },
   {
+    slug: 'taso-self-improvement',
+    name: 'Taso Self-Improvement',
+    repository: 'hasanmertproje/tasarlayalim-infra',
+    defaultBranch: 'main',
+    isExisting: true,
+  },
+  {
     slug: 'reksa-reklam',
     name: 'Reksa Reklam',
     repository: 'reksareklam',
