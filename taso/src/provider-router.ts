@@ -50,7 +50,7 @@ function externalProvider(
   return {
     id,
     displayName,
-    enabled: Boolean(process.env[envKey]),
+    enabled: Boolean(process.env[`TASO_PROVIDER_${id.toUpperCase().replace(/-/g, '_')}_API_KEY`] || process.env[envKey]),
     costClass,
     strength,
     latency,
