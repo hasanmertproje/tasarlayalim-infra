@@ -1,4 +1,5 @@
-import type { Project } from './domain.js';
+import type { DataClass, Project } from './domain.js';
+import type { ProviderRouter } from './provider-router.js';
 
 export type ConversationTurn = { role: 'user' | 'assistant'; content: string };
 export type ConversationRuntimeContext = {
@@ -6,38 +7,59 @@ export type ConversationRuntimeContext = {
   recentMissions?: Array<{ objective: string; status: string }>;
 };
 
-function firstConfiguredProvider() {
-  const ids = ['NVIDIA', 'GROQ', 'OPENAI'];
-  for (const id of ids) {
-    const prefix = `TASO_PROVIDER_${id}`;
-    const baseUrl = process.env[`${prefix}_BASE_URL`]?.trim();
-    const apiKey = process.env[`${prefix}_API_KEY`]?.trim();
-    const model = process.env[`${prefix}_MODEL`]?.trim();
-    if (baseUrl && apiKey && model) return { id: id.toLowerCase(), baseUrl: baseUrl.replace(/\/$/, ''), apiKey, model };
-  }
-  return undefined;
+type RuntimeConversationProvider = {
+  id: string;
+  baseUrl: string;
+  apiKey: string;
+  model: string;
+};
+
+function envPrefix(id: string) {
+  return `TASO_PROVIDER_${id.toUpperCase().replace(/-/g, '_')}`;
+}
+
+function runtimeProvider(id: string): RuntimeConversationProvider | undefined {
+  const prefix = envPrefix(id);
+  const baseUrl = process.env[`${prefix}_BASE_URL`]?.trim();
+  const apiKey = process.env[`${prefix}_API_KEY`]?.trim();
+  const model = process.env[`${prefix}_MODEL`]?.trim();
+  if (!baseUrl || !apiKey || !model) return undefined;
+  return { id, baseUrl: baseUrl.replace(/\/$/, ''), apiKey, model };
 }
 
 export class ConversationAi {
-  private readonly provider = firstConfiguredProvider();
+  constructor(private readonly router: ProviderRouter) {}
+
+  private select(dataClass: DataClass = 'private_code') {
+    const eligible = this.router.route({ dataClass, paidAi: false, preferFree: true });
+    for (const provider of eligible) {
+      const runtime = runtimeProvider(provider.id);
+      if (runtime) return runtime;
+    }
+    return undefined;
+  }
 
   status() {
-    return this.provider ? { configured: true, provider: this.provider.id, model: this.provider.model } : { configured: false };
+    const provider = this.select('private_code');
+    return provider
+      ? { configured: true, provider: provider.id, model: provider.model, dataClass: 'private_code' as const }
+      : { configured: false, dataClass: 'private_code' as const };
   }
 
   async reply(project: Project, turns: ConversationTurn[], input: string, runtime: ConversationRuntimeContext = {}): Promise<string> {
-    if (!this.provider) throw new Error('No conversational AI provider is configured.');
+    const provider = this.select('private_code');
+    if (!provider) throw new Error('No policy-approved conversational AI provider is configured for private workspace context.');
 
     const runtimeSummary = JSON.stringify({
       activeMission: runtime.activeMission ?? null,
       recentMissions: runtime.recentMissions?.slice(0, 5) ?? [],
     });
 
-    const response = await fetch(`${this.provider.baseUrl}/chat/completions`, {
+    const response = await fetch(`${provider.baseUrl}/chat/completions`, {
       method: 'POST',
-      headers: { authorization: `Bearer ${this.provider.apiKey}`, 'content-type': 'application/json' },
+      headers: { authorization: `Bearer ${provider.apiKey}`, 'content-type': 'application/json' },
       body: JSON.stringify({
-        model: this.provider.model,
+        model: provider.model,
         temperature: 0.35,
         messages: [
           {

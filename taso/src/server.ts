@@ -89,7 +89,7 @@ export function buildServer() {
   persist();
 
   const executor = new MissionExecutor(tasks, projects);
-  const conversationAi = new ConversationAi();
+  const conversationAi = new ConversationAi(router);
   const stopWatchdog = executor.startWatchdog();
   const gatewaySecret = process.env.TASO_GATEWAY_SECRET?.trim();
 
