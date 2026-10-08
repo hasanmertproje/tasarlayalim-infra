@@ -48,7 +48,6 @@ export class BrowserVoiceRuntime {
       this.context ??= new AudioContextCtor();
       if (this.context.state === 'suspended') await this.context.resume();
 
-      // Prime the media/audio path inside the user's gesture without producing audible output.
       const oscillator = this.context.createOscillator();
       const gain = this.context.createGain();
       gain.gain.value = 0.00001;
@@ -58,7 +57,6 @@ export class BrowserVoiceRuntime {
       oscillator.stop(this.context.currentTime + 0.015);
       return true;
     } catch {
-      // Web Speech may still work even when WebAudio unlock is unavailable.
       return true;
     }
   }
@@ -74,8 +72,9 @@ export class BrowserVoiceRuntime {
   }
 
   private chooseVoice(profile: BrowserVoiceProfile, voices: SpeechSynthesisVoice[], fallback: boolean) {
+    if (fallback) return undefined;
     const turkish = voices.filter((voice) => /^tr(?:-|_)/i.test(voice.lang));
-    if (!fallback && profile.voiceName) {
+    if (profile.voiceName) {
       const preferred = turkish.find((voice) => voice.name === profile.voiceName);
       if (preferred) return preferred;
     }
