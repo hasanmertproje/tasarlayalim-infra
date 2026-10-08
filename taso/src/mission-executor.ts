@@ -38,6 +38,8 @@ function isProductionDeploy(mission: Mission) {
   return mission.riskLevel === 'HIGH_IMPACT' && /\b(prod(?:uction)?|canlı|yayın|deploy)\b/i.test(mission.objective);
 }
 
+const PLANNING_TIMEOUT_MS = 180_000;
+
 export class MissionExecutor {
   private readonly active = new Set<string>();
 
@@ -103,19 +105,36 @@ export class MissionExecutor {
     assertRepository(project.repository);
 
     this.tasks.transitionMission(mission.id, 'planning', 'Taso is inspecting the repository and selecting relevant files.');
-    const paths = await this.github.listFiles(project.repository, project.defaultBranch);
+    const deadline = Date.now() + PLANNING_TIMEOUT_MS;
+    const withinDeadline = async <T>(operation: string, work: () => Promise<T>): Promise<T> => {
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) throw new Error(`Planning timeout after ${PLANNING_TIMEOUT_MS / 1000}s during ${operation}.`);
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        return await Promise.race([
+          work(),
+          new Promise<never>((_, reject) => {
+            timer = setTimeout(() => reject(new Error(`Planning timeout after ${PLANNING_TIMEOUT_MS / 1000}s during ${operation}.`)), remaining);
+          }),
+        ]);
+      } finally {
+        if (timer) clearTimeout(timer);
+      }
+    };
+    this.tasks.noteMission(mission.id, 'Planning deadline started.', { timeoutMs: PLANNING_TIMEOUT_MS });
+    const paths = await withinDeadline('repository listing', () => this.github!.listFiles(project.repository, project.defaultBranch));
     if (!paths.length) throw new Error('Repository has no readable source files.');
-    const selected = await this.planner.chooseFiles(project, mission, paths);
+    const selected = await withinDeadline('file selection', () => this.planner!.chooseFiles(project, mission, paths));
     const fallback = ['README.md', 'package.json', 'composer.json'].filter((path) => paths.includes(path));
     const selectedPaths = selected.length ? selected : fallback;
-    const files = await this.github.readFiles(project.repository, project.defaultBranch, selectedPaths);
+    const files = await withinDeadline('file reading', () => this.github!.readFiles(project.repository, project.defaultBranch, selectedPaths));
 
     if (mission.riskLevel === 'READ') {
-      const summary = await this.planner.analyze(project, mission, files);
+      const summary = await withinDeadline('read-only analysis', () => this.planner!.analyze(project, mission, files));
       return this.tasks.transitionMission(mission.id, 'completed', 'Read-only analysis completed.', undefined, { summary, checkState: 'success' });
     }
 
-    const plan = await this.planner.planChanges(project, mission, files);
+    const plan = await withinDeadline('change planning', () => this.planner!.planChanges(project, mission, files));
     if (!plan.files.length) throw new Error('AI planner produced no file changes.');
     const manifest = this.projects.getManifest(project.id);
     assertSafeChanges(mission, plan.files.map((file) => file.path), manifest?.protectedPaths ?? []);
