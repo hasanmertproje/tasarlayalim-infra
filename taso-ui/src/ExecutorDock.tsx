@@ -12,6 +12,9 @@ type MissionExecution = {
   productionUrl?: string;
   checkState?: 'success' | 'failed' | 'pending' | 'missing';
   blockedReason?: string;
+  retryCount?: number;
+  lastFailure?: string;
+  nextRetryAt?: string;
 };
 
 type Mission = {
@@ -19,6 +22,7 @@ type Mission = {
   objective: string;
   status: string;
   updatedAt?: string;
+  autonomous?: { maxRetries?: number };
   execution?: MissionExecution;
 };
 
@@ -26,6 +30,7 @@ type ExecutorState = {
   readyForRead?: boolean;
   readyForWrite?: boolean;
   readyForDeploy?: boolean;
+  planningTimeoutMs?: number;
   ai?: { configured?: boolean; model?: string; privateCode?: boolean };
   github?: { configured?: boolean };
   coolify?: { configured?: boolean; projects?: string[] };
@@ -67,6 +72,13 @@ function stateLabel(status: string) {
     failed: 'Hata', cancelled: 'İptal',
   };
   return labels[status] ?? status;
+}
+
+function formatRetryTime(value?: string) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 }
 
 export default function ExecutorDock() {
@@ -126,7 +138,7 @@ export default function ExecutorDock() {
       {open && <section className="executor-panel" aria-label="Taso Executor">
         <header>
           <div><span>RUNTIME</span><strong>Executor Control</strong></div>
-          <small>Core v{health.version ?? '?'} • {health.state ?? 'unknown'}</small>
+          <small>Core v{health.version ?? '?'} • {health.state ?? 'unknown'}{executor.planningTimeoutMs ? ` • plan ${Math.round(executor.planningTimeoutMs / 1000)}s` : ''}</small>
         </header>
 
         <div className="executor-readiness">
@@ -141,18 +153,24 @@ export default function ExecutorDock() {
         <div className="executor-missions">
           <div className="executor-title"><span>SON GÖREVLER</span><small>{missions.length} toplam</small></div>
           {!latest.length && <p className="executor-empty">Henüz görev yok.</p>}
-          {latest.map((mission) => <article key={mission.id} className={`executor-mission state-${mission.status}`}>
-            <div className="executor-mission-head"><span className="executor-state-dot" /><div><strong>{mission.objective}</strong><small>{stateLabel(mission.status)}</small></div></div>
-            {mission.execution?.summary && <p>{mission.execution.summary}</p>}
-            {mission.execution?.blockedReason && <p className="executor-blocked">{mission.execution.blockedReason}</p>}
-            <div className="executor-links">
-              {mission.execution?.pullRequestUrl && <a href={mission.execution.pullRequestUrl} target="_blank" rel="noreferrer">PR #{mission.execution.pullRequestNumber ?? ''}</a>}
-              {mission.execution?.previewUrl && <a href={mission.execution.previewUrl} target="_blank" rel="noreferrer">Preview</a>}
-              {mission.execution?.productionUrl && <a href={mission.execution.productionUrl} target="_blank" rel="noreferrer">Production</a>}
-              {mission.execution?.checkState && <span>CI: {mission.execution.checkState}</span>}
-              {mission.status === 'failed' && <button type="button" onClick={() => void retry(mission)} disabled={retrying === mission.id}>{retrying === mission.id ? 'Retry…' : 'Retry'}</button>}
-            </div>
-          </article>)}
+          {latest.map((mission) => {
+            const retryCount = mission.execution?.retryCount ?? 0;
+            const maxRetries = mission.autonomous?.maxRetries ?? 0;
+            return <article key={mission.id} className={`executor-mission state-${mission.status}`}>
+              <div className="executor-mission-head"><span className="executor-state-dot" /><div><strong>{mission.objective}</strong><small>{stateLabel(mission.status)}{retryCount ? ` • retry ${retryCount}/${maxRetries}` : ''}</small></div></div>
+              {mission.execution?.summary && <p>{mission.execution.summary}</p>}
+              {mission.execution?.blockedReason && <p className="executor-blocked">{mission.execution.blockedReason}</p>}
+              {!mission.execution?.blockedReason && mission.execution?.lastFailure && <p className="executor-blocked">Son planlama hatası: {mission.execution.lastFailure}</p>}
+              {mission.status === 'queued' && mission.execution?.nextRetryAt && <p>Otomatik tekrar deneme: {formatRetryTime(mission.execution.nextRetryAt)}</p>}
+              <div className="executor-links">
+                {mission.execution?.pullRequestUrl && <a href={mission.execution.pullRequestUrl} target="_blank" rel="noreferrer">PR #{mission.execution.pullRequestNumber ?? ''}</a>}
+                {mission.execution?.previewUrl && <a href={mission.execution.previewUrl} target="_blank" rel="noreferrer">Preview</a>}
+                {mission.execution?.productionUrl && <a href={mission.execution.productionUrl} target="_blank" rel="noreferrer">Production</a>}
+                {mission.execution?.checkState && <span>CI: {mission.execution.checkState}</span>}
+                {mission.status === 'failed' && <button type="button" onClick={() => void retry(mission)} disabled={retrying === mission.id}>{retrying === mission.id ? 'Retry…' : 'Retry'}</button>}
+              </div>
+            </article>;
+          })}
         </div>
 
         {!ready && <div className="executor-note">Executor kodu hazır; AI ve GitHub runtime credentials eklenmeden görevler güvenli biçimde <b>failed</b> olur, sahte başarı üretilmez.</div>}
