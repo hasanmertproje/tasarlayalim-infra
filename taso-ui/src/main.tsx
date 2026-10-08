@@ -9,6 +9,7 @@ import MobileNavigationHub from './MobileNavigationHub';
 import MobileVoiceRouter from './MobileVoiceRouter';
 import SelfImprovementLane from './SelfImprovementLane';
 import TruthSurfaces from './TruthSurfaces';
+import VoiceIdentitySettings from './VoiceIdentitySettings';
 import VoiceModeOverlay from './VoiceModeOverlay';
 import { isTasoScreen, navigateTaso, useTasoNavigation } from './navigation';
 import './styles.css';
@@ -31,6 +32,7 @@ import './voice-mode-overlay.css';
 import './mobile-shell-v4.css';
 import './command-center-v10.css';
 import './truth-surfaces.css';
+import './voice-identity-v2.css';
 
 const rootElement = document.getElementById('root')!;
 const requestedScreen = new URLSearchParams(window.location.search).get('screen');
@@ -82,6 +84,7 @@ ReactDOM.createRoot(rootElement).render(
     <App />
     <OperationsSurfaceBridge />
     <TruthSurfaces />
+    <VoiceIdentitySettings />
     <MobileNavigationHub />
     <VoiceModeOverlay />
     <MobileVoiceRouter />
