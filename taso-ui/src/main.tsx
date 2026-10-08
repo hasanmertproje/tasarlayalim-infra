@@ -8,6 +8,7 @@ import KnowledgeCenter from './KnowledgeCenter';
 import MobileNavigationHub from './MobileNavigationHub';
 import SelfImprovementLane from './SelfImprovementLane';
 import VoiceModeOverlay from './VoiceModeOverlay';
+import { installAndroidTtsCompat } from './android-tts-compat';
 import './styles.css';
 import './final.css';
 import './premium.css';
@@ -25,6 +26,8 @@ import './mobile-light-contrast-v3.css';
 import './mobile-floating-controls-v3.css';
 import './mobile-navigation-hub.css';
 import './voice-mode-overlay.css';
+
+installAndroidTtsCompat();
 
 const rootElement = document.getElementById('root')!;
 
