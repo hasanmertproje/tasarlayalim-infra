@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from 'react';
 
-export const TASO_SCREENS = [
+export const TASO_PRIMARY_SCREENS = [
   'Command Center',
   'Projects',
   'Tasks',
@@ -11,12 +11,15 @@ export const TASO_SCREENS = [
   'Integrations',
   'Monitoring',
   'Settings',
+] as const;
+
+export const TASO_SCREENS = [
+  ...TASO_PRIMARY_SCREENS,
   'Notifications',
   'Infrastructure',
 ] as const;
 
-export const TASO_PRIMARY_SCREENS = TASO_SCREENS.slice(0, 10) as readonly TasoScreen[];
-
+export type TasoPrimaryScreen = (typeof TASO_PRIMARY_SCREENS)[number];
 export type TasoScreen = (typeof TASO_SCREENS)[number];
 
 type Listener = () => void;
@@ -43,9 +46,7 @@ export function navigateTaso(screen: TasoScreen) {
   if (screen === activeScreen) return;
   activeScreen = screen;
   emit();
-  if (typeof window !== 'undefined') {
-    window.scrollTo({ top: 0, behavior: 'auto' });
-  }
+  if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'auto' });
 }
 
 export function subscribeTasoNavigation(listener: Listener) {
