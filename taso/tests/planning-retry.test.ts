@@ -64,6 +64,11 @@ const github = {
   readFiles: async () => [{ path: 'README.md', content: '# test' }],
 };
 
+test('mission retry policy is clamped to a hard 0..5 bound', () => {
+  assert.equal(setupMission(999).mission.autonomous.maxRetries, 5);
+  assert.equal(setupMission(-9).mission.autonomous.maxRetries, 0);
+});
+
 test('planning timeout retries only up to the mission retry budget', async () => {
   const { projects, tasks, mission } = setupMission(1);
   const attempts = { value: 0 };
