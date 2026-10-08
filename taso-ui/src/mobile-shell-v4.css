@@ -63,6 +63,7 @@
     width: 46px !important;
     height: 46px !important;
     border-radius: 15px !important;
+    transition: opacity .18s ease, transform .18s ease !important;
   }
 
   .mobile-screen-sheet {
@@ -97,6 +98,17 @@
   body.taso-voice-mode-open .mobile-nav,
   body.taso-voice-mode-open .self-improve-shell,
   body.taso-voice-mode-open .agent-ops-shell.mode-dock {
+    opacity: 0 !important;
+    pointer-events: none !important;
+  }
+
+  /* Utility drawers are mutually exclusive. Opening one removes every competing fixed control. */
+  body:has(.self-improve-shell.open) .agent-ops-shell.mode-dock,
+  body:has(.self-improve-shell.open) .mobile-screen-menu-trigger,
+  body:has(.self-improve-shell.open) .mobile-nav,
+  body:has(.agent-ops-shell.mode-dock.open) .self-improve-shell,
+  body:has(.agent-ops-shell.mode-dock.open) .mobile-screen-menu-trigger,
+  body:has(.agent-ops-shell.mode-dock.open) .mobile-nav {
     opacity: 0 !important;
     pointer-events: none !important;
   }
