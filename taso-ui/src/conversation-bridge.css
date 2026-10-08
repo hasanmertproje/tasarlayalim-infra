@@ -1,0 +1,53 @@
+.taso-panel > .command-composer,
+.taso-panel > .command-hints{display:none!important}
+
+.conversation-bridge{position:relative;z-index:5;display:grid;gap:10px;margin-top:4px}
+.conversation-response{border:1px solid rgba(94,179,255,.16);border-radius:16px;padding:13px 14px;background:linear-gradient(145deg,rgba(10,28,49,.86),rgba(7,18,32,.8));box-shadow:inset 0 1px 0 rgba(255,255,255,.025)}
+:root[data-theme="light"] .conversation-response{background:linear-gradient(145deg,rgba(255,255,255,.92),rgba(246,250,255,.9));border-color:rgba(65,123,195,.14)}
+.conversation-response-head{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:7px}
+.conversation-response-head span{font-size:9px;letter-spacing:.18em;font-weight:800;color:#69d8ff}
+.conversation-response-head small,.conversation-user-line{font-size:9px;color:var(--muted)}
+.conversation-response p{margin:6px 0 0;font-size:13px;line-height:1.58;color:var(--text)}
+.conversation-user-line{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+.conversation-decision{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:0 2px}
+.conversation-decision span{font-size:9px;letter-spacing:.14em;color:#70dfff;font-weight:800}
+.conversation-decision small{font-size:9px;color:var(--muted)}
+
+.conversation-mission-proposal{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:12px;padding:13px 14px;border-radius:16px;border:1px solid rgba(139,102,255,.28);background:linear-gradient(145deg,rgba(48,35,86,.5),rgba(12,20,37,.86));box-shadow:0 16px 40px rgba(56,40,122,.12)}
+:root[data-theme="light"] .conversation-mission-proposal{background:linear-gradient(145deg,rgba(247,244,255,.96),rgba(250,252,255,.95))}
+.conversation-mission-proposal div{min-width:0;display:grid;gap:4px}
+.conversation-mission-proposal span{font-size:9px;letter-spacing:.16em;color:#bc9cff;font-weight:800}
+.conversation-mission-proposal strong{font-size:12px;line-height:1.4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.conversation-mission-proposal small{font-size:9px;color:var(--muted)}
+.conversation-mission-proposal button{min-height:38px;border:1px solid rgba(127,100,255,.3);border-radius:11px;padding:0 14px;color:#fff;background:linear-gradient(135deg,#6a62ff,#8754ff);font-size:10px;font-weight:800;cursor:pointer}
+
+.conversation-created,.conversation-error{border-radius:11px;padding:9px 11px;font-size:10px}
+.conversation-created{border:1px solid rgba(89,224,178,.18);background:rgba(40,160,126,.08);color:#88e9c8}
+.conversation-error{border:1px solid rgba(255,100,120,.2);background:rgba(170,35,55,.09);color:#ff9baa}
+
+.conversation-composer{display:grid;grid-template-columns:46px minmax(0,1fr) 46px;align-items:center;gap:8px;padding:7px;border-radius:16px;border:1px solid rgba(94,179,255,.24);background:rgba(5,14,26,.72);box-shadow:0 14px 34px rgba(0,0,0,.13),inset 0 1px 0 rgba(255,255,255,.035)}
+:root[data-theme="light"] .conversation-composer{background:rgba(255,255,255,.86);border-color:rgba(60,118,195,.18)}
+.conversation-composer input{width:100%;height:42px;border:0;outline:0;background:transparent;color:var(--text);font:inherit;font-size:12px}
+.conversation-composer input::placeholder{color:color-mix(in srgb,var(--muted) 78%,transparent)}
+.conversation-mic,.conversation-send{width:42px;height:42px;border-radius:12px;border:1px solid rgba(97,182,255,.18);display:grid;place-items:center;cursor:pointer}
+.conversation-mic{background:linear-gradient(145deg,rgba(59,169,255,.11),rgba(110,88,255,.08));font-size:17px}
+.conversation-mic.listening{box-shadow:0 0 0 6px rgba(57,203,255,.08),0 0 25px rgba(57,203,255,.24)}
+.conversation-send{color:#fff;background:linear-gradient(135deg,#2ac8ff,#3b76ff 55%,#744cff);font-size:21px;box-shadow:0 8px 22px rgba(55,119,255,.22)}
+.conversation-send:disabled,.conversation-mic:disabled{opacity:.45;cursor:not-allowed}
+.conversation-meta{display:flex;justify-content:flex-end;align-items:center;gap:12px;padding:0 2px;color:var(--muted);font-size:9px}
+.conversation-meta button{border:0;background:transparent;color:inherit;padding:0;cursor:pointer;font:inherit}
+
+@media(max-width:560px){
+  .conversation-bridge{gap:8px;margin-top:0}
+  .conversation-response{padding:11px 12px;border-radius:14px}
+  .conversation-response p{font-size:12px;line-height:1.5}
+  .conversation-mission-proposal{grid-template-columns:1fr;padding:11px 12px}
+  .conversation-mission-proposal strong{white-space:normal}
+  .conversation-mission-proposal button{width:100%}
+  .conversation-composer{grid-template-columns:44px minmax(0,1fr) 44px;border-radius:15px;padding:6px}
+  .conversation-composer input{height:40px;font-size:12px}
+  .conversation-mic,.conversation-send{width:40px;height:40px}
+  .conversation-meta{justify-content:space-between;gap:8px;font-size:8px}
+  .conversation-decision{align-items:flex-start;flex-direction:column;gap:3px}
+}
