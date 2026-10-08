@@ -1,5 +1,6 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
+import type { ConversationMessage } from './conversation.js';
 import type { Mission, Project } from './domain.js';
 import type { MissionEvent } from './mission-events.js';
 import type { ProjectKnowledgeRecord } from './project-knowledge.js';
@@ -13,9 +14,18 @@ export interface TasoStateSnapshot {
   knowledge: ProjectKnowledgeRecord[];
   missions: Mission[];
   events: MissionEvent[];
+  conversations: ConversationMessage[];
 }
 
-const emptyState: TasoStateSnapshot = { projects: [], manifests: [], milestones: [], knowledge: [], missions: [], events: [] };
+const emptyState: TasoStateSnapshot = {
+  projects: [],
+  manifests: [],
+  milestones: [],
+  knowledge: [],
+  missions: [],
+  events: [],
+  conversations: [],
+};
 
 export class JsonStateStore {
   constructor(private readonly filePath?: string) {}
@@ -35,6 +45,7 @@ export class JsonStateStore {
         knowledge: Array.isArray(parsed.knowledge) ? parsed.knowledge : [],
         missions: Array.isArray(parsed.missions) ? parsed.missions : [],
         events: Array.isArray(parsed.events) ? parsed.events : [],
+        conversations: Array.isArray(parsed.conversations) ? parsed.conversations : [],
       };
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code;
