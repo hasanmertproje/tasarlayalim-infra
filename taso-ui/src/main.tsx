@@ -7,6 +7,7 @@ import IntegrationsCenter from './IntegrationsCenter';
 import KnowledgeCenter from './KnowledgeCenter';
 import MobileNavigationHub from './MobileNavigationHub';
 import SelfImprovementLane from './SelfImprovementLane';
+import TruthSurfaces from './TruthSurfaces';
 import VoiceModeOverlay from './VoiceModeOverlay';
 import { installAndroidTtsCompat } from './android-tts-compat';
 import { isTasoScreen, navigateTaso, useTasoNavigation } from './navigation';
@@ -29,6 +30,7 @@ import './mobile-navigation-hub.css';
 import './voice-mode-overlay.css';
 import './mobile-shell-v4.css';
 import './command-center-v10.css';
+import './truth-surfaces.css';
 
 installAndroidTtsCompat();
 
@@ -81,6 +83,7 @@ ReactDOM.createRoot(rootElement).render(
   <React.StrictMode>
     <App />
     <OperationsSurfaceBridge />
+    <TruthSurfaces />
     <MobileNavigationHub />
     <VoiceModeOverlay />
     <SelfImprovementLane />
