@@ -1,15 +1,18 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
+import AgentOpsDock from './AgentOpsDock';
 import './styles.css';
 import './final.css';
 import './premium.css';
+import './agent-ops.css';
 
 const rootElement = document.getElementById('root')!;
 
 ReactDOM.createRoot(rootElement).render(
   <React.StrictMode>
     <App />
+    <AgentOpsDock />
   </React.StrictMode>,
 );
 
