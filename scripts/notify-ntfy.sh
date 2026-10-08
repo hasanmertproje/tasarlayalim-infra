@@ -19,9 +19,13 @@ case "$STATUS" in
     TAGS="white_check_mark"
     PRIORITY="3"
     ;;
-  failure)
+  failure|failed)
     TAGS="x,warning"
     PRIORITY="5"
+    ;;
+  approval|waiting_approval)
+    TAGS="warning,lock"
+    PRIORITY="4"
     ;;
   cancelled)
     TAGS="warning"
@@ -37,8 +41,8 @@ case "$STATUS" in
     ;;
 esac
 
-CLICK_URL=""
-if [ -n "${GITHUB_SERVER_URL:-}" ] && [ -n "${GITHUB_REPOSITORY:-}" ] && [ -n "${GITHUB_RUN_ID:-}" ]; then
+CLICK_URL="${NTFY_CLICK_URL:-}"
+if [ -z "$CLICK_URL" ] && [ -n "${GITHUB_SERVER_URL:-}" ] && [ -n "${GITHUB_REPOSITORY:-}" ] && [ -n "${GITHUB_RUN_ID:-}" ]; then
   CLICK_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
 fi
 
@@ -55,6 +59,10 @@ set -- \
 
 if [ -n "$CLICK_URL" ]; then
   set -- "$@" -H "Click: ${CLICK_URL}"
+fi
+
+if [ -n "${NTFY_ACTIONS:-}" ]; then
+  set -- "$@" -H "Actions: ${NTFY_ACTIONS}"
 fi
 
 curl "$@" --data-binary "$MESSAGE" "$URL" >/dev/null
