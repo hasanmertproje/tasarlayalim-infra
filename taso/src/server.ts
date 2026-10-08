@@ -4,6 +4,11 @@ import type { DataClass, RiskLevel } from './domain.js';
 import { MissionEventStore } from './mission-events.js';
 import { MissionExecutor } from './mission-executor.js';
 import { buildOperationsSnapshot } from './operations-snapshot.js';
+import {
+  ProjectKnowledgeStore,
+  type CreateProjectKnowledgeInput,
+  type UpdateProjectKnowledgeInput,
+} from './project-knowledge.js';
 import type { UpsertProjectManifestInput } from './project-manifest.js';
 import {
   ProjectMilestoneStore,
@@ -47,13 +52,15 @@ export function buildServer() {
 
   let projects!: ProjectRegistry;
   let milestones!: ProjectMilestoneStore;
+  let knowledge!: ProjectKnowledgeStore;
   let tasks!: TaskEngine;
   const persist = () => {
-    if (!projects || !milestones || !tasks) return;
+    if (!projects || !milestones || !knowledge || !tasks) return;
     stateStore.save({
       projects: projects.list(),
       manifests: projects.listManifests(),
       milestones: milestones.list(),
+      knowledge: knowledge.all(),
       missions: tasks.listMissions(),
       events: tasks.allEvents(),
     });
@@ -64,6 +71,7 @@ export function buildServer() {
     if (!projects.findBySlug(project.slug)) projects.create(project);
   }
   milestones = new ProjectMilestoneStore(snapshot.milestones, (projectId) => Boolean(projects.get(projectId)), persist);
+  knowledge = new ProjectKnowledgeStore(snapshot.knowledge, (projectId) => Boolean(projects.get(projectId)), persist);
   const router = new ProviderRouter(defaultProviders());
   const events = new MissionEventStore(snapshot.events, persist);
   tasks = new TaskEngine(projects, router, events, snapshot.missions, persist);
@@ -93,7 +101,7 @@ export function buildServer() {
     return {
       ok: true,
       service: 'taso-core',
-      version: '0.7.0',
+      version: '0.8.0',
       gateway: gatewaySecret ? 'configured' : 'missing',
       state: stateStore.enabled() ? 'persistent' : 'memory',
       executor: { read: readiness.readyForRead, write: readiness.readyForWrite, deploy: readiness.readyForDeploy },
@@ -141,6 +149,30 @@ export function buildServer() {
   app.put<{ Params: { id: string }; Body: UpsertProjectManifestInput }>('/v1/projects/:id/manifest', async (request, reply) => {
     try {
       return { manifest: projects.upsertManifest(request.params.id, request.body ?? {}) };
+    } catch (error) {
+      return reply.code(400).send({ error: (error as Error).message });
+    }
+  });
+
+  app.get<{ Params: { id: string } }>('/v1/projects/:id/knowledge', async (request, reply) => {
+    try {
+      return { knowledge: knowledge.list(request.params.id) };
+    } catch (error) {
+      return reply.code(404).send({ error: (error as Error).message });
+    }
+  });
+
+  app.post<{ Params: { id: string }; Body: CreateProjectKnowledgeInput }>('/v1/projects/:id/knowledge', async (request, reply) => {
+    try {
+      return reply.code(201).send({ knowledge: knowledge.create(request.params.id, request.body ?? ({} as CreateProjectKnowledgeInput)) });
+    } catch (error) {
+      return reply.code(400).send({ error: (error as Error).message });
+    }
+  });
+
+  app.patch<{ Params: { id: string; knowledgeId: string }; Body: UpdateProjectKnowledgeInput }>('/v1/projects/:id/knowledge/:knowledgeId', async (request, reply) => {
+    try {
+      return { knowledge: knowledge.update(request.params.id, request.params.knowledgeId, request.body ?? {}) };
     } catch (error) {
       return reply.code(400).send({ error: (error as Error).message });
     }
