@@ -1,5 +1,6 @@
 import Fastify from 'fastify';
 import { bootstrapProjects } from './bootstrap-projects.js';
+import { classifyConversationIntent, ConversationStore } from './conversation.js';
 import type { DataClass, RiskLevel } from './domain.js';
 import { MissionEventStore } from './mission-events.js';
 import { MissionExecutor } from './mission-executor.js';
@@ -25,6 +26,11 @@ interface CreateMissionBody {
   };
 }
 
+interface ConversationBody {
+  projectId?: string;
+  text?: string;
+}
+
 function isRiskLevel(value: unknown): value is RiskLevel {
   return value === 'READ' || value === 'WRITE' || value === 'HIGH_IMPACT';
 }
@@ -41,13 +47,15 @@ export function buildServer() {
 
   let projects!: ProjectRegistry;
   let tasks!: TaskEngine;
+  let conversations!: ConversationStore;
   const persist = () => {
-    if (!projects || !tasks) return;
+    if (!projects || !tasks || !conversations) return;
     stateStore.save({
       projects: projects.list(),
       manifests: projects.listManifests(),
       missions: tasks.listMissions(),
       events: tasks.allEvents(),
+      conversations: conversations.list(),
     });
   };
 
@@ -58,6 +66,7 @@ export function buildServer() {
   const router = new ProviderRouter(defaultProviders());
   const events = new MissionEventStore(snapshot.events, persist);
   tasks = new TaskEngine(projects, router, events, snapshot.missions, persist);
+  conversations = new ConversationStore(snapshot.conversations, persist);
   tasks.recoverInterruptedMissions();
   persist();
 
@@ -79,7 +88,7 @@ export function buildServer() {
     return {
       ok: true,
       service: 'taso-core',
-      version: '0.4.0',
+      version: '0.5.0-v2-preview',
       gateway: gatewaySecret ? 'configured' : 'missing',
       state: stateStore.enabled() ? 'persistent' : 'memory',
       executor: { read: readiness.readyForRead, write: readiness.readyForWrite, deploy: readiness.readyForDeploy },
@@ -90,6 +99,55 @@ export function buildServer() {
   app.get('/v1/providers', async () => ({ providers: router.safeSummary() }));
   app.get('/v1/projects', async () => ({ projects: projects.list() }));
   app.get('/v1/missions', async () => ({ missions: tasks.listMissions() }));
+  app.get<{ Querystring: { projectId?: string } }>('/v1/conversations', async (request) => ({
+    messages: conversations.list(request.query.projectId),
+  }));
+
+  app.post<{ Body: ConversationBody }>('/v1/conversations/messages', async (request, reply) => {
+    const projectId = request.body?.projectId?.trim();
+    const text = request.body?.text?.trim();
+    if (!projectId || !text) return reply.code(400).send({ error: 'projectId and text are required.' });
+    const project = projects.get(projectId);
+    if (!project) return reply.code(404).send({ error: 'Project not found.' });
+
+    const decision = classifyConversationIntent(text);
+    const userMessage = conversations.append({ projectId, role: 'user', content: text, intent: decision.intent });
+    const projectMissions = tasks.listMissions().filter((mission) => mission.projectId === projectId);
+    const active = projectMissions.find((mission) => !['completed', 'failed', 'cancelled'].includes(mission.status));
+
+    let content: string;
+    if (decision.intent === 'STATUS') {
+      content = active
+        ? `${project.name} için aktif görev ${active.status} aşamasında: ${active.objective}`
+        : `${project.name} için şu anda aktif görev yok. Son kayıtları konuşma veya Missions ekranından inceleyebilirsin.`;
+    } else if (decision.executionRequested) {
+      content = `Bu istek yürütme gerektiriyor. ${decision.suggestedRisk ?? 'READ'} sınırıyla ayrı bir mission oluşturulmalı; konuşma katmanı bunu normal sohbetten ayrı tutuyor.`;
+    } else if (decision.intent === 'CHAT') {
+      content = `Buradayım. ${project.name} bağlamındayız. Bu mesaj için mission oluşturmadım.`;
+    } else if (decision.intent === 'QUESTION' || decision.intent === 'PLAN') {
+      content = `Sorunu ${project.name} bağlamında aldım. V2 Conversation Engine bu tür mesajları mission oluşturmadan yanıtlayacak; AI cevap üretimi M2 katmanında bu aynı endpoint'e bağlanacak.`;
+    } else {
+      content = `Mesajı ${decision.intent} olarak sınıflandırdım. Herhangi bir repository işlemi başlatmadım.`;
+    }
+
+    const assistantMessage = conversations.append({
+      projectId,
+      role: 'assistant',
+      content,
+      intent: decision.intent,
+    });
+
+    return reply.code(201).send({
+      decision,
+      userMessage,
+      assistantMessage,
+      suggestedMission: decision.executionRequested ? {
+        objective: text,
+        riskLevel: decision.suggestedRisk ?? 'READ',
+        dataClass: 'private_code',
+      } : undefined,
+    });
+  });
 
   app.post<{ Body: CreateProjectInput }>('/v1/projects', async (request, reply) => {
     try {
