@@ -19,6 +19,7 @@ import './knowledge-center.css';
 import './conversation-bridge.css';
 import './mobile-command-center-v3.css';
 import './mobile-light-contrast-v3.css';
+import './mobile-floating-controls-v3.css';
 
 const rootElement = document.getElementById('root')!;
 
