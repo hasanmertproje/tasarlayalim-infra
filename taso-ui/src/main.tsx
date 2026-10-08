@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client';
 import App from './App';
 import './styles.css';
 import './final.css';
+import './premium.css';
 
 const rootElement = document.getElementById('root')!;
 
