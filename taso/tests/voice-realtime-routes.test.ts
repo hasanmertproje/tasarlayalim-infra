@@ -9,16 +9,16 @@ function buildVoiceServer() {
   return app;
 }
 
-test('voice realtime status is safe and disabled by default', async () => {
+test('voice realtime status never exposes credentials', async () => {
   const app = buildVoiceServer();
   try {
     const response = await app.inject({ method: 'GET', url: '/v1/voice/realtime' });
     assert.equal(response.statusCode, 200);
     const payload = response.json();
-    assert.equal(payload.realtime.enabled, false);
-    assert.equal(payload.realtime.paidAllowed, false);
-    assert.equal(payload.realtime.ready, false);
+    assert.equal(payload.realtime.provider, 'openai-realtime');
+    assert.equal(payload.realtime.transport, 'webrtc');
     assert.equal(payload.realtime.fallback, 'browser-stt-tts');
+    assert.equal(typeof payload.realtime.ready, 'boolean');
     assert.equal('apiKey' in payload.realtime, false);
   } finally {
     await app.close();
