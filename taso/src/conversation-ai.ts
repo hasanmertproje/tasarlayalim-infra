@@ -28,6 +28,21 @@ function runtimeProvider(id: string): RuntimeConversationProvider | undefined {
   return { id, baseUrl: baseUrl.replace(/\/$/, ''), apiKey, model };
 }
 
+function isRuntimeStatusQuestion(input: string) {
+  const value = input.trim().toLocaleLowerCase('tr-TR');
+  return /\b(sistem durumu|sistem ne durumda|sistem nasıl|core durumu|core ne durumda|durum ne|son durum|hangi aşama|ne yapıyorsun|status|health|agent durumu|agentlar|servisler)\b/i.test(value);
+}
+
+function deterministicStatus(project: Project, runtime: ConversationRuntimeContext) {
+  if (runtime.activeMission) {
+    return `Core çevrimiçi. ${project.name} için aktif mission ${runtime.activeMission.status} aşamasında: ${runtime.activeMission.objective}`;
+  }
+  const recent = runtime.recentMissions?.[0];
+  return recent
+    ? `Core çevrimiçi. Aktif mission yok. Son mission ${recent.status}: ${recent.objective}`
+    : 'Core çevrimiçi. Aktif mission yok. Sistem boşta ve seni dinliyorum.';
+}
+
 export class ConversationAi {
   constructor(private readonly router: ProviderRouter) {}
 
@@ -48,6 +63,8 @@ export class ConversationAi {
   }
 
   async reply(project: Project, turns: ConversationTurn[], input: string, runtime: ConversationRuntimeContext = {}): Promise<string> {
+    if (isRuntimeStatusQuestion(input)) return deterministicStatus(project, runtime);
+
     const provider = this.select('private_code');
     if (!provider) throw new Error('No policy-approved conversational AI provider is configured for private workspace context.');
 
@@ -61,7 +78,7 @@ export class ConversationAi {
       headers: { authorization: `Bearer ${provider.apiKey}`, 'content-type': 'application/json' },
       body: JSON.stringify({
         model: provider.model,
-        temperature: 0.28,
+        temperature: 0.24,
         messages: [
           {
             role: 'system',
@@ -69,6 +86,7 @@ export class ConversationAi {
               tasoCharacterInstructions(),
               'Emoji, markdown başlığı, tablo ve uzun madde listesi kullanma.',
               'Normal sohbet, soru, durum konuşması ve planlama mission değildir.',
+              'Sistem durumu sorularında mission önerme; runtime bağlamında ne biliyorsan doğrudan söyle.',
               'Kullanıcı yürütme isterse yapılacak işi kısa biçimde açıkla; gerçek yürütme ayrı Mission Engine onayıyla başlar.',
               'Yalnız aktif workspace bağlamını kullan; başka workspace bilgisini sızdırma.',
               `Aktif workspace: ${project.name}`,
