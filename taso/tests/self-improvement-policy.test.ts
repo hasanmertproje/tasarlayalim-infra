@@ -55,3 +55,28 @@ test('self-improvement READ missions remain autonomous for analysis only', () =>
   assert.equal(mission.status, 'queued');
   assert.equal(mission.approvalRequired, false);
 });
+
+test('failed self-improvement missions require fresh approval before explicit retry', () => {
+  const { project, tasks } = setup();
+  const mission = tasks.createMission({
+    projectId: project.id,
+    objective: 'Improve Taso self-improvement guardrails',
+    riskLevel: 'HIGH_IMPACT',
+    dataClass: 'private_code',
+  });
+
+  const approved = tasks.approveMission(mission.id);
+  assert.equal(approved.status, 'queued');
+  assert.ok(approved.approvedAt);
+
+  tasks.transitionMission(mission.id, 'planning', 'Planning started.');
+  tasks.transitionMission(mission.id, 'failed', 'Planning failed.', undefined, { blockedReason: 'Planner failed.' });
+  const retried = tasks.retryMission(mission.id);
+
+  assert.equal(retried.status, 'waiting_approval');
+  assert.equal(retried.approvedAt, undefined);
+  assert.deepEqual(
+    tasks.listEvents(mission.id).slice(-2).map((event) => event.type),
+    ['mission.status_changed', 'mission.approval_required'],
+  );
+});
