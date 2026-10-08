@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import json
 import os
-import subprocess
 import tempfile
+import threading
 from pathlib import Path
 from typing import Literal
 
+import numpy as np
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
@@ -14,115 +15,177 @@ from starlette.background import BackgroundTask
 
 VOICE_DIR = Path(os.getenv("TASO_VOICE_PACK_DIR", "/voices"))
 MANIFEST_PATH = Path(os.getenv("TASO_VOICE_MANIFEST", str(VOICE_DIR / "voices.json")))
-PIPER_BIN = os.getenv("PIPER_BIN", "piper")
+FREYA_MODEL = os.getenv("TASO_FREYA_MODEL", "freyavoice/freya-tts")
+FREYA_DEVICE = os.getenv("TASO_FREYA_DEVICE", "cpu")
+FREYA_STEPS = max(12, min(48, int(os.getenv("TASO_FREYA_STEPS", "32"))))
 
-app = FastAPI(title="Taso Local Voice", version="0.1.0")
+app = FastAPI(title="Taso Local Neural Voice", version="0.2.0")
 
 
-class VoicePack(BaseModel):
+class VoiceProfile(BaseModel):
     id: str
     label: str
     gender: Literal["male", "female", "neutral"] = "neutral"
     locale: str = "tr-TR"
-    model: str
-    config: str
-    license: str
-    commercialAllowed: bool = False
+    seed: int
+    license: str = "Apache-2.0"
+    commercialAllowed: bool = True
     character: str = "signature"
 
 
 class SynthesisRequest(BaseModel):
     text: str = Field(min_length=1, max_length=1500)
     voiceId: str | None = None
-    speed: float | None = Field(default=None, ge=0.7, le=1.25)
+    speed: float | None = Field(default=None, ge=0.72, le=1.12)
 
 
-def load_manifest() -> list[VoicePack]:
+DEFAULT_VOICES = [
+    VoiceProfile(
+        id="taso-signature-female",
+        label="Taso Signature Kadın",
+        gender="female",
+        seed=9,
+        license="Apache-2.0 · FreyaTTS-small",
+        commercialAllowed=True,
+        character="signature",
+    ),
+    VoiceProfile(
+        id="taso-candidate-17",
+        label="Taso Aday 17",
+        gender="neutral",
+        seed=17,
+        license="Apache-2.0 · FreyaTTS-small",
+        commercialAllowed=True,
+        character="candidate",
+    ),
+    VoiceProfile(
+        id="taso-candidate-31",
+        label="Taso Aday 31",
+        gender="neutral",
+        seed=31,
+        license="Apache-2.0 · FreyaTTS-small",
+        commercialAllowed=True,
+        character="candidate",
+    ),
+    VoiceProfile(
+        id="taso-candidate-47",
+        label="Taso Aday 47",
+        gender="neutral",
+        seed=47,
+        license="Apache-2.0 · FreyaTTS-small",
+        commercialAllowed=True,
+        character="candidate",
+    ),
+]
+
+_tts = None
+_load_error: str | None = None
+_loading = False
+_load_lock = threading.Lock()
+
+
+def load_profiles() -> list[VoiceProfile]:
     if not MANIFEST_PATH.exists():
-        return []
+        return DEFAULT_VOICES
     try:
         raw = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
         items = raw.get("voices", []) if isinstance(raw, dict) else []
-        packs = [VoicePack.model_validate(item) for item in items]
+        profiles = [VoiceProfile.model_validate(item) for item in items]
     except Exception as exc:
         raise RuntimeError(f"Invalid voice manifest: {exc}") from exc
-
-    available: list[VoicePack] = []
-    voice_root = VOICE_DIR.resolve()
-    for pack in packs:
-        if not pack.commercialAllowed:
-            continue
-        model = (VOICE_DIR / pack.model).resolve()
-        config = (VOICE_DIR / pack.config).resolve()
-        if voice_root not in model.parents or voice_root not in config.parents:
-            continue
-        if model.is_file() and config.is_file():
-            available.append(pack)
-    return available
+    return [profile for profile in profiles if profile.commercialAllowed]
 
 
-def public_voice(pack: VoicePack) -> dict:
+def public_voice(profile: VoiceProfile) -> dict:
     return {
-        "id": pack.id,
-        "label": pack.label,
-        "gender": pack.gender,
-        "locale": pack.locale,
-        "license": pack.license,
-        "character": pack.character,
+        "id": profile.id,
+        "label": profile.label,
+        "gender": profile.gender,
+        "locale": profile.locale,
+        "license": profile.license,
+        "character": profile.character,
+        "seed": profile.seed,
     }
+
+
+def ensure_model():
+    global _tts, _load_error, _loading
+    if _tts is not None:
+        return _tts
+    with _load_lock:
+        if _tts is not None:
+            return _tts
+        _loading = True
+        _load_error = None
+        try:
+            from freyatts import FreyaTTS
+
+            _tts = FreyaTTS.from_pretrained(FREYA_MODEL, device=FREYA_DEVICE)
+            return _tts
+        except Exception as exc:
+            _load_error = str(exc)
+            raise
+        finally:
+            _loading = False
+
+
+def warm_model():
+    try:
+        ensure_model()
+    except Exception:
+        # Health reports the exact failure without crashing the container.
+        pass
+
+
+@app.on_event("startup")
+def startup():
+    threading.Thread(target=warm_model, daemon=True).start()
 
 
 @app.get("/health")
 def health():
-    voices = load_manifest()
+    voices = load_profiles()
     return {
-        "ready": bool(voices),
-        "engine": "piper-local",
+        "ready": _tts is not None and bool(voices),
+        "loading": _loading,
+        "engine": "freyatts-small",
         "provider": "self-hosted",
+        "model": FREYA_MODEL,
+        "device": FREYA_DEVICE,
+        "steps": FREYA_STEPS,
+        "license": "Apache-2.0",
         "voices": [public_voice(v) for v in voices],
+        "error": _load_error,
     }
 
 
 @app.post("/synthesize")
 def synthesize(req: SynthesisRequest):
-    voices = load_manifest()
+    voices = load_profiles()
     if not voices:
-        raise HTTPException(status_code=503, detail="No production-cleared local voice pack is installed.")
+        raise HTTPException(status_code=503, detail="No production-cleared Taso voice profile is installed.")
 
     selected = next((v for v in voices if v.id == req.voiceId), None) if req.voiceId else voices[0]
     if selected is None:
-        raise HTTPException(status_code=404, detail="Requested voice pack is not available.")
-
-    model = VOICE_DIR / selected.model
-    config = VOICE_DIR / selected.config
-    output = tempfile.NamedTemporaryFile(prefix="taso-", suffix=".wav", delete=False)
-    output.close()
-
-    command = [
-        PIPER_BIN,
-        "--model", str(model),
-        "--config", str(config),
-        "--output_file", output.name,
-    ]
-    if req.speed:
-        command.extend(["--length_scale", str(round(1 / req.speed, 3))])
+        raise HTTPException(status_code=404, detail="Requested Taso voice profile is not available.")
 
     try:
-        subprocess.run(
-            command,
-            input=req.text.encode("utf-8"),
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.PIPE,
-            check=True,
-            timeout=30,
-        )
-    except subprocess.CalledProcessError as exc:
+        tts = ensure_model()
+        wav = tts.synthesize(req.text, steps=FREYA_STEPS, seed=selected.seed)
+        if req.speed and abs(req.speed - 1.0) > 0.01:
+            import librosa
+
+            wav = librosa.effects.time_stretch(np.asarray(wav, dtype=np.float32), rate=req.speed)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"FreyaTTS synthesis failed: {str(exc)[-400:]}") from exc
+
+    output = tempfile.NamedTemporaryFile(prefix="taso-", suffix=".wav", delete=False)
+    output.close()
+    try:
+        tts.save_wav(np.asarray(wav, dtype=np.float32), output.name)
+    except Exception as exc:
         Path(output.name).unlink(missing_ok=True)
-        detail = exc.stderr.decode("utf-8", errors="replace")[-400:]
-        raise HTTPException(status_code=500, detail=f"Voice synthesis failed: {detail}") from exc
-    except subprocess.TimeoutExpired as exc:
-        Path(output.name).unlink(missing_ok=True)
-        raise HTTPException(status_code=504, detail="Voice synthesis timed out.") from exc
+        raise HTTPException(status_code=500, detail=f"Audio write failed: {exc}") from exc
 
     return FileResponse(
         output.name,
