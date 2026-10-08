@@ -76,8 +76,33 @@ function parseJson<T>(value: string): T {
   }
 }
 
-function sleep(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+function boundedEnvMs(name: string, fallback: number, min: number, max: number) {
+  const parsed = Number(process.env[name]);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(min, Math.min(max, Math.trunc(parsed)));
+}
+
+function abortReason(signal: AbortSignal): Error {
+  return signal.reason instanceof Error ? signal.reason : new Error('Planning request was aborted.');
+}
+
+function throwIfAborted(signal?: AbortSignal) {
+  if (signal?.aborted) throw abortReason(signal);
+}
+
+function sleep(ms: number, signal?: AbortSignal) {
+  throwIfAborted(signal);
+  return new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(signal ? abortReason(signal) : new Error('Planning request was aborted.'));
+    };
+    signal?.addEventListener('abort', onAbort, { once: true });
+  });
 }
 
 /**
@@ -88,6 +113,7 @@ function sleep(ms: number) {
 export class MultiProviderPlanner {
   private readonly configured = new Map<string, RuntimeProvider>();
   private readonly legacy = legacyProvider();
+  private readonly requestTimeoutMs = boundedEnvMs('TASO_AI_REQUEST_TIMEOUT_MS', 60_000, 5_000, 120_000);
 
   constructor(providerIds: string[]) {
     for (const id of providerIds) {
@@ -123,15 +149,20 @@ export class MultiProviderPlanner {
     return candidates;
   }
 
-  private async complete(mission: Mission, system: string, user: string): Promise<string> {
+  private async complete(mission: Mission, system: string, user: string, signal?: AbortSignal): Promise<string> {
+    throwIfAborted(signal);
     const candidates = this.candidates(mission);
     if (!candidates.length) throw new Error(`No configured runtime AI provider matches mission chain: ${mission.providerChain.join(', ') || 'empty'}.`);
     const failures: string[] = [];
 
     for (const provider of candidates) {
+      throwIfAborted(signal);
       assertDataClass(provider, mission.dataClass);
       for (let attempt = 1; attempt <= 2; attempt += 1) {
+        throwIfAborted(signal);
         try {
+          const timeoutSignal = AbortSignal.timeout(this.requestTimeoutMs);
+          const requestSignal = signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
           const response = await fetch(`${provider.baseUrl}/chat/completions`, {
             method: 'POST',
             headers: { authorization: `Bearer ${provider.apiKey}`, 'content-type': 'application/json' },
@@ -140,7 +171,7 @@ export class MultiProviderPlanner {
               temperature: 0.1,
               messages: [{ role: 'system', content: system }, { role: 'user', content: user }],
             }),
-            signal: AbortSignal.timeout(240_000),
+            signal: requestSignal,
           });
           if (!response.ok) throw new Error(`HTTP ${response.status}: ${(await response.text()).slice(0, 300)}`);
           const payload = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
@@ -148,51 +179,57 @@ export class MultiProviderPlanner {
           if (!content) throw new Error('empty response');
           return content;
         } catch (error) {
+          if (signal?.aborted) throw abortReason(signal);
           failures.push(`${provider.id}#${attempt}: ${(error as Error).message}`);
-          if (attempt < 2) await sleep(1200 * attempt);
+          if (attempt < 2) await sleep(1200 * attempt, signal);
         }
       }
     }
     throw new Error(`All eligible AI providers failed: ${failures.join(' | ')}`);
   }
 
-  private async completeJson<T>(mission: Mission, system: string, user: string): Promise<T> {
-    const raw = await this.complete(mission, system, user);
+  private async completeJson<T>(mission: Mission, system: string, user: string, signal?: AbortSignal): Promise<T> {
+    const raw = await this.complete(mission, system, user, signal);
     try {
       return parseJson<T>(raw);
     } catch {
+      throwIfAborted(signal);
       const repaired = await this.complete(
         mission,
         'Repair the supplied model output into strict valid JSON only. Preserve all intended data. Return no markdown, commentary or code fences.',
         raw,
+        signal,
       );
       return parseJson<T>(repaired);
     }
   }
 
-  async chooseFiles(project: Project, mission: Mission, availablePaths: string[]): Promise<string[]> {
+  async chooseFiles(project: Project, mission: Mission, availablePaths: string[], signal?: AbortSignal): Promise<string[]> {
     const result = await this.completeJson<{ files?: string[] }>(
       mission,
       'You are Taso file selector. Return only JSON: {"files":["path"]}. Select at most 12 existing files needed to understand the task. Never invent paths.',
       JSON.stringify({ project: { name: project.name, repository: project.repository, technology: project.technology }, objective: mission.objective, paths: availablePaths.slice(0, 2500) }),
+      signal,
     );
     const allowed = new Set(availablePaths);
     return [...new Set((result.files ?? []).filter((path) => allowed.has(path)))].slice(0, 12);
   }
 
-  async analyze(project: Project, mission: Mission, files: RepositoryFile[]): Promise<string> {
+  async analyze(project: Project, mission: Mission, files: RepositoryFile[], signal?: AbortSignal): Promise<string> {
     return (await this.complete(
       mission,
       'You are Taso, a senior software engineer. Analyze the requested task without changing code. Be concise, concrete, and mention risks/tests. Plain text only.',
       JSON.stringify({ project: { name: project.name, technology: project.technology }, objective: mission.objective, files }),
+      signal,
     )).trim();
   }
 
-  async planChanges(project: Project, mission: Mission, files: RepositoryFile[]): Promise<ChangePlan> {
+  async planChanges(project: Project, mission: Mission, files: RepositoryFile[], signal?: AbortSignal): Promise<ChangePlan> {
     const result = await this.completeJson<ChangePlan>(
       mission,
       'You are Taso coding agent. Return only JSON {"summary":"...","commitMessage":"...","files":[{"path":"...","content":"..."}]}. Produce complete replacement file contents, not patches. Preserve existing architecture. Never emit secrets, .env files, credentials, generated/vendor files, lockfile rewrites or destructive database operations. Keep changes minimal and production quality.',
       JSON.stringify({ project: { name: project.name, repository: project.repository, defaultBranch: project.defaultBranch, technology: project.technology }, objective: mission.objective, riskLevel: mission.riskLevel, files }),
+      signal,
     );
     if (!result.summary?.trim() || !result.commitMessage?.trim() || !Array.isArray(result.files)) throw new Error('AI change plan is invalid.');
     return {
