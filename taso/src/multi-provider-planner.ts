@@ -59,9 +59,25 @@ function assertDataClass(provider: RuntimeProvider, dataClass: DataClass) {
   if (dataClass === 'sensitive' && !provider.allowSensitive) throw new Error(`${provider.id} is not approved for sensitive data.`);
 }
 
-function parseJson<T>(value: string): T {
+function extractJsonCandidate(value: string): string {
   const cleaned = value.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
-  return JSON.parse(cleaned) as T;
+  const objectStart = cleaned.indexOf('{');
+  const objectEnd = cleaned.lastIndexOf('}');
+  if (objectStart >= 0 && objectEnd > objectStart) return cleaned.slice(objectStart, objectEnd + 1);
+  return cleaned;
+}
+
+function parseJson<T>(value: string): T {
+  const candidate = extractJsonCandidate(value);
+  try {
+    return JSON.parse(candidate) as T;
+  } catch (error) {
+    throw new Error(`AI provider returned invalid JSON: ${(error as Error).message}`);
+  }
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 /**
@@ -111,37 +127,55 @@ export class MultiProviderPlanner {
     const candidates = this.candidates(mission);
     if (!candidates.length) throw new Error(`No configured runtime AI provider matches mission chain: ${mission.providerChain.join(', ') || 'empty'}.`);
     const failures: string[] = [];
+
     for (const provider of candidates) {
-      try {
-        assertDataClass(provider, mission.dataClass);
-        const response = await fetch(`${provider.baseUrl}/chat/completions`, {
-          method: 'POST',
-          headers: { authorization: `Bearer ${provider.apiKey}`, 'content-type': 'application/json' },
-          body: JSON.stringify({
-            model: provider.model,
-            temperature: 0.15,
-            messages: [{ role: 'system', content: system }, { role: 'user', content: user }],
-          }),
-          signal: AbortSignal.timeout(240_000),
-        });
-        if (!response.ok) throw new Error(`HTTP ${response.status}: ${(await response.text()).slice(0, 300)}`);
-        const payload = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
-        const content = payload.choices?.[0]?.message?.content?.trim();
-        if (!content) throw new Error('empty response');
-        return content;
-      } catch (error) {
-        failures.push(`${provider.id}: ${(error as Error).message}`);
+      assertDataClass(provider, mission.dataClass);
+      for (let attempt = 1; attempt <= 2; attempt += 1) {
+        try {
+          const response = await fetch(`${provider.baseUrl}/chat/completions`, {
+            method: 'POST',
+            headers: { authorization: `Bearer ${provider.apiKey}`, 'content-type': 'application/json' },
+            body: JSON.stringify({
+              model: provider.model,
+              temperature: 0.1,
+              messages: [{ role: 'system', content: system }, { role: 'user', content: user }],
+            }),
+            signal: AbortSignal.timeout(240_000),
+          });
+          if (!response.ok) throw new Error(`HTTP ${response.status}: ${(await response.text()).slice(0, 300)}`);
+          const payload = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
+          const content = payload.choices?.[0]?.message?.content?.trim();
+          if (!content) throw new Error('empty response');
+          return content;
+        } catch (error) {
+          failures.push(`${provider.id}#${attempt}: ${(error as Error).message}`);
+          if (attempt < 2) await sleep(1200 * attempt);
+        }
       }
     }
     throw new Error(`All eligible AI providers failed: ${failures.join(' | ')}`);
   }
 
+  private async completeJson<T>(mission: Mission, system: string, user: string): Promise<T> {
+    const raw = await this.complete(mission, system, user);
+    try {
+      return parseJson<T>(raw);
+    } catch {
+      const repaired = await this.complete(
+        mission,
+        'Repair the supplied model output into strict valid JSON only. Preserve all intended data. Return no markdown, commentary or code fences.',
+        raw,
+      );
+      return parseJson<T>(repaired);
+    }
+  }
+
   async chooseFiles(project: Project, mission: Mission, availablePaths: string[]): Promise<string[]> {
-    const result = parseJson<{ files?: string[] }>(await this.complete(
+    const result = await this.completeJson<{ files?: string[] }>(
       mission,
       'You are Taso file selector. Return only JSON: {"files":["path"]}. Select at most 12 existing files needed to understand the task. Never invent paths.',
       JSON.stringify({ project: { name: project.name, repository: project.repository, technology: project.technology }, objective: mission.objective, paths: availablePaths.slice(0, 2500) }),
-    ));
+    );
     const allowed = new Set(availablePaths);
     return [...new Set((result.files ?? []).filter((path) => allowed.has(path)))].slice(0, 12);
   }
@@ -155,11 +189,11 @@ export class MultiProviderPlanner {
   }
 
   async planChanges(project: Project, mission: Mission, files: RepositoryFile[]): Promise<ChangePlan> {
-    const result = parseJson<ChangePlan>(await this.complete(
+    const result = await this.completeJson<ChangePlan>(
       mission,
       'You are Taso coding agent. Return only JSON {"summary":"...","commitMessage":"...","files":[{"path":"...","content":"..."}]}. Produce complete replacement file contents, not patches. Preserve existing architecture. Never emit secrets, .env files, credentials, generated/vendor files, lockfile rewrites or destructive database operations. Keep changes minimal and production quality.',
       JSON.stringify({ project: { name: project.name, repository: project.repository, defaultBranch: project.defaultBranch, technology: project.technology }, objective: mission.objective, riskLevel: mission.riskLevel, files }),
-    ));
+    );
     if (!result.summary?.trim() || !result.commitMessage?.trim() || !Array.isArray(result.files)) throw new Error('AI change plan is invalid.');
     return {
       summary: result.summary.trim(),
