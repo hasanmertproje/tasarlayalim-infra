@@ -1,40 +1,54 @@
-# Taso Local Voice Service
+# Taso Local Neural Voice
 
-Self-hosted neural/local TTS lane for Taso. The browser never talks directly to this service; Taso Core proxies status and synthesis through `/v1/voice/local*`.
+Self-hosted Turkish neural speech for Taso. The browser never talks directly to this service; Taso Core proxies status and synthesis through `/v1/voice/local*`.
 
 ## Engine order
 
 1. Paid Realtime voice, only when explicitly enabled and allowed.
-2. Taso Local Voice, when this service is reachable and at least one production-cleared voice pack is installed.
-3. Browser/device TTS as the final fallback.
+2. **Taso Local Neural — FreyaTTS-small**.
+3. Browser/device TTS only as the last fallback.
 
-No external TTS API key is required for the local lane.
+The local lane requires no external TTS API key and has no per-request API fee.
 
-## Voice packs
+## Engine
 
-Mount a persistent directory to `/voices` and place:
+Default engine: `freyavoice/freya-tts` (FreyaTTS-small).
 
-- `voices.json`
-- each Piper-compatible `.onnx` model
-- matching `.onnx.json` config
+FreyaTTS-small is Turkish-first, self-hosted and released under Apache-2.0. The Docker image pins the upstream source commit for reproducible builds. Model weights are fetched from Hugging Face on first runtime load and then remain in the mounted/cache layer.
 
-Start from `voices.example.json`. A pack is exposed only when:
+Runtime variables:
 
-- model and config files exist,
-- `commercialAllowed` is explicitly `true`,
-- the files resolve inside `/voices`.
+```env
+TASO_FREYA_MODEL=freyavoice/freya-tts
+TASO_FREYA_DEVICE=cpu
+TASO_FREYA_STEPS=32
+```
 
-This prevents a downloaded research/non-commercial model from silently becoming a production Taso voice.
+Use `cuda` only when the Coolify host has a compatible GPU runtime.
 
-## Male / female profiles
+## Taso voice profiles
 
-Male and female selections are separate real voice packs. Do not create a fake gender switch by changing pitch. Use voice recordings/models whose usage rights are owned by Tasarlayalım or explicitly allow the intended commercial use.
+FreyaTTS selects a deterministic voice using a seed. The canonical upstream Leyla voice uses seed `9`, so the built-in `Taso Signature Kadın` profile uses that seed.
+
+Other seeds generate different deterministic people. They must be auditioned before receiving a gender/character label. Taso therefore includes neutral candidate seeds for Voice Lab testing rather than falsely labelling an unverified seed as male.
+
+To lock a chosen male/female Taso voice, mount `/voices/voices.json` based on `voices.example.json` and set:
+
+- stable `id`
+- visible `label`
+- verified `gender`
+- chosen `seed`
+- `license`
+- `commercialAllowed: true`
+- `character`
+
+The UI exposes only profiles returned by this service.
 
 ## Licensing boundary
 
-Do not bundle a model merely because the inference code is open source. The voice model and training dataset can have different licenses. Store the actual license identifier in `voices.json` and verify commercial/redistribution rights before setting `commercialAllowed: true`.
+Do not assume that open inference code makes every downloadable voice model commercially usable. FreyaTTS-small code and weights are Apache-2.0 and are therefore the default production-safe engine in this lane.
 
-At the time this lane was introduced, the currently published official Turkish Piper `dfki` model card points to a CC BY-NC-SA dataset, and Coqui XTTS-v2 uses the Coqui Public Model License for non-commercial use. They are therefore not auto-bundled here.
+Older candidates investigated during development were intentionally not bundled: the current official Turkish Piper `dfki` model card references a CC BY-NC-SA dataset, while Coqui XTTS-v2 uses the Coqui Public Model License for non-commercial use.
 
 ## Core configuration
 
@@ -45,20 +59,26 @@ TASO_LOCAL_VOICE_URL=http://taso-voice:8000
 TASO_LOCAL_VOICE_TIMEOUT_MS=20000
 ```
 
-Keep the voice service on the private/internal network. It does not need to be public.
+Keep this service private/internal; it does not need a public domain.
 
 ## Health
 
-`GET /health` returns only production-cleared and physically present packs.
+`GET /health` reports:
+
+- model loading/readiness
+- engine/model/device
+- synthesis steps
+- license
+- available deterministic Taso profiles
 
 `POST /synthesize` accepts:
 
 ```json
 {
-  "text": "Buradayım. Sistemler normal.",
-  "voiceId": "taso-signature-male",
+  "text": "Buradayım. Sistemler normal. Seni dinliyorum.",
+  "voiceId": "taso-signature-female",
   "speed": 0.9
 }
 ```
 
-and returns `audio/wav`.
+and returns 48 kHz `audio/wav`.
