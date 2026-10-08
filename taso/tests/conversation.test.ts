@@ -17,6 +17,15 @@ test('question never requests execution', () => {
   assert.equal(decision.executionRequested, false);
 });
 
+test('system status questions are STATUS and never request a mission', () => {
+  for (const text of ['sistem durumu nedir', 'core ne durumda', 'agent durumu ne', 'son durum ne']) {
+    const decision = classifyConversationIntent(text);
+    assert.equal(decision.intent, 'STATUS');
+    assert.equal(decision.executionRequested, false);
+    assert.equal(decision.suggestedRisk, undefined);
+  }
+});
+
 test('write language creates only an execution proposal decision', () => {
   const decision = classifyConversationIntent('mobil tasarımı düzelt ve daha profesyonel yap');
   assert.equal(decision.intent, 'WRITE_REQUEST');

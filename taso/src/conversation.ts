@@ -57,8 +57,8 @@ export function classifyConversationIntent(text: string): ConversationDecision {
   if (/\b(incele|analiz et|araştır|kontrol et|nedenini bul|tespit et|review|analyze|inspect)\b/i.test(value)) {
     return { intent: 'READ_REQUEST', executionRequested: true, suggestedRisk: 'READ', confidence: 0.86 };
   }
-  if (/\b(ne yapıyorsun|durum ne|son durum|ne oldu|status|hangi aşama)\b/i.test(value)) {
-    return { intent: 'STATUS', executionRequested: false, confidence: 0.91 };
+  if (/\b(ne yapıyorsun|durum ne|son durum|ne oldu|status|hangi aşama|sistem durumu|sistem ne durumda|sistem nasıl|core durumu|core ne durumda|servisler|agent durumu|agentlar|health)\b/i.test(value)) {
+    return { intent: 'STATUS', executionRequested: false, confidence: 0.96 };
   }
   if (/\b(plan|nasıl yaparız|nasıl ilerleriz|yol haritası)\b/i.test(value)) {
     return { intent: 'PLAN', executionRequested: false, confidence: 0.82 };
