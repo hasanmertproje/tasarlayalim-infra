@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
 import AgentOpsDock from './AgentOpsDock';
@@ -6,13 +6,32 @@ import './styles.css';
 import './final.css';
 import './premium.css';
 import './agent-ops.css';
+import './agent-ops-page.css';
 
 const rootElement = document.getElementById('root')!;
+
+function AgentOpsBridge() {
+  const [mode, setMode] = useState<'dock' | 'page'>('dock');
+
+  useEffect(() => {
+    const syncMode = () => {
+      const heading = rootElement.querySelector('.topbar h1')?.textContent?.trim();
+      setMode(heading === 'AI Agents' ? 'page' : 'dock');
+    };
+
+    syncMode();
+    const observer = new MutationObserver(syncMode);
+    observer.observe(rootElement, { childList: true, subtree: true, characterData: true });
+    return () => observer.disconnect();
+  }, []);
+
+  return <AgentOpsDock mode={mode} />;
+}
 
 ReactDOM.createRoot(rootElement).render(
   <React.StrictMode>
     <App />
-    <AgentOpsDock />
+    <AgentOpsBridge />
   </React.StrictMode>,
 );
 
