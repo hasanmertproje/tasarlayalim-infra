@@ -76,7 +76,7 @@ export type OperationsSnapshot = {
 };
 
 function isSelfImprovementMission(mission: Mission) {
-  const objective = mission.objective.toLocaleLowerCase('tr-TR');
+  const objective = mission.objective.toLowerCase();
   const mentionsTaso = /\btaso\b/.test(objective);
   const improvement = /self[-\s]?improv|self[-\s]?upgrade|iyileştir|iyilestir|geliştir|gelistir|refactor|öz[-\s]?gelişim|oz[-\s]?gelisim/.test(objective);
   return mentionsTaso && improvement;
