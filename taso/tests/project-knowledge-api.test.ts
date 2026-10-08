@@ -9,8 +9,9 @@ test('project knowledge API creates, lists and updates scoped records', async ()
     const projectsResponse = await app.inject({ method: 'GET', url: '/v1/projects' });
     assert.equal(projectsResponse.statusCode, 200);
     const projects = projectsResponse.json<{ projects: Array<{ id: string }> }>().projects;
-    assert.ok(projects.length > 0);
-    const projectId = projects[0].id;
+    const project = projects[0];
+    assert.ok(project);
+    const projectId = project.id;
 
     const createResponse = await app.inject({
       method: 'POST',
