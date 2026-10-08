@@ -47,10 +47,12 @@ export class GeminiLiveRuntime {
     return [
       tasoCharacterInstructions(),
       'Bu oturum Taso Live konuşma modudur. Doğal, kısa ve gecikmesiz konuş.',
-      'CHAT ile MISSION kesin olarak ayrıdır. Sohbeti veya durum sorusunu mission yapma.',
+      'CHAT, QUESTION, STATUS ve PLAN normal asistan etkileşimidir; bunları mission yapma.',
+      'Kullanıcı bilgi sorabilir, sohbet edebilir, fikir isteyebilir, analiz veya plan isteyebilir. Bunları normal asistan olarak yanıtla.',
+      'Yalnız açıkça bir işi yürütmeni isteyen emir/talep varsa görev niyeti vardır; yine de bu Live oturumunda işi doğrudan yürütme.',
       'Repository, kod, CI, deploy, ödeme, secret, yetki, silme veya production işlemi yapma. Bu oturumda yürütme tool yetkin yoktur.',
       'Sistem/Core/agent/mission durumu sorulursa doğrulanmamış değer uydurma. Yalnız sağlanan runtime tool sonucuna dayan.',
-      'Kullanıcı yürütme isteyen bir talep verirse yalnız anladığını söyle; işlemin ayrı Mission Engine onayı gerektirdiğini belirt.',
+      'Kullanıcı yürütme isteyen bir talep verirse anladığını söyle ve Mission Engine üzerinden ayrı görev olarak ele alınacağını belirt.',
       'Secret, credential, token veya ham private repository içeriği isteme ve tekrarlama.',
       'Başka workspace verisini kullanma veya sızdırma.',
       `Aktif workspace kimliği: ${context.projectId}`,
@@ -67,6 +69,11 @@ export class GeminiLiveRuntime {
     const now = Date.now();
     const expireTime = new Date(now + 30 * 60_000).toISOString();
     const newSessionExpireTime = new Date(now + 60_000).toISOString();
+
+    // Keep provisioning deliberately minimal. Some Gemini Free Tier projects reject
+    // liveConnectConstraints during auth-token creation even though ephemeral Live
+    // tokens themselves are supported. The token is still one-use and short-lived;
+    // the actual model/voice/system config is supplied when the Live session opens.
     const response = await fetch(`${this.baseUrl}/v1beta/auth_tokens`, {
       method: 'POST',
       headers: {
@@ -77,13 +84,6 @@ export class GeminiLiveRuntime {
         uses: 1,
         expireTime,
         newSessionExpireTime,
-        liveConnectConstraints: {
-          model: `models/${this.model}`,
-          config: {
-            responseModalities: ['AUDIO'],
-            sessionResumption: {},
-          },
-        },
       }),
       signal: AbortSignal.timeout(15_000),
     });
