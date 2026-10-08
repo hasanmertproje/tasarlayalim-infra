@@ -28,6 +28,7 @@ import './mobile-floating-controls-v3.css';
 import './mobile-navigation-hub.css';
 import './voice-mode-overlay.css';
 import './mobile-shell-v4.css';
+import './command-center-v10.css';
 
 installAndroidTtsCompat();
 
