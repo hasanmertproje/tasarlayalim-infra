@@ -2,7 +2,6 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
 import ConversationDock from './ConversationDock';
-import ExecutorDock from './ExecutorDock';
 import './styles.css';
 import './final.css';
 import './executor.css';
@@ -14,6 +13,5 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <App />
     <ConversationDock />
-    <ExecutorDock />
   </React.StrictMode>,
 );
