@@ -47,6 +47,7 @@ type CoreHealth = {
 
 type ApiStatus = 'checking' | 'online' | 'offline';
 type RiskLevel = 'READ' | 'WRITE' | 'HIGH_IMPACT';
+type Theme = 'dark' | 'light';
 type NavItem = 'Command Center' | 'Projects' | 'Tasks' | 'Approvals' | 'Deployments' | 'Notifications' | 'Infrastructure';
 
 const API_URL = ((import.meta.env.VITE_TASO_API_URL as string | undefined) || '/api').replace(/\/$/, '');
@@ -126,6 +127,7 @@ export default function App() {
   const [isListening, setIsListening] = useState(false);
   const [voiceReplies, setVoiceReplies] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [theme, setTheme] = useState<Theme>(() => (localStorage.getItem('taso-theme') as Theme) || 'dark');
   const [notice, setNotice] = useState('Taso hazır. Bir workspace seçip görev verebilirsin.');
   const [error, setError] = useState('');
   const [newProject, setNewProject] = useState({ name: '', slug: '', repository: '', isExisting: true });
@@ -213,6 +215,12 @@ export default function App() {
       if (!silent) setBusy(false);
     }
   }
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    document.documentElement.style.colorScheme = theme;
+    localStorage.setItem('taso-theme', theme);
+  }, [theme]);
 
   useEffect(() => {
     void refreshData(true);
@@ -512,7 +520,7 @@ export default function App() {
         <div className="sidebar-footer"><div className="system-mini"><span className={`status-dot ${apiStatus}`} /><div><strong>Taso Core</strong><small>{apiStatus === 'online' ? 'Connected' : apiStatus === 'checking' ? 'Checking…' : 'Offline'}</small></div></div></div>
       </aside>
       <main className="main-area">
-        <header className="topbar"><div><span className="eyebrow">TASARLAYALIM / AI OPERATIONS</span><h1>{activeNav}</h1></div><div className="top-actions"><button className={busy ? 'icon-button spinning' : 'icon-button'} type="button" aria-label="Yenile" onClick={() => void refreshData()} disabled={busy}><Icon name="refresh" /></button><button className="icon-button" type="button" aria-label="Bildirimler" onClick={() => switchNav('Notifications')}><Icon name="bell" /></button><div className="operator-chip"><span>HM</span><div><strong>Operator</strong><small>Admin</small></div></div></div></header>
+        <header className="topbar"><div><span className="eyebrow">TASARLAYALIM / AI OPERATIONS</span><h1>{activeNav}</h1></div><div className="top-actions"><button className="theme-toggle" type="button" aria-label={theme === 'dark' ? 'Açık temaya geç' : 'Koyu temaya geç'} onClick={() => setTheme((current) => current === 'dark' ? 'light' : 'dark')}><span>{theme === 'dark' ? '☀' : '☾'}</span><b>{theme === 'dark' ? 'Açık' : 'Koyu'}</b></button><button className={busy ? 'icon-button spinning' : 'icon-button'} type="button" aria-label="Yenile" onClick={() => void refreshData()} disabled={busy}><Icon name="refresh" /></button><button className="icon-button" type="button" aria-label="Bildirimler" onClick={() => switchNav('Notifications')}><Icon name="bell" /></button><div className="operator-chip"><span>HM</span><div><strong>Operator</strong><small>Admin</small></div></div></div></header>
         {error && <div className="error-banner"><strong>⚠ Taso</strong><span>{error}</span><button type="button" onClick={() => setError('')}>×</button></div>}
         {renderScreen()}
         <footer className="status-footer"><span>PROJECT CONTEXT: <b>{activeProject?.slug ?? 'none'}</b></span><span>SECURITY: <b>PROJECT-SCOPED</b></span><span>TASO UI v1.0</span></footer>
