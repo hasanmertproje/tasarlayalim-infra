@@ -1,0 +1,24 @@
+{
+  "voices": [
+    {
+      "id": "taso-signature-female",
+      "label": "Taso Signature Kadın",
+      "gender": "female",
+      "locale": "tr-TR",
+      "seed": 9,
+      "license": "Apache-2.0 · FreyaTTS-small",
+      "commercialAllowed": true,
+      "character": "signature"
+    },
+    {
+      "id": "taso-signature-male",
+      "label": "Taso Signature Erkek",
+      "gender": "male",
+      "locale": "tr-TR",
+      "seed": 0,
+      "license": "Apache-2.0 · FreyaTTS-small",
+      "commercialAllowed": false,
+      "character": "signature"
+    }
+  ]
+}

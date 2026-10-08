@@ -13,6 +13,7 @@ export type BrowserVoiceResult = {
   completed: boolean;
   voiceName?: string;
   retried: boolean;
+  engine?: 'local-neural' | 'browser-tts';
   error?: string;
 };
 
@@ -22,6 +23,8 @@ type SpeakOptions = {
   onState?: (state: BrowserVoiceRuntimeState) => void;
   startTimeoutMs?: number;
 };
+
+const API_URL = ((import.meta.env.VITE_TASO_API_URL as string | undefined) || '/api').replace(/\/$/, '');
 
 function isAndroid() {
   return /Android/i.test(navigator.userAgent);
@@ -33,10 +36,15 @@ function wait(ms: number) {
 
 export class BrowserVoiceRuntime {
   private context?: AudioContext;
+  private source?: AudioBufferSourceNode;
   private speaking = false;
   private generation = 0;
 
   supported() {
+    return typeof window !== 'undefined';
+  }
+
+  private browserTtsSupported() {
     return typeof window !== 'undefined' && 'speechSynthesis' in window && 'SpeechSynthesisUtterance' in window;
   }
 
@@ -44,7 +52,7 @@ export class BrowserVoiceRuntime {
     if (!this.supported()) return false;
     try {
       const AudioContextCtor = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-      if (!AudioContextCtor) return true;
+      if (!AudioContextCtor) return this.browserTtsSupported();
       this.context ??= new AudioContextCtor();
       if (this.context.state === 'suspended') await this.context.resume();
 
@@ -57,18 +65,63 @@ export class BrowserVoiceRuntime {
       oscillator.stop(this.context.currentTime + 0.015);
       return true;
     } catch {
-      return true;
+      return this.browserTtsSupported();
     }
   }
 
   cancel() {
     this.generation += 1;
     this.speaking = false;
-    if (this.supported()) window.speechSynthesis.cancel();
+    try { this.source?.stop(); } catch { /* already stopped */ }
+    this.source = undefined;
+    if (this.browserTtsSupported()) window.speechSynthesis.cancel();
   }
 
   isSpeaking() {
     return this.speaking;
+  }
+
+  private async speakLocal(text: string, options: SpeakOptions, generation: number): Promise<BrowserVoiceResult | undefined> {
+    const { profile, onState } = options;
+    const voiceId = localStorage.getItem('taso-neural-voice-id') || undefined;
+    try {
+      onState?.('starting');
+      const response = await fetch(`${API_URL}/v1/voice/local/synthesize`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ text, voiceId, speed: profile.rate }),
+      });
+      if (!response.ok) return undefined;
+      if (generation !== this.generation) return { started: false, completed: false, retried: false, engine: 'local-neural', error: 'cancelled' };
+
+      const AudioContextCtor = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+      if (!AudioContextCtor) return undefined;
+      this.context ??= new AudioContextCtor();
+      if (this.context.state === 'suspended') await this.context.resume();
+      const audio = await response.arrayBuffer();
+      const decoded = await this.context.decodeAudioData(audio.slice(0));
+      if (generation !== this.generation) return { started: false, completed: false, retried: false, engine: 'local-neural', error: 'cancelled' };
+
+      return await new Promise<BrowserVoiceResult>((resolve) => {
+        const source = this.context!.createBufferSource();
+        const gain = this.context!.createGain();
+        gain.gain.value = Math.min(1, Math.max(0, profile.volume));
+        source.buffer = decoded;
+        source.connect(gain);
+        gain.connect(this.context!.destination);
+        this.source = source;
+        this.speaking = true;
+        onState?.('speaking');
+        source.onended = () => {
+          if (this.source === source) this.source = undefined;
+          this.speaking = false;
+          resolve({ started: true, completed: true, voiceName: voiceId, retried: false, engine: 'local-neural' });
+        };
+        source.start();
+      });
+    } catch {
+      return undefined;
+    }
   }
 
   private chooseVoice(profile: BrowserVoiceProfile, voices: SpeechSynthesisVoice[], fallback: boolean) {
@@ -88,7 +141,7 @@ export class BrowserVoiceRuntime {
 
     return new Promise<BrowserVoiceResult>((resolve) => {
       if (generation !== this.generation) {
-        resolve({ started: false, completed: false, retried: fallback, error: 'cancelled' });
+        resolve({ started: false, completed: false, retried: fallback, engine: 'browser-tts', error: 'cancelled' });
         return;
       }
 
@@ -117,13 +170,13 @@ export class BrowserVoiceRuntime {
         this.speaking = true;
         onState?.('speaking');
       };
-      utterance.onend = () => finish({ started, completed: started, voiceName: selectedVoice?.name, retried: fallback });
-      utterance.onerror = (event) => finish({ started, completed: false, voiceName: selectedVoice?.name, retried: fallback, error: event.error || 'speech-error' });
+      utterance.onend = () => finish({ started, completed: started, voiceName: selectedVoice?.name, retried: fallback, engine: 'browser-tts' });
+      utterance.onerror = (event) => finish({ started, completed: false, voiceName: selectedVoice?.name, retried: fallback, engine: 'browser-tts', error: event.error || 'speech-error' });
 
       watchdog = window.setTimeout(() => {
         if (!started) {
           window.speechSynthesis.cancel();
-          finish({ started: false, completed: false, voiceName: selectedVoice?.name, retried: fallback, error: 'speech-start-timeout' });
+          finish({ started: false, completed: false, voiceName: selectedVoice?.name, retried: fallback, engine: 'browser-tts', error: 'speech-start-timeout' });
         }
       }, startTimeoutMs);
 
@@ -132,24 +185,31 @@ export class BrowserVoiceRuntime {
         window.speechSynthesis.resume();
         window.speechSynthesis.speak(utterance);
       } catch (error) {
-        finish({ started: false, completed: false, voiceName: selectedVoice?.name, retried: fallback, error: (error as Error).message });
+        finish({ started: false, completed: false, voiceName: selectedVoice?.name, retried: fallback, engine: 'browser-tts', error: (error as Error).message });
       }
     });
   }
 
   async speak(text: string, options: SpeakOptions): Promise<BrowserVoiceResult> {
-    if (!this.supported()) {
-      options.onState?.('error');
-      return { started: false, completed: false, retried: false, error: 'speech-synthesis-unsupported' };
-    }
     const normalized = text.trim();
     if (!normalized) return { started: false, completed: true, retried: false };
 
     this.cancel();
     const generation = ++this.generation;
     await this.unlock();
-    await wait(isAndroid() ? 160 : 70);
 
+    const local = await this.speakLocal(normalized, options, generation);
+    if (local?.started) {
+      if (local.completed) options.onState?.('idle');
+      return local;
+    }
+
+    if (!this.browserTtsSupported()) {
+      options.onState?.('error');
+      return { started: false, completed: false, retried: false, error: 'no-local-neural-or-browser-tts' };
+    }
+
+    await wait(isAndroid() ? 160 : 70);
     let result = await this.speakAttempt(normalized, options, false, generation);
     if (!result.started && generation === this.generation) {
       window.speechSynthesis.cancel();

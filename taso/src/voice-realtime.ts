@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { tasoCharacterInstructions } from './taso-character.js';
 
 function enabled(value: string | undefined) {
   return value?.trim().toLowerCase() === 'true';
@@ -61,10 +62,8 @@ export class VoiceRealtimeRuntime {
 
   private instructions(context: VoiceWorkspaceContext) {
     return [
-      'Sen Taso\'sun; Tasarlayalım için çalışan canlı sesli operasyon asistanısın.',
-      'Daima doğal, akıcı ve iyi İstanbul Türkçesiyle konuş. İngilizceye geçme; yalnız özel adları gerektiği kadar kullan.',
-      'Ses karakterin sakin, tok, kontrollü, profesyonel ve kendinden emin olsun. Cümleleri kısa tut; robotik veya aşırı neşeli konuşma.',
-      'Bu oturum konuşma modudur. CHAT ile MISSION kesin olarak ayrıdır.',
+      tasoCharacterInstructions(),
+      'Bu oturum canlı konuşma modudur. CHAT ile MISSION kesin olarak ayrıdır.',
       'Repository, kod, test, PR, CI, deployment, silme, ödeme, rol/yetki veya production işlemi yapma. Bu oturumda hiçbir tool yetkin yoktur.',
       'Kullanıcı yürütme isteyen bir talep verirse isteği kısa biçimde anladığını söyle ve arayüzde ayrı mission önerisinin onaylanması gerektiğini belirt.',
       'Runtime bağlamında açıkça doğrulanmayan bir değişikliğin, testin, PR\'ın veya deployment\'ın gerçekleştiğini asla iddia etme.',

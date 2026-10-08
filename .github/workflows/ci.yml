@@ -30,10 +30,18 @@ jobs:
         with:
           node-version: '22'
 
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
       - name: Validate shell scripts
         run: |
           sh -n scripts/healthcheck.sh
           sh -n scripts/notify-ntfy.sh
+
+      - name: Validate local voice service
+        run: python -m py_compile docker/taso-voice/app.py
 
       - name: Install Taso Core dependencies
         run: npm install --prefix taso
@@ -52,6 +60,9 @@ jobs:
 
       - name: Build Taso UI container
         run: docker build -t tasarlayalim-taso-ui ./taso-ui
+
+      - name: Build Taso local voice container
+        run: docker build -t tasarlayalim-taso-voice ./docker/taso-voice
 
       - name: Start Taso integration stack
         run: |
@@ -115,6 +126,8 @@ jobs:
           curl -fsS http://127.0.0.1:4173/api/v1/operations | grep -q '"agents"'
           curl -fsS http://127.0.0.1:4173/api/v1/voice/realtime | grep -q '"fallback":"browser-stt-tts"'
           curl -fsS http://127.0.0.1:4173/api/v1/voice/realtime | grep -q '"ready":false'
+          curl -fsS http://127.0.0.1:4173/api/v1/voice/local | grep -q '"configured":false'
+          curl -fsS http://127.0.0.1:4173/api/v1/voice/local | grep -q '"ready":false'
 
       - name: Verify Core rejects direct unauthenticated API
         run: |
@@ -172,7 +185,7 @@ jobs:
           NTFY_ACTIONS: view, PR incele, ${{ github.event.pull_request.html_url }}; view, Taso Approvals, https://taso-v2.demo.tasarlayalim.com/?screen=Approvals
         run: |
           TITLE="Taso V2 - incelemeye hazir" \
-          MESSAGE="PR #${{ github.event.pull_request.number }} tum zorunlu CI kapilarindan gecti. Core testleri, UI build, container build, gateway, operations snapshot, voice readiness, yetkisiz Core erisimi, infra smoke ve ntfy image kontrolleri basarili. Production'a otomatik deploy yapilmadi." \
+          MESSAGE="PR #${{ github.event.pull_request.number }} tum zorunlu CI kapilarindan gecti. Core testleri, UI build, Core/UI/voice container build, gateway, operations snapshot, voice readiness, yetkisiz Core erisimi, infra smoke ve ntfy image kontrolleri basarili. Production'a otomatik deploy yapilmadi." \
           sh ./scripts/notify-ntfy.sh success
 
       - name: Notify main CI success
@@ -185,7 +198,7 @@ jobs:
           NTFY_ACTIONS: view, GitHub run, ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}; view, Taso paneli, https://taso-v2.demo.tasarlayalim.com/
         run: |
           TITLE="Taso Release Gate - PASS" \
-          MESSAGE="Main dalindaki ${GITHUB_SHA::7} commit'i dogrulandi. Core + UI + gateway + operations + voice readiness + security + infra + ntfy kontrolleri basarili. Bu bildirim sadece dogrulanmis sonucu raporlar; production deploy politikasi ayri kalir." \
+          MESSAGE="Main dalindaki ${GITHUB_SHA::7} commit'i dogrulandi. Core + UI + local voice image + gateway + operations + voice readiness + security + infra + ntfy kontrolleri basarili. Bu bildirim sadece dogrulanmis sonucu raporlar; production deploy politikasi ayri kalir." \
           sh ./scripts/notify-ntfy.sh success
 
       - name: Cleanup containers
