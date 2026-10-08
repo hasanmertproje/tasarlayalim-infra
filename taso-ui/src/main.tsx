@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
 import AgentOpsDock from './AgentOpsDock';
+import IntegrationsCenter from './IntegrationsCenter';
 import SelfImprovementLane from './SelfImprovementLane';
 import './styles.css';
 import './final.css';
@@ -11,6 +12,7 @@ import './milestones.css';
 import './self-improvement.css';
 import './agent-ops-page.css';
 import './agent-ops-interactions.css';
+import './integrations-center.css';
 
 const rootElement = document.getElementById('root')!;
 
@@ -18,17 +20,17 @@ function findButtonByText(text: string) {
   return [...rootElement.querySelectorAll('button')].find((item) => item.textContent?.trim() === text) as HTMLButtonElement | undefined;
 }
 
-function AgentOpsBridge() {
-  const [mode, setMode] = useState<'dock' | 'page'>('dock');
+function OperationsSurfaceBridge() {
+  const [activeHeading, setActiveHeading] = useState('Command Center');
 
   useEffect(() => {
-    const syncMode = () => {
+    const syncSurface = () => {
       const heading = rootElement.querySelector('.topbar h1')?.textContent?.trim();
-      setMode(heading === 'AI Agents' ? 'page' : 'dock');
+      if (heading) setActiveHeading(heading);
     };
 
-    syncMode();
-    const observer = new MutationObserver(syncMode);
+    syncSurface();
+    const observer = new MutationObserver(syncSurface);
     observer.observe(rootElement, { childList: true, subtree: true, characterData: true });
     return () => observer.disconnect();
   }, []);
@@ -57,13 +59,18 @@ function AgentOpsBridge() {
     return () => window.removeEventListener('taso:open-mission', handleMissionOpen);
   }, []);
 
-  return <AgentOpsDock mode={mode} />;
+  return (
+    <>
+      <AgentOpsDock mode={activeHeading === 'AI Agents' ? 'page' : 'dock'} />
+      {activeHeading === 'Integrations' && <IntegrationsCenter />}
+    </>
+  );
 }
 
 ReactDOM.createRoot(rootElement).render(
   <React.StrictMode>
     <App />
-    <AgentOpsBridge />
+    <OperationsSurfaceBridge />
     <SelfImprovementLane />
   </React.StrictMode>,
 );
