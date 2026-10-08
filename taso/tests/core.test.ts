@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { classifyConversationIntent, ConversationStore } from '../src/conversation.js';
 import type { ProviderDescriptor } from '../src/provider-router.js';
 import { ProviderRouter, defaultProviders } from '../src/provider-router.js';
 import { ProjectRegistry } from '../src/project-registry.js';
@@ -150,7 +151,6 @@ test('executor state records artifacts and failed missions can retry safely', ()
   assert.equal(engine.listEvents(mission.id).at(-1)?.type, 'mission.status_changed');
 });
 
-
 test('scoped provider credentials enable routing without legacy provider keys', () => {
   const previousKey = process.env.TASO_PROVIDER_NVIDIA_API_KEY;
   const previousData = process.env.TASO_PROVIDER_NVIDIA_DATA;
@@ -170,4 +170,26 @@ test('scoped provider credentials enable routing without legacy provider keys', 
     if (previousLegacy === undefined) delete process.env.NVIDIA_API_KEY;
     else process.env.NVIDIA_API_KEY = previousLegacy;
   }
+});
+
+test('ordinary chat is classified without execution or mission risk', () => {
+  const decision = classifyConversationIntent('Taso nasılsın?');
+  assert.equal(decision.executionRequested, false);
+  assert.equal(decision.intent, 'QUESTION');
+  assert.equal(decision.suggestedRisk, undefined);
+});
+
+test('write request is classified separately from conversation', () => {
+  const decision = classifyConversationIntent('Taso bu tema hatasını düzelt ve preview hazırla');
+  assert.equal(decision.executionRequested, true);
+  assert.equal(decision.intent, 'WRITE_REQUEST');
+  assert.equal(decision.suggestedRisk, 'WRITE');
+});
+
+test('conversation store isolates messages by workspace', () => {
+  const store = new ConversationStore();
+  store.append({ projectId: 'project-a', role: 'user', content: 'A', intent: 'CHAT' });
+  store.append({ projectId: 'project-b', role: 'user', content: 'B', intent: 'CHAT' });
+  assert.deepEqual(store.list('project-a').map((message) => message.content), ['A']);
+  assert.deepEqual(store.list('project-b').map((message) => message.content), ['B']);
 });
