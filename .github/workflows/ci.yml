@@ -4,13 +4,10 @@ on:
   push:
     branches:
       - main
-      - 'bootstrap/**'
-      - 'feature/**'
-      - 'phase4/**'
-      - 'chore/**'
   pull_request:
     branches:
       - main
+  workflow_dispatch:
 
 concurrency:
   group: taso-ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -115,6 +112,7 @@ jobs:
           fi
           curl -fsS http://127.0.0.1:4173/api/v1/projects | grep -q '"projects"'
           curl -fsS http://127.0.0.1:4173/api/v1/providers | grep -q '"providers"'
+          curl -fsS http://127.0.0.1:4173/api/v1/operations | grep -q '"agents"'
 
       - name: Verify Core rejects direct unauthenticated API
         run: |
@@ -141,17 +139,24 @@ jobs:
         run: docker build -t tasarlayalim-ntfy ./docker/ntfy
 
       - name: Notify CI failure
-        if: failure()
+        if: failure() && (github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main'))
         continue-on-error: true
         env:
           NTFY_BASE_URL: ${{ secrets.NTFY_BASE_URL }}
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
           NTFY_TOKEN: ${{ secrets.NTFY_TOKEN }}
+          EVENT_NAME: ${{ github.event_name }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
           NTFY_ACTIONS: view, CI loglarini ac, ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}; view, Taso panelini ac, https://taso-v2.demo.tasarlayalim.com/
         run: |
-          TITLE="Taso CI - mudahale gerekiyor" \
-          MESSAGE="${GITHUB_REF_NAME} dalindaki degisiklikler testlerden gecemedi. Commit ${GITHUB_SHA::7}. Core, UI, gateway, security ve container kontrollerinden en az biri basarisiz. CI logunu acip hatali adimi inceleyebilirsin; Taso bu sonucu PASS olarak kabul etmez." \
-          sh ./scripts/notify-ntfy.sh failed
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            TITLE="Taso PR #${PR_NUMBER} - CI müdahale gerekiyor"
+            MESSAGE="PR #${PR_NUMBER} zorunlu kontrollerden gecemedi. Commit ${GITHUB_SHA::7}. CI logundaki ilk hatali adim duzeltilmeden merge edilmemeli."
+          else
+            TITLE="Taso Release Gate - müdahale gerekiyor"
+            MESSAGE="Main dalindaki ${GITHUB_SHA::7} commit'i release gate kontrollerinden gecemedi. Production release guvenli kabul edilmemeli; CI logunu incele."
+          fi
+          TITLE="$TITLE" MESSAGE="$MESSAGE" sh ./scripts/notify-ntfy.sh failed
 
       - name: Notify PR ready for review
         if: success() && github.event_name == 'pull_request'
@@ -165,7 +170,7 @@ jobs:
           NTFY_ACTIONS: view, PR incele, ${{ github.event.pull_request.html_url }}; view, Taso Approvals, https://taso-v2.demo.tasarlayalim.com/?screen=Approvals
         run: |
           TITLE="Taso V2 - incelemeye hazir" \
-          MESSAGE="PR #${{ github.event.pull_request.number }} tum zorunlu CI kapilarindan gecti. Core testleri, UI build, container build, gateway, yetkisiz Core erisimi, infra smoke ve ntfy image kontrolleri basarili. Production'a otomatik merge/deploy yapilmadi; yetki sende." \
+          MESSAGE="PR #${{ github.event.pull_request.number }} tum zorunlu CI kapilarindan gecti. Core testleri, UI build, container build, gateway, operations snapshot, yetkisiz Core erisimi, infra smoke ve ntfy image kontrolleri basarili. Production'a otomatik deploy yapilmadi." \
           sh ./scripts/notify-ntfy.sh success
 
       - name: Notify main CI success
@@ -178,7 +183,7 @@ jobs:
           NTFY_ACTIONS: view, GitHub run, ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}; view, Taso paneli, https://taso-v2.demo.tasarlayalim.com/
         run: |
           TITLE="Taso Release Gate - PASS" \
-          MESSAGE="Main dalindaki ${GITHUB_SHA::7} commit'i dogrulandi. Core + UI + gateway + security + infra + ntfy kontrolleri basarili. Bu bildirim sadece dogrulanmis sonucu raporlar; production deploy politikasi ayri kalir." \
+          MESSAGE="Main dalindaki ${GITHUB_SHA::7} commit'i dogrulandi. Core + UI + gateway + operations + security + infra + ntfy kontrolleri basarili. Bu bildirim sadece dogrulanmis sonucu raporlar; production deploy politikasi ayri kalir." \
           sh ./scripts/notify-ntfy.sh success
 
       - name: Cleanup containers
