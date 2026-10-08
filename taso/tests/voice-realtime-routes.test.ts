@@ -10,18 +10,24 @@ function buildVoiceServer() {
 }
 
 test('voice realtime status never exposes credentials', async () => {
+  const previousGemini = process.env.TASO_GEMINI_API_KEY;
+  process.env.TASO_GEMINI_API_KEY = 'test-secret-never-return';
   const app = buildVoiceServer();
   try {
     const response = await app.inject({ method: 'GET', url: '/v1/voice/realtime' });
     assert.equal(response.statusCode, 200);
     const payload = response.json();
-    assert.equal(payload.realtime.provider, 'openai-realtime');
-    assert.equal(payload.realtime.transport, 'webrtc');
-    assert.equal(payload.realtime.fallback, 'browser-stt-tts');
-    assert.equal(typeof payload.realtime.ready, 'boolean');
+    assert.equal(payload.realtime.provider, 'gemini-live');
+    assert.equal(payload.realtime.transport, 'websocket');
+    assert.equal(payload.realtime.fallback, 'local-neural-manual');
+    assert.equal(payload.realtime.ephemeralTokens, true);
+    assert.equal(payload.realtime.ready, true);
     assert.equal('apiKey' in payload.realtime, false);
+    assert.equal(JSON.stringify(payload).includes('test-secret-never-return'), false);
   } finally {
     await app.close();
+    if (previousGemini === undefined) delete process.env.TASO_GEMINI_API_KEY;
+    else process.env.TASO_GEMINI_API_KEY = previousGemini;
   }
 });
 
@@ -35,6 +41,24 @@ test('ordinary voice chat never becomes a mission suggestion', async () => {
     });
     assert.equal(response.statusCode, 200);
     const payload = response.json();
+    assert.equal(payload.decision.executionRequested, false);
+    assert.equal(payload.suggestedMission, undefined);
+  } finally {
+    await app.close();
+  }
+});
+
+test('runtime status voice question is deterministic and never execution', async () => {
+  const app = buildVoiceServer();
+  try {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/v1/voice/classify',
+      payload: { projectId: 'workspace-a', text: 'Sistem durumu nedir?' },
+    });
+    assert.equal(response.statusCode, 200);
+    const payload = response.json();
+    assert.equal(payload.decision.intent, 'STATUS');
     assert.equal(payload.decision.executionRequested, false);
     assert.equal(payload.suggestedMission, undefined);
   } finally {
