@@ -1,4 +1,5 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { TASO_PRIMARY_SCREENS, useTasoNavigation, type TasoScreen } from './navigation';
 
 type Project = {
   id: string;
@@ -20,10 +21,7 @@ type Mission = {
   updatedAt?: string;
   approvalRequired?: boolean;
   approvedAt?: string;
-  autonomous?: {
-    enabled?: boolean;
-    previewRequired?: boolean;
-  };
+  autonomous?: { enabled?: boolean; previewRequired?: boolean };
   execution?: {
     summary?: string;
     branch?: string;
@@ -60,34 +58,21 @@ type CoreHealth = {
   version?: string;
   gateway?: string;
   state?: string;
-  executor?: {
-    read?: boolean;
-    write?: boolean;
-    deploy?: boolean;
-  };
+  executor?: { read?: boolean; write?: boolean; deploy?: boolean };
 };
 
 type ApiStatus = 'checking' | 'online' | 'offline';
 type RiskLevel = 'READ' | 'WRITE' | 'HIGH_IMPACT';
 type Theme = 'dark' | 'light';
-type NavItem = 'Command Center' | 'Projects' | 'Tasks' | 'Approvals' | 'Deployments' | 'AI Agents' | 'Knowledge' | 'Integrations' | 'Monitoring' | 'Settings' | 'Notifications' | 'Infrastructure';
 
 const API_URL = ((import.meta.env.VITE_TASO_API_URL as string | undefined) || '/api').replace(/\/$/, '');
-const navItems: NavItem[] = ['Command Center', 'Projects', 'Tasks', 'Approvals', 'Deployments', 'AI Agents', 'Knowledge', 'Integrations', 'Monitoring', 'Settings'];
+const navItems = TASO_PRIMARY_SCREENS;
 
 function stateLabel(status: string) {
   const labels: Record<string, string> = {
-    queued: 'QUEUED',
-    planning: 'PLANNING',
-    running: 'EXECUTING',
-    testing: 'TESTING',
-    preview_ready: 'PREVIEW READY',
-    waiting_approval: 'APPROVAL',
-    completed: 'COMPLETED',
-    failed: 'ERROR',
-    cancelled: 'CANCELLED',
-    idle: 'READY',
-    listening: 'LISTENING',
+    queued: 'QUEUED', planning: 'PLANNING', running: 'EXECUTING', testing: 'TESTING',
+    preview_ready: 'PREVIEW READY', waiting_approval: 'APPROVAL', completed: 'COMPLETED',
+    failed: 'ERROR', cancelled: 'CANCELLED', idle: 'READY', listening: 'LISTENING',
   };
   return labels[status] ?? status.toUpperCase();
 }
@@ -124,12 +109,8 @@ function Icon({ name }: { name: 'grid' | 'mic' | 'send' | 'shield' | 'git' | 'be
 function TasoOrb({ mode }: { mode: string }) {
   return (
     <div className={`orb-shell orb-${mode}`} role="img" aria-label={`Taso durumu: ${stateLabel(mode)}`}>
-      <div className="orb-ring orb-ring-a" />
-      <div className="orb-ring orb-ring-b" />
-      <div className="orb-ring orb-ring-c" />
-      <div className="orb-core"><span className="orb-mark">T</span></div>
-      <span className="orb-dot dot-a" />
-      <span className="orb-dot dot-b" />
+      <div className="orb-ring orb-ring-a" /><div className="orb-ring orb-ring-b" /><div className="orb-ring orb-ring-c" />
+      <div className="orb-core"><span className="orb-mark">T</span></div><span className="orb-dot dot-a" /><span className="orb-dot dot-b" />
     </div>
   );
 }
@@ -143,7 +124,7 @@ export default function App() {
   const [apiStatus, setApiStatus] = useState<ApiStatus>('checking');
   const [activeProjectId, setActiveProjectId] = useState('');
   const [selectedMissionId, setSelectedMissionId] = useState('');
-  const [activeNav, setActiveNav] = useState<NavItem>('Command Center');
+  const [activeNav, setActiveNav] = useTasoNavigation();
   const [command, setCommand] = useState('');
   const [riskLevel, setRiskLevel] = useState<RiskLevel>('WRITE');
   const [isListening, setIsListening] = useState(false);
@@ -157,31 +138,11 @@ export default function App() {
   const [executorReady, setExecutorReady] = useState(false);
   const recognitionRef = useRef<any>(null);
 
-  const activeProject = useMemo(
-    () => projects.find((project) => project.id === activeProjectId) ?? projects[0],
-    [projects, activeProjectId],
-  );
-
-  const selectedMission = useMemo(
-    () => missions.find((mission) => mission.id === selectedMissionId),
-    [missions, selectedMissionId],
-  );
-
-  const projectMissions = useMemo(
-    () => missions.filter((mission) => mission.projectId === activeProject?.id),
-    [missions, activeProject?.id],
-  );
-
-  const pendingApprovals = useMemo(
-    () => missions.filter((mission) => mission.status === 'waiting_approval'),
-    [missions],
-  );
-
-  const deploymentRequests = useMemo(
-    () => missions.filter((mission) => /deploy|yayın|production|prod/i.test(mission.objective)),
-    [missions],
-  );
-
+  const activeProject = useMemo(() => projects.find((project) => project.id === activeProjectId) ?? projects[0], [projects, activeProjectId]);
+  const selectedMission = useMemo(() => missions.find((mission) => mission.id === selectedMissionId), [missions, selectedMissionId]);
+  const projectMissions = useMemo(() => missions.filter((mission) => mission.projectId === activeProject?.id), [missions, activeProject?.id]);
+  const pendingApprovals = useMemo(() => missions.filter((mission) => mission.status === 'waiting_approval'), [missions]);
+  const deploymentRequests = useMemo(() => missions.filter((mission) => /deploy|yayın|production|prod/i.test(mission.objective)), [missions]);
   const orbMode = isListening ? 'listening' : projectMissions[0]?.status ?? 'idle';
 
   function speak(text: string) {
@@ -199,18 +160,10 @@ export default function App() {
   }
 
   async function api<T>(path: string, init?: RequestInit): Promise<T> {
-    const response = await fetch(`${API_URL}${path}`, {
-      ...init,
-      headers: { 'content-type': 'application/json', ...(init?.headers ?? {}) },
-    });
+    const response = await fetch(`${API_URL}${path}`, { ...init, headers: { 'content-type': 'application/json', ...(init?.headers ?? {}) } });
     if (!response.ok) {
       let detail = `${response.status} ${response.statusText}`;
-      try {
-        const payload = await response.json();
-        if (payload?.error) detail = payload.error;
-      } catch {
-        // Keep HTTP detail.
-      }
+      try { const payload = await response.json(); if (payload?.error) detail = payload.error; } catch { /* keep HTTP detail */ }
       throw new Error(detail);
     }
     return response.json() as Promise<T>;
@@ -256,53 +209,24 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (!selectedMissionId || apiStatus !== 'online') {
-      setEvents([]);
-      return;
-    }
-    api<{ events: MissionEvent[] }>(`/v1/missions/${selectedMissionId}/events`)
-      .then((payload) => setEvents(payload.events ?? []))
-      .catch(() => setEvents([]));
+    if (!selectedMissionId || apiStatus !== 'online') { setEvents([]); return; }
+    api<{ events: MissionEvent[] }>(`/v1/missions/${selectedMissionId}/events`).then((payload) => setEvents(payload.events ?? [])).catch(() => setEvents([]));
   }, [selectedMissionId, apiStatus]);
 
   async function createMission(objective: string, requestedRisk: RiskLevel = riskLevel) {
-    if (!activeProject || apiStatus !== 'online') {
-      showError('Taso Core çevrimdışı. Görev oluşturulmadı.');
-      return;
-    }
+    if (!activeProject || apiStatus !== 'online') { showError('Taso Core çevrimdışı. Görev oluşturulmadı.'); return; }
     setBusy(true);
     try {
-      const payload = await api<{ mission: Mission }>('/v1/missions', {
-        method: 'POST',
-        body: JSON.stringify({
-          projectId: activeProject.id,
-          objective,
-          riskLevel: requestedRisk,
-          dataClass: 'private_code',
-        }),
-      });
+      const payload = await api<{ mission: Mission }>('/v1/missions', { method: 'POST', body: JSON.stringify({ projectId: activeProject.id, objective, riskLevel: requestedRisk, dataClass: 'private_code' }) });
       setMissions((current) => [payload.mission, ...current.filter((mission) => mission.id !== payload.mission.id)]);
       setSelectedMissionId(payload.mission.id);
-      const text = payload.mission.status === 'waiting_approval'
-        ? 'Görev oluşturuldu. Yüksek etkili işlem olduğu için onayın bekleniyor.'
-        : 'Görev Taso Core görev kuyruğuna alındı.';
-      setNotice(text);
-      speak(text);
-      return payload.mission;
-    } catch (cause) {
-      showError(`Görev oluşturulamadı: ${(cause as Error).message}`);
-    } finally {
-      setBusy(false);
-    }
+      const text = payload.mission.status === 'waiting_approval' ? 'Görev oluşturuldu. Yüksek etkili işlem olduğu için onayın bekleniyor.' : 'Görev Taso Core görev kuyruğuna alındı.';
+      setNotice(text); speak(text); return payload.mission;
+    } catch (cause) { showError(`Görev oluşturulamadı: ${(cause as Error).message}`); }
+    finally { setBusy(false); }
   }
 
-  async function submitCommand(event: FormEvent) {
-    event.preventDefault();
-    const objective = command.trim();
-    if (!objective) return;
-    setCommand('');
-    await createMission(objective);
-  }
+  async function submitCommand(event: FormEvent) { event.preventDefault(); const objective = command.trim(); if (!objective) return; setCommand(''); await createMission(objective); }
 
   async function approveMission(mission: Mission) {
     setBusy(true);
@@ -312,11 +236,8 @@ export default function App() {
       setNotice(`${mission.id} onaylandı ve yürütme kuyruğuna alındı.`);
       window.setTimeout(() => void refreshData(true), 800);
       speak('Onay verildi. Görev kuyruğa alındı.');
-    } catch (cause) {
-      showError(`Onay başarısız: ${(cause as Error).message}`);
-    } finally {
-      setBusy(false);
-    }
+    } catch (cause) { showError(`Onay başarısız: ${(cause as Error).message}`); }
+    finally { setBusy(false); }
   }
 
   async function cancelMission(mission: Mission) {
@@ -325,11 +246,8 @@ export default function App() {
       const payload = await api<{ mission: Mission }>(`/v1/missions/${mission.id}/cancel`, { method: 'POST' });
       setMissions((current) => current.map((item) => item.id === mission.id ? payload.mission : item));
       setNotice(`${mission.id} iptal edildi.`);
-    } catch (cause) {
-      showError(`İptal başarısız: ${(cause as Error).message}`);
-    } finally {
-      setBusy(false);
-    }
+    } catch (cause) { showError(`İptal başarısız: ${(cause as Error).message}`); }
+    finally { setBusy(false); }
   }
 
   async function createProject(event: FormEvent) {
@@ -337,200 +255,61 @@ export default function App() {
     if (!newProject.name.trim() || !newProject.slug.trim() || !newProject.repository.trim()) return;
     setBusy(true);
     try {
-      const payload = await api<{ project: Project }>('/v1/projects', {
-        method: 'POST',
-        body: JSON.stringify({
-          name: newProject.name.trim(),
-          slug: newProject.slug.trim().toLowerCase().replace(/\s+/g, '-'),
-          repository: newProject.repository.trim(),
-          isExisting: newProject.isExisting,
-        }),
-      });
+      const payload = await api<{ project: Project }>('/v1/projects', { method: 'POST', body: JSON.stringify({ name: newProject.name.trim(), slug: newProject.slug.trim().toLowerCase().replace(/\s+/g, '-'), repository: newProject.repository.trim(), isExisting: newProject.isExisting }) });
       setProjects((current) => [...current, payload.project]);
       setActiveProjectId(payload.project.id);
       setNewProject({ name: '', slug: '', repository: '', isExisting: true });
       setNotice(`${payload.project.name} workspace'i oluşturuldu.`);
-    } catch (cause) {
-      showError(`Workspace oluşturulamadı: ${(cause as Error).message}`);
-    } finally {
-      setBusy(false);
-    }
+    } catch (cause) { showError(`Workspace oluşturulamadı: ${(cause as Error).message}`); }
+    finally { setBusy(false); }
   }
 
   function startVoice() {
-    if (isListening) {
-      recognitionRef.current?.stop?.();
-      setIsListening(false);
-      return;
-    }
+    if (isListening) { recognitionRef.current?.stop?.(); setIsListening(false); return; }
     const Recognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!Recognition) {
-      showError('Bu tarayıcı Web Speech Recognition desteklemiyor. Chrome/Edge ile deneyebilirsin.');
-      return;
-    }
+    if (!Recognition) { showError('Bu tarayıcı Web Speech Recognition desteklemiyor. Chrome/Edge ile deneyebilirsin.'); return; }
     const recognition = new Recognition();
-    recognition.lang = 'tr-TR';
-    recognition.continuous = false;
-    recognition.interimResults = true;
-    recognition.onstart = () => {
-      setIsListening(true);
-      setNotice(`${activeProject?.name ?? 'Workspace'} için seni dinliyorum…`);
-    };
-    recognition.onresult = (event: any) => {
-      let transcript = '';
-      for (let index = event.resultIndex; index < event.results.length; index += 1) {
-        transcript += event.results[index][0].transcript;
-      }
-      setCommand(transcript.trim());
-    };
+    recognition.lang = 'tr-TR'; recognition.continuous = false; recognition.interimResults = true;
+    recognition.onstart = () => { setIsListening(true); setNotice(`${activeProject?.name ?? 'Workspace'} için seni dinliyorum…`); };
+    recognition.onresult = (event: any) => { let transcript = ''; for (let index = event.resultIndex; index < event.results.length; index += 1) transcript += event.results[index][0].transcript; setCommand(transcript.trim()); };
     recognition.onerror = (event: any) => showError(`Sesli giriş hatası: ${event.error ?? 'bilinmeyen hata'}`);
     recognition.onend = () => setIsListening(false);
-    recognitionRef.current = recognition;
-    recognition.start();
+    recognitionRef.current = recognition; recognition.start();
   }
 
   function requestBrowserNotifications() {
-    if (!('Notification' in window)) {
-      showError('Bu tarayıcı yerel bildirimleri desteklemiyor.');
-      return;
-    }
-    void Notification.requestPermission().then((permission) => {
-      setNotice(permission === 'granted' ? 'Tarayıcı bildirimleri açıldı.' : 'Tarayıcı bildirim izni verilmedi.');
-    });
+    if (!('Notification' in window)) { showError('Bu tarayıcı yerel bildirimleri desteklemiyor.'); return; }
+    void Notification.requestPermission().then((permission) => setNotice(permission === 'granted' ? 'Tarayıcı bildirimleri açıldı.' : 'Tarayıcı bildirim izni verilmedi.'));
   }
 
-  function switchNav(item: NavItem) {
+  function switchNav(item: TasoScreen) {
     setActiveNav(item);
     if (item === 'Approvals' && pendingApprovals[0]) setSelectedMissionId(pendingApprovals[0].id);
   }
 
   function ProjectSwitcher() {
-    return (
-      <section className="project-strip" aria-label="Proje seçici">
-        <div className="project-switcher-label">ACTIVE WORKSPACE</div>
-        <div className="project-tabs">
-          {projects.map((project) => (
-            <button key={project.id} type="button" onClick={() => setActiveProjectId(project.id)} className={project.id === activeProject?.id ? 'project-tab active' : 'project-tab'}>
-              <span className="project-signal" />{project.name}
-            </button>
-          ))}
-          {projects.length === 0 && <span className="empty-inline">Workspace bulunamadı</span>}
-        </div>
-      </section>
-    );
+    return <section className="project-strip" aria-label="Proje seçici"><div className="project-switcher-label">ACTIVE WORKSPACE</div><div className="project-tabs">{projects.map((project) => <button key={project.id} type="button" onClick={() => setActiveProjectId(project.id)} className={project.id === activeProject?.id ? 'project-tab active' : 'project-tab'}><span className="project-signal" />{project.name}</button>)}{projects.length === 0 && <span className="empty-inline">Workspace bulunamadı</span>}</div></section>;
   }
 
   function MissionTable({ items = missions }: { items?: Mission[] }) {
     if (!items.length) return <div className="empty-state"><strong>Henüz görev yok.</strong><span>Taso'ya ilk görevi vererek akışı başlat.</span></div>;
-    return (
-      <div className="data-list">
-        {items.map((mission) => {
-          const project = projects.find((item) => item.id === mission.projectId);
-          return (
-            <button className={selectedMissionId === mission.id ? 'data-row selected' : 'data-row'} type="button" key={mission.id} onClick={() => setSelectedMissionId(mission.id)}>
-              <span className={`state-dot state-${mission.status}`} />
-              <span className="data-main"><strong>{mission.objective}</strong><small>{project?.name ?? mission.projectId} • {mission.id}</small></span>
-              <span className="badge">{mission.riskLevel ?? 'WRITE'}</span>
-              <span className={`status-pill status-${mission.status}`}>{stateLabel(mission.status)}</span>
-            </button>
-          );
-        })}
-      </div>
-    );
+    return <div className="data-list">{items.map((mission) => { const project = projects.find((item) => item.id === mission.projectId); return <button className={selectedMissionId === mission.id ? 'data-row selected' : 'data-row'} type="button" key={mission.id} onClick={() => setSelectedMissionId(mission.id)}><span className={`state-dot state-${mission.status}`} /><span className="data-main"><strong>{mission.objective}</strong><small>{project?.name ?? mission.projectId} • {mission.id}</small></span><span className="badge">{mission.riskLevel ?? 'WRITE'}</span><span className={`status-pill status-${mission.status}`}>{stateLabel(mission.status)}</span></button>; })}</div>;
   }
 
   function MissionDetail() {
     if (!selectedMission) return <div className="empty-state"><strong>Görev seç.</strong><span>Detayları ve olay akışını burada göreceksin.</span></div>;
-    return (
-      <div className="detail-stack">
-        <div className="detail-head"><div><span>MISSION</span><h3>{selectedMission.objective}</h3><p>{selectedMission.id}</p></div><span className={`status-pill status-${selectedMission.status}`}>{stateLabel(selectedMission.status)}</span></div>
-        <div className="metric-grid compact">
-          <div><span>Risk</span><strong>{selectedMission.riskLevel ?? '—'}</strong></div>
-          <div><span>Data</span><strong>{selectedMission.dataClass ?? '—'}</strong></div>
-          <div><span>Created</span><strong>{formatDate(selectedMission.createdAt)}</strong></div>
-          <div><span>Providers</span><strong>{selectedMission.providerChain?.join(' → ') || '—'}</strong></div>
-        </div>
-        <div className="detail-actions">
-          {selectedMission.status === 'waiting_approval' && <button className="primary-button" type="button" onClick={() => void approveMission(selectedMission)}><Icon name="check" /> Onayla</button>}
-          {selectedMission.status !== 'cancelled' && selectedMission.status !== 'completed' && <button className="danger-button" type="button" onClick={() => void cancelMission(selectedMission)}><Icon name="x" /> İptal</button>}
-        </div>
-        <div className="timeline">
-          <div className="section-head"><span>MISSION TIMELINE</span><small>{events.length} event</small></div>
-          {events.length ? events.map((event, index) => <div className="timeline-item" key={event.id ?? `${event.type}-${index}`}><span /><div><strong>{event.type ?? 'event'}</strong><p>{event.message ?? '—'}</p><small>{formatDate(event.createdAt)}</small></div></div>) : <p className="muted-copy">Bu görev için olay kaydı henüz yok veya yüklenemedi.</p>}
-        </div>
-      </div>
-    );
+    return <div className="detail-stack"><div className="detail-head"><div><span>MISSION</span><h3>{selectedMission.objective}</h3><p>{selectedMission.id}</p></div><span className={`status-pill status-${selectedMission.status}`}>{stateLabel(selectedMission.status)}</span></div><div className="metric-grid compact"><div><span>Risk</span><strong>{selectedMission.riskLevel ?? '—'}</strong></div><div><span>Data</span><strong>{selectedMission.dataClass ?? '—'}</strong></div><div><span>Created</span><strong>{formatDate(selectedMission.createdAt)}</strong></div><div><span>Providers</span><strong>{selectedMission.providerChain?.join(' → ') || '—'}</strong></div></div><div className="detail-actions">{selectedMission.status === 'waiting_approval' && <button className="primary-button" type="button" onClick={() => void approveMission(selectedMission)}><Icon name="check" /> Onayla</button>}{selectedMission.status !== 'cancelled' && selectedMission.status !== 'completed' && <button className="danger-button" type="button" onClick={() => void cancelMission(selectedMission)}><Icon name="x" /> İptal</button>}</div><div className="timeline"><div className="section-head"><span>MISSION TIMELINE</span><small>{events.length} event</small></div>{events.length ? events.map((event, index) => <div className="timeline-item" key={event.id ?? `${event.type}-${index}`}><span /><div><strong>{event.type ?? 'event'}</strong><p>{event.message ?? '—'}</p><small>{formatDate(event.createdAt)}</small></div></div>) : <p className="muted-copy">Bu görev için olay kaydı henüz yok veya yüklenemedi.</p>}</div></div>;
   }
 
   function CommandCenter() {
-    return (
-      <>
-        <ProjectSwitcher />
-        <section className="command-grid">
-          <article className="taso-panel panel">
-            <div className="panel-kicker"><span className={`live-dot ${apiStatus}`} /> {apiStatus === 'online' ? 'TASO ONLINE' : apiStatus === 'checking' ? 'CONNECTING' : 'TASO OFFLINE'}</div>
-            <div className="orb-stage">
-              <TasoOrb mode={orbMode} />
-              <div className="orb-copy"><span>{stateLabel(orbMode)}</span><h2>{isListening ? 'Seni dinliyorum.' : 'Ne inşa ediyoruz?'}</h2><p>{notice}</p></div>
-            </div>
-            <form className="command-composer" onSubmit={submitCommand}>
-              <button type="button" className={isListening ? 'voice-button listening' : 'voice-button'} onClick={startVoice} aria-pressed={isListening} aria-label="Taso ile konuş"><Icon name="mic" /></button>
-              <input value={command} onChange={(event) => setCommand(event.target.value)} placeholder={`${activeProject?.name ?? 'Workspace'} için Taso'ya görev ver…`} aria-label="Taso görevi" disabled={apiStatus !== 'online'} />
-              <select value={riskLevel} onChange={(event) => setRiskLevel(event.target.value as RiskLevel)} aria-label="Risk seviyesi"><option value="READ">READ</option><option value="WRITE">WRITE</option><option value="HIGH_IMPACT">HIGH IMPACT</option></select>
-              <button className="send-button" type="submit" aria-label="Gönder" disabled={apiStatus !== 'online' || busy}><Icon name="send" /></button>
-            </form>
-            <div className="command-hints"><span>↵ Gönder</span><span>🎙 Türkçe sesli giriş</span><button type="button" onClick={() => setVoiceReplies((value) => !value)}>Sesli yanıt: {voiceReplies ? 'Açık' : 'Kapalı'}</button><span>Project isolated</span></div>
-          </article>
-          <aside className="mission-rail">
-            <article className="panel context-panel">
-              <div className="section-head"><span>WORKSPACE</span><small>isolated context</small></div>
-              <h3>{activeProject?.name ?? 'Workspace yok'}</h3>
-              <div className="meta-row"><Icon name="git" /><div><span>Repository</span><strong>{shortRepo(activeProject?.repository ?? '—')}</strong></div></div>
-              <div className="meta-row"><Icon name="shield" /><div><span>Policy</span><strong>{activeProject?.isExisting === false ? 'Best-fit architecture' : 'Preserve existing'}</strong></div></div>
-              <div className="meta-row"><Icon name="server" /><div><span>Core</span><strong>{apiStatus === 'online' ? `v${health.version ?? '?'}` : 'Offline'}</strong></div></div>
-            </article>
-            <article className="panel approval-panel">
-              <div className="section-head"><span>APPROVALS</span><small>{pendingApprovals.length} pending</small></div>
-              {pendingApprovals[0] ? <><div className="approval-glow" /><strong>{pendingApprovals[0].objective}</strong><p>{projects.find((item) => item.id === pendingApprovals[0].projectId)?.name ?? pendingApprovals[0].projectId} • {pendingApprovals[0].id}</p><div className="risk-line"><span>HIGH IMPACT</span><b>Human approval</b></div><button type="button" className="ghost-button" onClick={() => switchNav('Approvals')}>İncele →</button></> : <div className="empty-mini">Bekleyen onay yok.</div>}
-            </article>
-          </aside>
-        </section>
-        <section className="live-metrics" aria-label="Canlı operasyon özeti">
-          <article className="panel live-metric"><span>WORKSPACES</span><strong>{projects.length}</strong><small>Core üzerinden kayıtlı</small></article>
-          <article className="panel live-metric"><span>GÖREVLER</span><strong>{projectMissions.length}</strong><small>Seçili workspace</small></article>
-          <article className="panel live-metric"><span>AKTİF İŞLEMLER</span><strong>{projectMissions.filter((mission) => ['queued', 'planning', 'running', 'testing'].includes(mission.status)).length}</strong><small>Core görev durumları</small></article>
-          <article className="panel live-metric"><span>ONAY BEKLEYEN</span><strong>{pendingApprovals.length}</strong><small>Tüm workspace'ler</small></article>
-        </section>
-        <section className="lower-grid">
-          <article className="panel tasks-panel"><div className="section-head"><span>ACTIVE MISSIONS</span><small>{projectMissions.length} workspace</small></div><MissionTable items={projectMissions.slice(0, 4)} /></article>
-          <article className="panel systems-panel"><div className="section-head"><span>SYSTEMS</span><small>verified state</small></div>
-            <div className="systems-grid">
-              <div className="system-card">
-                <span className={`system-pulse ${apiStatus}`} />
-                <div><strong>Taso Core</strong><small>{apiStatus === 'online' ? 'Connected' : 'Unavailable'}</small></div>
-              </div>
-              <div className="system-card">
-                <span className={`system-pulse ${executorReady ? 'online' : 'offline'}`} />
-                <div><strong>Executor</strong><small>{executorReady ? 'Ready' : 'Not ready'}</small></div>
-              </div>
-              <div className="system-card">
-                <span className="system-pulse offline" />
-                <div><strong>GitHub CI</strong><small>Canlı CI durumu doğrulanmadı</small></div>
-              </div>
-            </div>
-          </article>
-        </section>
-      </>
-    );
+    return <><ProjectSwitcher /><section className="command-grid"><article className="taso-panel panel"><div className="panel-kicker"><span className={`live-dot ${apiStatus}`} /> {apiStatus === 'online' ? 'TASO ONLINE' : apiStatus === 'checking' ? 'CONNECTING' : 'TASO OFFLINE'}</div><div className="orb-stage"><TasoOrb mode={orbMode} /><div className="orb-copy"><span>{stateLabel(orbMode)}</span><h2>{isListening ? 'Seni dinliyorum.' : 'Ne inşa ediyoruz?'}</h2><p>{notice}</p></div></div><form className="command-composer" onSubmit={submitCommand}><button type="button" className={isListening ? 'voice-button listening' : 'voice-button'} onClick={startVoice} aria-pressed={isListening} aria-label="Taso ile konuş"><Icon name="mic" /></button><input value={command} onChange={(event) => setCommand(event.target.value)} placeholder={`${activeProject?.name ?? 'Workspace'} için Taso'ya görev ver…`} aria-label="Taso görevi" disabled={apiStatus !== 'online'} /><select value={riskLevel} onChange={(event) => setRiskLevel(event.target.value as RiskLevel)} aria-label="Risk seviyesi"><option value="READ">READ</option><option value="WRITE">WRITE</option><option value="HIGH_IMPACT">HIGH IMPACT</option></select><button className="send-button" type="submit" aria-label="Gönder" disabled={apiStatus !== 'online' || busy}><Icon name="send" /></button></form><div className="command-hints"><span>↵ Gönder</span><span>🎙 Türkçe sesli giriş</span><button type="button" onClick={() => setVoiceReplies((value) => !value)}>Sesli yanıt: {voiceReplies ? 'Açık' : 'Kapalı'}</button><span>Project isolated</span></div></article><aside className="mission-rail"><article className="panel context-panel"><div className="section-head"><span>WORKSPACE</span><small>isolated context</small></div><h3>{activeProject?.name ?? 'Workspace yok'}</h3><div className="meta-row"><Icon name="git" /><div><span>Repository</span><strong>{shortRepo(activeProject?.repository ?? '—')}</strong></div></div><div className="meta-row"><Icon name="shield" /><div><span>Policy</span><strong>{activeProject?.isExisting === false ? 'Best-fit architecture' : 'Preserve existing'}</strong></div></div><div className="meta-row"><Icon name="server" /><div><span>Core</span><strong>{apiStatus === 'online' ? `v${health.version ?? '?'}` : 'Offline'}</strong></div></div></article><article className="panel approval-panel"><div className="section-head"><span>APPROVALS</span><small>{pendingApprovals.length} pending</small></div>{pendingApprovals[0] ? <><div className="approval-glow" /><strong>{pendingApprovals[0].objective}</strong><p>{projects.find((item) => item.id === pendingApprovals[0].projectId)?.name ?? pendingApprovals[0].projectId} • {pendingApprovals[0].id}</p><div className="risk-line"><span>HIGH IMPACT</span><b>Human approval</b></div><button type="button" className="ghost-button" onClick={() => switchNav('Approvals')}>İncele →</button></> : <div className="empty-mini">Bekleyen onay yok.</div>}</article></aside></section><section className="live-metrics" aria-label="Canlı operasyon özeti"><article className="panel live-metric"><span>WORKSPACES</span><strong>{projects.length}</strong><small>Core üzerinden kayıtlı</small></article><article className="panel live-metric"><span>GÖREVLER</span><strong>{projectMissions.length}</strong><small>Seçili workspace</small></article><article className="panel live-metric"><span>AKTİF İŞLEMLER</span><strong>{projectMissions.filter((mission) => ['queued', 'planning', 'running', 'testing'].includes(mission.status)).length}</strong><small>Core görev durumları</small></article><article className="panel live-metric"><span>ONAY BEKLEYEN</span><strong>{pendingApprovals.length}</strong><small>Tüm workspace'ler</small></article></section><section className="lower-grid"><article className="panel tasks-panel"><div className="section-head"><span>ACTIVE MISSIONS</span><small>{projectMissions.length} workspace</small></div><MissionTable items={projectMissions.slice(0, 4)} /></article><article className="panel systems-panel"><div className="section-head"><span>SYSTEMS</span><small>verified state</small></div><div className="systems-grid"><div className="system-card"><span className={`system-pulse ${apiStatus}`} /><div><strong>Taso Core</strong><small>{apiStatus === 'online' ? 'Connected' : 'Unavailable'}</small></div></div><div className="system-card"><span className={`system-pulse ${executorReady ? 'online' : 'offline'}`} /><div><strong>Executor</strong><small>{executorReady ? 'Ready' : 'Not ready'}</small></div></div><div className="system-card"><span className="system-pulse offline" /><div><strong>GitHub CI</strong><small>Canlı CI durumu doğrulanmadı</small></div></div></div></article></section></>;
   }
 
   function ProjectsScreen() {
     return <><ProjectSwitcher /><section className="screen-grid two"><article className="panel screen-panel"><div className="section-head"><span>WORKSPACES</span><small>{projects.length} isolated</small></div><div className="project-cards">{projects.map((project) => <button type="button" className={project.id === activeProject?.id ? 'project-card active' : 'project-card'} key={project.id} onClick={() => setActiveProjectId(project.id)}><div><span className="project-signal" /><strong>{project.name}</strong></div><p>{project.repository}</p><small>{project.isExisting === false ? 'NEW / BEST-FIT' : 'EXISTING / PRESERVE'}</small></button>)}</div></article><article className="panel screen-panel"><div className="section-head"><span>NEW WORKSPACE</span><small>project scoped</small></div><form className="stack-form" onSubmit={createProject}><label>Proje adı<input value={newProject.name} onChange={(e) => setNewProject((v) => ({ ...v, name: e.target.value }))} placeholder="Örn. Reksa Reklam" /></label><label>Slug<input value={newProject.slug} onChange={(e) => setNewProject((v) => ({ ...v, slug: e.target.value }))} placeholder="reksa-reklam" /></label><label>Repository / logical id<input value={newProject.repository} onChange={(e) => setNewProject((v) => ({ ...v, repository: e.target.value }))} placeholder="owner/repo veya repo adı" /></label><label className="check-line"><input type="checkbox" checked={newProject.isExisting} onChange={(e) => setNewProject((v) => ({ ...v, isExisting: e.target.checked }))} /> Mevcut projeyi koru</label><button className="primary-button" type="submit" disabled={busy || apiStatus !== 'online'}><Icon name="plus" /> Workspace oluştur</button></form><p className="callout">Repository alanı şu an proje bağlamı tanımlayıcısıdır; GitHub Tool Broker bağlantısı ayrı yürütme katmanında yapılacak.</p></article></section></>;
   }
 
-  function TasksScreen() {
-    return <><ProjectSwitcher /><section className="screen-grid task-layout"><article className="panel screen-panel"><div className="section-head"><span>MISSIONS</span><small>{missions.length} total</small></div><MissionTable /></article><article className="panel screen-panel"><MissionDetail /></article></section></>;
-  }
+  function TasksScreen() { return <><ProjectSwitcher /><section className="screen-grid task-layout"><article className="panel screen-panel"><div className="section-head"><span>MISSIONS</span><small>{missions.length} total</small></div><MissionTable /></article><article className="panel screen-panel"><MissionDetail /></article></section></>; }
 
   function ApprovalsScreen() {
     return <section className="screen-grid task-layout"><article className="panel screen-panel"><div className="section-head"><span>HUMAN APPROVAL QUEUE</span><small>{pendingApprovals.length} pending</small></div>{pendingApprovals.length ? <div className="approval-list">{pendingApprovals.map((mission) => <div className="approval-card" key={mission.id}><div><span>HIGH IMPACT</span><strong>{mission.objective}</strong><p>{projects.find((project) => project.id === mission.projectId)?.name ?? mission.projectId} • {mission.id}</p></div><div className="approval-actions"><button className="primary-button" type="button" onClick={() => void approveMission(mission)}><Icon name="check" /> Onayla</button><button className="danger-button" type="button" onClick={() => void cancelMission(mission)}><Icon name="x" /> Reddet</button></div></div>)}</div> : <div className="empty-state"><strong>Onay kuyruğu temiz.</strong><span>HIGH_IMPACT görevler burada insan onayı bekler.</span></div>}</article><article className="panel screen-panel"><div className="section-head"><span>APPROVAL POLICY</span><small>guardrail</small></div><div className="policy-card"><Icon name="shield" /><h3>Yetki sende kalır.</h3><p>Production, yıkıcı veya yüksek etkili görevler otomatik onaylanmaz. Taso Core bunları beklemeye alır ve yalnız sen onayladıktan sonra kuyruğa geçirir.</p></div></article></section>;
@@ -571,10 +350,10 @@ export default function App() {
   }
 
   return (
-    <div className="app-shell">
+    <div className="app-shell" data-screen={activeNav}>
       <aside className="sidebar">
         <div className="brand"><div className="brand-glyph">T</div><div><strong>TASO</strong><span>DEV CLOUD</span></div></div>
-        <nav className="main-nav" aria-label="Ana navigasyon">{navItems.map((item, index) => <button className={activeNav === item ? 'nav-item active' : 'nav-item'} onClick={() => switchNav(item)} key={item} type="button"><span className="nav-index">0{index + 1}</span><span>{item}</span></button>)}</nav>
+        <nav className="main-nav" aria-label="Ana navigasyon">{navItems.map((item, index) => <button className={activeNav === item ? 'nav-item active' : 'nav-item'} onClick={() => switchNav(item)} key={item} type="button" aria-current={activeNav === item ? 'page' : undefined}><span className="nav-index">{String(index + 1).padStart(2, '0')}</span><span>{item}</span></button>)}</nav>
         <div className="sidebar-footer"><div className="system-mini"><span className={`status-dot ${apiStatus}`} /><div><strong>Taso Core</strong><small>{apiStatus === 'online' ? 'Connected' : apiStatus === 'checking' ? 'Checking…' : 'Offline'}</small></div></div></div>
       </aside>
       <main className="main-area">
