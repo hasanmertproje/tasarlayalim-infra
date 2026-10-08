@@ -175,9 +175,11 @@ export default function App() {
   }
 
   async function api<T>(path: string, init?: RequestInit): Promise<T> {
+    const headers = new Headers(init?.headers ?? {});
+    if (init?.body != null && !headers.has('content-type')) headers.set('content-type', 'application/json');
     const response = await fetch(`${API_URL}${path}`, {
       ...init,
-      headers: { 'content-type': 'application/json', ...(init?.headers ?? {}) },
+      headers,
     });
     if (!response.ok) {
       let detail = `${response.status} ${response.statusText}`;
@@ -260,7 +262,6 @@ export default function App() {
         ? 'Görev oluşturuldu. Yüksek etkili işlem olduğu için onayın bekleniyor.'
         : 'Görev Taso Core görev kuyruğuna alındı.';
       setNotice(text);
-      speak(text);
       return payload.mission;
     } catch (cause) {
       showError(`Görev oluşturulamadı: ${(cause as Error).message}`);
@@ -283,7 +284,6 @@ export default function App() {
       const payload = await api<{ mission: Mission }>(`/v1/missions/${mission.id}/approve`, { method: 'POST' });
       setMissions((current) => current.map((item) => item.id === mission.id ? payload.mission : item));
       setNotice(`${mission.id} onaylandı ve kuyruğa alındı.`);
-      speak('Onay verildi. Görev kuyruğa alındı.');
     } catch (cause) {
       showError(`Onay başarısız: ${(cause as Error).message}`);
     } finally {
@@ -493,7 +493,7 @@ export default function App() {
 
   function NotificationsScreen() {
     const recent = missions.slice(0, 8);
-    return <section className="screen-grid two"><article className="panel screen-panel"><div className="section-head"><span>ACTIVITY FEED</span><small>Core state</small></div><div className="notification-feed">{recent.length ? recent.map((mission) => <button type="button" key={mission.id} onClick={() => { setSelectedMissionId(mission.id); setActiveNav('Tasks'); }}><span className={`state-dot state-${mission.status}`} /><div><strong>{stateLabel(mission.status)} • {mission.objective}</strong><p>{projects.find((project) => project.id === mission.projectId)?.name ?? mission.projectId} • {formatDate(mission.updatedAt ?? mission.createdAt)}</p></div></button>) : <div className="empty-state"><strong>Aktivite yok.</strong></div>}</div></article><article className="panel screen-panel"><div className="section-head"><span>DELIVERY CHANNELS</span><small>operator alerts</small></div><div className="channel-card"><Icon name="bell" /><div><strong>Browser notifications</strong><p>Bu cihazda Taso paneli için yerel izin iste.</p></div><button className="ghost-button compact-button" type="button" onClick={requestBrowserNotifications}>İzin ver</button></div><div className="channel-card"><span className="channel-mark">N</span><div><strong>ntfy / agent-ci</strong><p>CI başlangıç ve sonuç bildirimleri GitHub Actions tarafından güvenli secret'larla gönderilir.</p></div><span className="badge">CI</span></div><div className="channel-card"><span className="channel-mark">T</span><div><strong>Taso voice</strong><p>Türkçe konuşma tanıma ve tarayıcı speech synthesis aktif.</p></div><button className="ghost-button compact-button" type="button" onClick={() => setVoiceReplies((value) => !value)}>{voiceReplies ? 'Açık' : 'Kapalı'}</button></div></article></section>;
+    return <section className="screen-grid two"><article className="panel screen-panel"><div className="section-head"><span>ACTIVITY FEED</span><small>Core state</small></div><div className="notification-feed">{recent.length ? recent.map((mission) => <button type="button" key={mission.id} onClick={() => { setSelectedMissionId(mission.id); setActiveNav('Tasks'); }}><span className={`state-dot state-${mission.status}`} /><div><strong>{stateLabel(mission.status)} • {mission.objective}</strong><p>{projects.find((project) => project.id === mission.projectId)?.name ?? mission.projectId} • {formatDate(mission.updatedAt ?? mission.createdAt)}</p></div></button>) : <div className="empty-state"><strong>Aktivite yok.</strong></div>}</article><article className="panel screen-panel"><div className="section-head"><span>DELIVERY CHANNELS</span><small>operator alerts</small></div><div className="channel-card"><Icon name="bell" /><div><strong>Browser notifications</strong><p>Bu cihazda Taso paneli için yerel izin iste.</p></div><button className="ghost-button compact-button" type="button" onClick={requestBrowserNotifications}>İzin ver</button></div><div className="channel-card"><span className="channel-mark">N</span><div><strong>ntfy / agent-ci</strong><p>CI başlangıç ve sonuç bildirimleri GitHub Actions tarafından güvenli secret'larla gönderilir.</p></div><span className="badge">CI</span></div><div className="channel-card"><span className="channel-mark">T</span><div><strong>Taso voice</strong><p>Türkçe konuşma tanıma ve tarayıcı speech synthesis aktif.</p></div><button className="ghost-button compact-button" type="button" onClick={() => setVoiceReplies((value) => !value)}>{voiceReplies ? 'Açık' : 'Kapalı'}</button></div></article></section>;
   }
 
   function InfrastructureScreen() {
