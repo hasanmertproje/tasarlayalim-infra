@@ -122,6 +122,11 @@ export class TaskEngine {
     const mission = this.missions.get(id);
     if (!mission) throw new Error('Mission not found.');
     if (mission.status !== 'failed') throw new Error(`Mission cannot be retried from status ${mission.status}.`);
+
+    const project = this.projects.get(mission.projectId);
+    const requiresFreshApproval = project?.slug === 'taso-self-improvement' && mission.approvalRequired;
+    if (requiresFreshApproval) mission.approvedAt = undefined;
+
     mission.status = mission.approvalRequired && !mission.approvedAt ? 'waiting_approval' : 'queued';
     mission.updatedAt = nowIso();
     mission.execution = mission.execution ? {
@@ -133,7 +138,12 @@ export class TaskEngine {
       nextRetryAt: undefined,
     } : { retryCount: 0 };
     this.missions.set(id, mission);
-    this.events.append(id, 'mission.status_changed', 'Mission queued for explicit retry.', { status: mission.status, retryCount: 0 });
+    this.events.append(id, 'mission.status_changed', requiresFreshApproval
+      ? 'Self-improvement retry returned to explicit approval.'
+      : 'Mission queued for explicit retry.', { status: mission.status, retryCount: 0 });
+    if (requiresFreshApproval) {
+      this.events.append(id, 'mission.approval_required', 'Taso self-improvement retries require fresh operator approval.');
+    }
     this.onChange();
     return mission;
   }
