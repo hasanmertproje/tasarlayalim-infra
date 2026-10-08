@@ -46,9 +46,13 @@ export function classifyConversationIntent(text: string): ConversationDecision {
     return { intent: 'CANCEL', executionRequested: false, confidence: 0.94 };
   }
 
-  // HIGH_IMPACT is action-sensitive. Mentioning production, secrets or permissions in a question
-  // must stay ordinary assistant conversation instead of becoming a mission proposal.
-  if (/\b(canlıya al|yayına al|deploy et|production(?:'a|a)? deploy|prod(?:'a|a)? deploy|sil(?:me)?\s+(?:repo|veri|kayıt|dosya)|drop\s+(?:table|database)|yetki\s+(?:ver|kaldır|değiştir)|permission\s+(?:grant|revoke|change)|secret\s+(?:değiştir|sil|rotate)|credential\s+(?:değiştir|sil|rotate))\b/i.test(value)) {
+  // High-impact classification requires an explicit action. Merely discussing production,
+  // secrets, credentials or permissions is ordinary assistant conversation.
+  if (
+    /\b(canlıya al|yayına al|deploy et|production(?:'a|a)? deploy et|prod(?:'a|a)? deploy et|rollback yap)\b/i.test(value)
+    || /\b(sil|kaldır|drop|rotate|değiştir|yenile)\b[^.?!]{0,48}\b(secret|credential|token|yetki|permission|repo|veri|database|table)\b/i.test(value)
+    || /\b(secret|credential|token|yetki|permission)\b[^.?!]{0,48}\b(sil|kaldır|rotate|değiştir|yenile|ver|grant|revoke)\b/i.test(value)
+  ) {
     return { intent: 'HIGH_IMPACT_REQUEST', executionRequested: true, suggestedRisk: 'HIGH_IMPACT', confidence: 0.95 };
   }
 
@@ -60,8 +64,8 @@ export function classifyConversationIntent(text: string): ConversationDecision {
     return { intent: 'WRITE_REQUEST', executionRequested: true, suggestedRisk: 'WRITE', confidence: 0.9 };
   }
 
-  // Read/research requests are normal assistant capabilities. They should not create a mission
-  // unless the user explicitly asks Taso to perform workspace execution.
+  // Read/research requests are normal assistant capabilities. They stay conversational and
+  // may use read-only tools later, but they do not become missions by default.
   if (/\b(incele|analiz et|araştır|kontrol et|nedenini bul|tespit et|review|analyze|inspect|bak|karşılaştır|özetle)\b/i.test(value)) {
     return { intent: 'READ_REQUEST', executionRequested: false, suggestedRisk: 'READ', confidence: 0.9 };
   }
