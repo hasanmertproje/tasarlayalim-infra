@@ -37,7 +37,7 @@ test('casual conversation does not create a mission', async () => {
     const response = await app.inject({
       method: 'POST',
       url: '/v1/conversations/messages',
-      payload: { projectId, text: 'hey taso nasılsın' },
+      payload: { projectId, text: 'Hey emo şu anda nasılsın' },
     });
     assert.equal(response.statusCode, 201);
     const payload = response.json();
