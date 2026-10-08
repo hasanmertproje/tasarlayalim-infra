@@ -3,6 +3,7 @@ import test from 'node:test';
 import type { Mission, Project } from '../src/domain.js';
 import type { MissionEvent } from '../src/mission-events.js';
 import { buildOperationsSnapshot } from '../src/operations-snapshot.js';
+import type { ProjectMilestone } from '../src/project-milestones.js';
 
 const project: Project = {
   id: 'project_1',
@@ -56,10 +57,34 @@ const events: MissionEvent[] = [
   },
 ];
 
-test('operations snapshot exposes real project mission completion and newest activity first', () => {
+test('operations snapshot exposes mission completion separately from explicit milestone progress', () => {
   const missions = [mission('mission_done', 'completed'), mission('mission_active', 'planning')];
+  const milestones: ProjectMilestone[] = [
+    {
+      id: 'milestone_1',
+      projectId: project.id,
+      title: 'Core',
+      weight: 2,
+      progress: 100,
+      status: 'completed',
+      createdAt: '2026-10-08T09:00:00.000Z',
+      updatedAt: '2026-10-08T09:30:00.000Z',
+      completedAt: '2026-10-08T09:30:00.000Z',
+    },
+    {
+      id: 'milestone_2',
+      projectId: project.id,
+      title: 'Dashboard',
+      weight: 1,
+      progress: 50,
+      status: 'in_progress',
+      createdAt: '2026-10-08T09:40:00.000Z',
+      updatedAt: '2026-10-08T10:07:00.000Z',
+    },
+  ];
   const snapshot = buildOperationsSnapshot({
     projects: [project],
+    milestones,
     missions,
     events,
     readiness: {
@@ -78,10 +103,28 @@ test('operations snapshot exposes real project mission completion and newest act
   assert.equal(snapshot.projects[0]?.deliveredMissions, 1);
   assert.equal(snapshot.projects[0]?.activeMissions, 1);
   assert.equal(snapshot.projects[0]?.missionCompletionPercent, 50);
+  assert.equal(snapshot.projects[0]?.milestoneProgress.percent, 83);
+  assert.equal(snapshot.projects[0]?.milestoneProgress.configured, true);
+  assert.equal(snapshot.projects[0]?.milestones.length, 2);
   assert.equal(snapshot.activity[0]?.id, 'event_new');
   assert.equal(snapshot.activity[0]?.projectName, 'Taso');
   assert.equal(snapshot.agents.find((agent) => agent.id === 'planner')?.status, 'busy');
   assert.equal(snapshot.agents.find((agent) => agent.id === 'coolify')?.status, 'unconfigured');
+});
+
+test('projects without milestones expose unconfigured milestone progress instead of invented percentage', () => {
+  const snapshot = buildOperationsSnapshot({
+    projects: [project],
+    milestones: [],
+    missions: [],
+    events: [],
+    readiness: {},
+    watchdogRunning: false,
+  });
+
+  assert.equal(snapshot.projects[0]?.milestoneProgress.configured, false);
+  assert.equal(snapshot.projects[0]?.milestoneProgress.percent, null);
+  assert.equal(snapshot.projects[0]?.missionCompletionPercent, 0);
 });
 
 test('self-improvement list is deterministic and does not classify unrelated missions', () => {
@@ -93,6 +136,7 @@ test('self-improvement list is deterministic and does not classify unrelated mis
 
   const snapshot = buildOperationsSnapshot({
     projects: [project],
+    milestones: [],
     missions,
     events: [],
     readiness: {},
