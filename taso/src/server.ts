@@ -1,5 +1,6 @@
 import Fastify from 'fastify';
 import { bootstrapProjects } from './bootstrap-projects.js';
+import { ConversationAi } from './conversation-ai.js';
 import { classifyConversationIntent, ConversationStore } from './conversation.js';
 import type { DataClass, RiskLevel } from './domain.js';
 import { MissionEventStore } from './mission-events.js';
@@ -71,6 +72,7 @@ export function buildServer() {
   persist();
 
   const executor = new MissionExecutor(tasks, projects);
+  const conversationAi = new ConversationAi();
   const gatewaySecret = process.env.TASO_GATEWAY_SECRET?.trim();
 
   app.addHook('onRequest', async (request, reply) => {
@@ -91,6 +93,7 @@ export function buildServer() {
       version: '0.5.0-v2-preview',
       gateway: gatewaySecret ? 'configured' : 'missing',
       state: stateStore.enabled() ? 'persistent' : 'memory',
+      conversation: conversationAi.status(),
       executor: { read: readiness.readyForRead, write: readiness.readyForWrite, deploy: readiness.readyForDeploy },
     };
   });
@@ -111,23 +114,31 @@ export function buildServer() {
     if (!project) return reply.code(404).send({ error: 'Project not found.' });
 
     const decision = classifyConversationIntent(text);
+    const previousTurns = conversations
+      .list(projectId)
+      .filter((message) => message.role === 'user' || message.role === 'assistant')
+      .slice(-16)
+      .map((message) => ({ role: message.role as 'user' | 'assistant', content: message.content }));
     const userMessage = conversations.append({ projectId, role: 'user', content: text, intent: decision.intent });
     const projectMissions = tasks.listMissions().filter((mission) => mission.projectId === projectId);
     const active = projectMissions.find((mission) => !['completed', 'failed', 'cancelled'].includes(mission.status));
 
     let content: string;
-    if (decision.intent === 'STATUS') {
-      content = active
-        ? `${project.name} için aktif görev ${active.status} aşamasında: ${active.objective}`
-        : `${project.name} için şu anda aktif görev yok. Son kayıtları konuşma veya Missions ekranından inceleyebilirsin.`;
-    } else if (decision.executionRequested) {
-      content = `Bu istek yürütme gerektiriyor. ${decision.suggestedRisk ?? 'READ'} sınırıyla ayrı bir mission oluşturulmalı; konuşma katmanı bunu normal sohbetten ayrı tutuyor.`;
-    } else if (decision.intent === 'CHAT') {
-      content = `Buradayım. ${project.name} bağlamındayız. Bu mesaj için mission oluşturmadım.`;
-    } else if (decision.intent === 'QUESTION' || decision.intent === 'PLAN') {
-      content = `Sorunu ${project.name} bağlamında aldım. V2 Conversation Engine bu tür mesajları mission oluşturmadan yanıtlayacak; AI cevap üretimi M2 katmanında bu aynı endpoint'e bağlanacak.`;
-    } else {
-      content = `Mesajı ${decision.intent} olarak sınıflandırdım. Herhangi bir repository işlemi başlatmadım.`;
+    try {
+      content = await conversationAi.reply(project, previousTurns, text, {
+        activeMission: active ? { id: active.id, objective: active.objective, status: active.status } : undefined,
+        recentMissions: projectMissions.slice(0, 5).map((mission) => ({ objective: mission.objective, status: mission.status })),
+      });
+    } catch (error) {
+      if (decision.intent === 'STATUS') {
+        content = active
+          ? `${project.name} için aktif görev ${active.status} aşamasında: ${active.objective}`
+          : `${project.name} için şu anda aktif görev yok.`;
+      } else if (decision.executionRequested) {
+        content = `Bu istek yürütme gerektiriyor. ${decision.suggestedRisk ?? 'READ'} sınırıyla ayrı bir mission oluşturulmalı. AI sohbet yanıtı şu anda kullanılamıyor.`;
+      } else {
+        content = `Mesajını aldım ancak conversational AI şu anda yanıt üretemedi: ${(error as Error).message}`;
+      }
     }
 
     const assistantMessage = conversations.append({
@@ -146,6 +157,7 @@ export function buildServer() {
         riskLevel: decision.suggestedRisk ?? 'READ',
         dataClass: 'private_code',
       } : undefined,
+      conversation: conversationAi.status(),
     });
   });
 
