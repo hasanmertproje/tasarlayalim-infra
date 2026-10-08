@@ -134,9 +134,10 @@ export default function VoiceIdentitySettings() {
           : localVoicesAvailable
             ? 'MODEL NOT READY'
             : 'NO VOICES';
-  const engineLabel = realtime?.ready ? 'Realtime Neural' : localReady ? 'Taso Local Neural' : 'Cihaz TTS';
+  const liveIsGemini = realtime?.provider === 'gemini-live';
+  const engineLabel = realtime?.ready ? (liveIsGemini ? 'Gemini Live' : 'Realtime Neural') : localReady ? 'Taso Local Neural' : 'Cihaz TTS';
   const engineDetail = realtime?.ready
-    ? `${realtime.model} · ${realtime.voice} · WebRTC`
+    ? `${realtime.model} · ${realtime.voice} · ${realtime.transport === 'websocket' ? 'WebSocket' : 'WebRTC'}${liveIsGemini ? ' · ephemeral token' : ''}`
     : localReady
       ? `${localVoice?.engine ?? 'local'} · ${selectedNeuralVoice?.label ?? 'voice'} · API ücreti yok`
       : localVoice?.configured
@@ -145,7 +146,7 @@ export default function VoiceIdentitySettings() {
           : localVoice.error
             ? `Local neural model hatası: ${localVoice.error.slice(0, 180)}`
             : `${localVoice.voices.length} voice hazır; model henüz READY değil.`
-        : 'Local neural servis bağlı değil; cihaz TTS son fallback olarak kullanılıyor.';
+        : 'Local neural servis bağlı değil; cihaz TTS yalnız manuel fallback olarak kullanılmalı.';
 
   function applyPreset(preset: VoiceProfile['preset']) {
     setProfile((current) => ({ ...current, ...PRESETS[preset], preset }));
@@ -179,7 +180,7 @@ export default function VoiceIdentitySettings() {
   return createPortal(
     <section className="voice-identity-v2" aria-label="Taso Voice Identity">
       <header className="voice-identity-head">
-        <div><span>TASO VOICE IDENTITY</span><h2>Ses ve karakter</h2><p>Taso önce self-hosted neural voice kullanır. Realtime hazır değilse local neural motor; o da hazır değilse cihaz TTS yalnız son fallback olur.</p></div>
+        <div><span>TASO VOICE IDENTITY</span><h2>Ses ve karakter</h2><p>Canlı konuşmada hazırsa Gemini Live primary motordur. Local neural Freya ayrı ve manuel fallback olarak kalır; cihaz TTS canlı oturumda sessizce devreye girmez.</p></div>
         <div className={(realtime?.ready || localReady) ? 'voice-engine ready' : 'voice-engine fallback'}><small>AKTİF MOTOR</small><strong>{engineLabel}</strong><span>{engineDetail}</span></div>
       </header>
 
@@ -192,10 +193,10 @@ export default function VoiceIdentitySettings() {
 
       <div className="voice-settings-grid-v2">
         <article>
-          <label><span>Taso neural sesi</span><select value={neuralVoiceId} onChange={(event) => { setNeuralVoiceId(event.target.value); setSaved(false); }} disabled={!localVoicesAvailable}>{localVoicesAvailable ? localVoice!.voices.map((voice) => <option key={voice.id} value={voice.id}>{voice.gender === 'male' ? '♂' : voice.gender === 'female' ? '♀' : '◆'} {voice.label} · {voice.locale}</option>) : <option value="">Neural voice bulunamadı</option>}</select></label>
-          <small className="voice-source-note">{selectedNeuralVoice ? `${selectedNeuralVoice.gender.toUpperCase()} · ${selectedNeuralVoice.license} · ${selectedNeuralVoice.character ?? 'signature'}` : 'Erkek/kadın seçimi gerçek neural voice profilleri üzerinden yapılır.'}</small>
-          <label><span>Cihaz TTS fallback</span><select value={profile.voiceName} onChange={(event) => { setProfile((current) => ({ ...current, voiceName: event.target.value })); setSaved(false); }}>{voices.length ? voices.map((voice) => <option key={`${voice.name}-${voice.lang}`} value={voice.name}>{voice.name} · {voice.lang}</option>) : <option value="">tr-TR ses bulunamadı</option>}</select></label>
-          <small className="voice-source-note">{selectedVoice ? `${selectedVoice.localService ? 'Yerel' : 'Ağ'} fallback · ${selectedVoice.lang}` : 'Yalnız neural motor kullanılamazsa devreye girer.'}</small>
+          <label><span>Taso local neural sesi</span><select value={neuralVoiceId} onChange={(event) => { setNeuralVoiceId(event.target.value); setSaved(false); }} disabled={!localVoicesAvailable}>{localVoicesAvailable ? localVoice!.voices.map((voice) => <option key={voice.id} value={voice.id}>{voice.gender === 'male' ? '♂' : voice.gender === 'female' ? '♀' : '◆'} {voice.label} · {voice.locale}</option>) : <option value="">Neural voice bulunamadı</option>}</select></label>
+          <small className="voice-source-note">{selectedNeuralVoice ? `${selectedNeuralVoice.gender.toUpperCase()} · ${selectedNeuralVoice.license} · ${selectedNeuralVoice.character ?? 'signature'}` : 'Freya Voice Lab adayları gerçek dinleme ile etiketlenir.'}</small>
+          <label><span>Cihaz TTS (manuel fallback)</span><select value={profile.voiceName} onChange={(event) => { setProfile((current) => ({ ...current, voiceName: event.target.value })); setSaved(false); }}>{voices.length ? voices.map((voice) => <option key={`${voice.name}-${voice.lang}`} value={voice.name}>{voice.name} · {voice.lang}</option>) : <option value="">tr-TR ses bulunamadı</option>}</select></label>
+          <small className="voice-source-note">{selectedVoice ? `${selectedVoice.localService ? 'Yerel' : 'Ağ'} fallback · ${selectedVoice.lang}` : 'Gemini Live oturumunda otomatik devreye girmez.'}</small>
         </article>
         <article className="voice-sliders-v2">
           <label><span>Konuşma hızı <b>{profile.rate.toFixed(2)}</b></span><input type="range" min="0.72" max="1.12" step="0.01" value={profile.rate} onChange={(event) => { setProfile((current) => ({ ...current, rate: Number(event.target.value) })); setSaved(false); }} /></label>
@@ -205,18 +206,20 @@ export default function VoiceIdentitySettings() {
       </div>
 
       <div className="voice-engine-facts">
+        <div><span>Live provider</span><strong>{realtime?.provider === 'gemini-live' ? 'GEMINI' : realtime?.provider === 'openai-realtime' ? 'OPENAI' : '—'}</strong></div>
+        <div><span>Live auth</span><strong>{realtime?.ephemeralTokens ? 'EPHEMERAL' : realtime?.configured ? 'SERVER' : '—'}</strong></div>
+        <div><span>Live ready</span><strong>{realtime?.ready ? 'YES' : 'NO'}</strong></div>
+        <div><span>Live model</span><strong>{realtime?.model ?? '—'}</strong></div>
         <div><span>Local neural</span><strong>{localState}</strong></div>
         <div><span>Local voices</span><strong>{localVoice?.voices.length ?? 0}</strong></div>
-        <div><span>Model</span><strong>{localVoice?.model ?? localVoice?.engine ?? '—'}</strong></div>
+        <div><span>Local model</span><strong>{localVoice?.model ?? localVoice?.engine ?? '—'}</strong></div>
         <div><span>Device</span><strong>{localVoice?.device?.toUpperCase() ?? '—'}</strong></div>
-        <div><span>Realtime paid</span><strong>{realtime?.paidAllowed ? 'ALLOWED' : 'BLOCKED'}</strong></div>
-        <div><span>Realtime ready</span><strong>{realtime?.ready ? 'YES' : 'NO'}</strong></div>
       </div>
 
       <footer className="voice-settings-actions-v2">
-        <button type="button" onClick={() => void test()}>{testState === 'speaking' ? 'Konuşuyor…' : 'Taso sesini test et'}</button>
+        <button type="button" onClick={() => void test()}>{testState === 'speaking' ? 'Konuşuyor…' : 'Local sesi test et'}</button>
         <button type="button" className="primary" onClick={save}>{saved ? 'Kaydedildi' : 'Profili kaydet'}</button>
-        <span className={testState === 'error' ? 'error' : ''}>{testState === 'ok' ? `${engineLabel} testi tamamlandı.` : testState === 'error' ? 'Neural ve cihaz fallback sesi başlatılamadı.' : localVoice?.error ? `Neural hata: ${localVoice.error.slice(0, 180)}` : 'Local neural motor hazırsa test önce onu kullanır.'}</span>
+        <span className={testState === 'error' ? 'error' : ''}>{testState === 'ok' ? 'Local neural ses testi tamamlandı.' : testState === 'error' ? 'Local neural ve manuel cihaz sesi başlatılamadı.' : localVoice?.error ? `Neural hata: ${localVoice.error.slice(0, 180)}` : realtime?.ready ? `${engineLabel} canlı konuşma düğmesinden test edilir.` : 'Local neural motor hazırsa bu düğme onu test eder.'}</span>
       </footer>
     </section>,
     target,
