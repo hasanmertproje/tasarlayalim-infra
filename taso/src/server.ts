@@ -3,6 +3,7 @@ import { bootstrapProjects } from './bootstrap-projects.js';
 import type { DataClass, RiskLevel } from './domain.js';
 import { MissionEventStore } from './mission-events.js';
 import { MissionExecutor } from './mission-executor.js';
+import { buildOperationsSnapshot } from './operations-snapshot.js';
 import type { UpsertProjectManifestInput } from './project-manifest.js';
 import { ProjectRegistry, type CreateProjectInput } from './project-registry.js';
 import { ProviderRouter, defaultProviders } from './provider-router.js';
@@ -84,7 +85,7 @@ export function buildServer() {
     return {
       ok: true,
       service: 'taso-core',
-      version: '0.5.0',
+      version: '0.6.0',
       gateway: gatewaySecret ? 'configured' : 'missing',
       state: stateStore.enabled() ? 'persistent' : 'memory',
       executor: { read: readiness.readyForRead, write: readiness.readyForWrite, deploy: readiness.readyForDeploy },
@@ -95,6 +96,19 @@ export function buildServer() {
   app.get('/v1/providers', async () => ({ providers: router.safeSummary() }));
   app.get('/v1/projects', async () => ({ projects: projects.list() }));
   app.get('/v1/missions', async () => ({ missions: tasks.listMissions() }));
+  app.get<{ Querystring: { limit?: string } }>('/v1/operations', async (request) => {
+    const requestedLimit = Number(request.query?.limit);
+    return {
+      operations: buildOperationsSnapshot({
+        projects: projects.list(),
+        missions: tasks.listMissions(),
+        events: tasks.allEvents(),
+        readiness: executor.readiness(),
+        watchdogRunning: true,
+        limit: Number.isFinite(requestedLimit) ? requestedLimit : 30,
+      }),
+    };
+  });
 
   app.post<{ Body: CreateProjectInput }>('/v1/projects', async (request, reply) => {
     try {
