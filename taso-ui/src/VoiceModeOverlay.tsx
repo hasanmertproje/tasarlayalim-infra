@@ -79,8 +79,8 @@ export default function VoiceModeOverlay() {
   const [suggestedMission, setSuggestedMission] = useState<VoiceMissionSuggestion>();
   const [createdMission, setCreatedMission] = useState<Mission>();
 
-  const clientRef = useRef<RealtimeVoiceClient>();
-  const realtimeStatusRef = useRef<RealtimeVoiceStatus>();
+  const clientRef = useRef<RealtimeVoiceClient | null>(null);
+  const realtimeStatusRef = useRef<RealtimeVoiceStatus | undefined>(undefined);
   const realtimeActiveRef = useRef(false);
   const fallbackBypassRef = useRef(false);
 
@@ -250,7 +250,6 @@ export default function VoiceModeOverlay() {
         return;
       }
 
-      // Browser fallback: from any other screen, route to Command Center first.
       if (mobileMic && !document.querySelector('.conversation-bridge')) {
         event.preventDefault();
         event.stopPropagation();
@@ -259,7 +258,6 @@ export default function VoiceModeOverlay() {
       }
     };
 
-    // Window capture runs before ConversationBridge's document capture listener.
     window.addEventListener('click', interceptVoiceButton, true);
     return () => window.removeEventListener('click', interceptVoiceButton, true);
   }, []);
@@ -321,6 +319,10 @@ export default function VoiceModeOverlay() {
     ? `NEURAL · ${realtimeStatus?.model ?? 'REALTIME'}`
     : 'CİHAZ TTS';
 
+  const interruptDisabled = realtimeActive
+    ? state !== 'speaking'
+    : state === 'thinking' || state === 'connecting';
+
   return (
     <section className={`taso-voice-mode state-${state} ${realtimeActive ? 'engine-realtime' : 'engine-browser'}`} aria-label="Taso canlı konuşma modu">
       <div className="taso-voice-mode-ambient ambient-a" />
@@ -364,8 +366,8 @@ export default function VoiceModeOverlay() {
       </main>
 
       <footer className="taso-voice-mode-controls">
-        <button type="button" className="voice-interrupt" onClick={interrupt} disabled={state === 'thinking' || state === 'connecting'}>
-          <span>{state === 'speaking' ? 'Sözünü kes' : 'Konuş'}</span>
+        <button type="button" className="voice-interrupt" onClick={interrupt} disabled={interruptDisabled}>
+          <span>{state === 'speaking' ? 'Sözünü kes' : realtimeActive ? 'Dinlemede' : 'Konuş'}</span>
         </button>
         <button type="button" className="voice-end" onClick={endSession} aria-label="Canlı konuşmayı bitir">■</button>
         <div className="voice-mode-footnote">Chat ≠ Mission · Görevler yalnız açık onayla başlar</div>
