@@ -1,5 +1,7 @@
 import Fastify from 'fastify';
 import { bootstrapProjects } from './bootstrap-projects.js';
+import { ConversationAi } from './conversation-ai.js';
+import { classifyConversationIntent, ConversationStore } from './conversation.js';
 import type { DataClass, RiskLevel } from './domain.js';
 import { MissionEventStore } from './mission-events.js';
 import { MissionExecutor } from './mission-executor.js';
@@ -25,6 +27,11 @@ interface CreateMissionBody {
   };
 }
 
+interface ConversationBody {
+  projectId?: string;
+  text?: string;
+}
+
 function isRiskLevel(value: unknown): value is RiskLevel {
   return value === 'READ' || value === 'WRITE' || value === 'HIGH_IMPACT';
 }
@@ -41,13 +48,15 @@ export function buildServer() {
 
   let projects!: ProjectRegistry;
   let tasks!: TaskEngine;
+  let conversations!: ConversationStore;
   const persist = () => {
-    if (!projects || !tasks) return;
+    if (!projects || !tasks || !conversations) return;
     stateStore.save({
       projects: projects.list(),
       manifests: projects.listManifests(),
       missions: tasks.listMissions(),
       events: tasks.allEvents(),
+      conversations: conversations.list(),
     });
   };
 
@@ -58,10 +67,12 @@ export function buildServer() {
   const router = new ProviderRouter(defaultProviders());
   const events = new MissionEventStore(snapshot.events, persist);
   tasks = new TaskEngine(projects, router, events, snapshot.missions, persist);
+  conversations = new ConversationStore(snapshot.conversations, persist);
   tasks.recoverInterruptedMissions();
   persist();
 
   const executor = new MissionExecutor(tasks, projects);
+  const conversationAi = new ConversationAi();
   const gatewaySecret = process.env.TASO_GATEWAY_SECRET?.trim();
 
   app.addHook('onRequest', async (request, reply) => {
@@ -79,9 +90,10 @@ export function buildServer() {
     return {
       ok: true,
       service: 'taso-core',
-      version: '0.4.0',
+      version: '0.5.0-v2-preview',
       gateway: gatewaySecret ? 'configured' : 'missing',
       state: stateStore.enabled() ? 'persistent' : 'memory',
+      conversation: conversationAi.status(),
       executor: { read: readiness.readyForRead, write: readiness.readyForWrite, deploy: readiness.readyForDeploy },
     };
   });
@@ -90,6 +102,64 @@ export function buildServer() {
   app.get('/v1/providers', async () => ({ providers: router.safeSummary() }));
   app.get('/v1/projects', async () => ({ projects: projects.list() }));
   app.get('/v1/missions', async () => ({ missions: tasks.listMissions() }));
+  app.get<{ Querystring: { projectId?: string } }>('/v1/conversations', async (request) => ({
+    messages: conversations.list(request.query.projectId),
+  }));
+
+  app.post<{ Body: ConversationBody }>('/v1/conversations/messages', async (request, reply) => {
+    const projectId = request.body?.projectId?.trim();
+    const text = request.body?.text?.trim();
+    if (!projectId || !text) return reply.code(400).send({ error: 'projectId and text are required.' });
+    const project = projects.get(projectId);
+    if (!project) return reply.code(404).send({ error: 'Project not found.' });
+
+    const decision = classifyConversationIntent(text);
+    const previousTurns = conversations
+      .list(projectId)
+      .filter((message) => message.role === 'user' || message.role === 'assistant')
+      .slice(-16)
+      .map((message) => ({ role: message.role as 'user' | 'assistant', content: message.content }));
+    const userMessage = conversations.append({ projectId, role: 'user', content: text, intent: decision.intent });
+    const projectMissions = tasks.listMissions().filter((mission) => mission.projectId === projectId);
+    const active = projectMissions.find((mission) => !['completed', 'failed', 'cancelled'].includes(mission.status));
+
+    let content: string;
+    try {
+      content = await conversationAi.reply(project, previousTurns, text, {
+        activeMission: active ? { id: active.id, objective: active.objective, status: active.status } : undefined,
+        recentMissions: projectMissions.slice(0, 5).map((mission) => ({ objective: mission.objective, status: mission.status })),
+      });
+    } catch (error) {
+      if (decision.intent === 'STATUS') {
+        content = active
+          ? `${project.name} için aktif görev ${active.status} aşamasında: ${active.objective}`
+          : `${project.name} için şu anda aktif görev yok.`;
+      } else if (decision.executionRequested) {
+        content = `Bu istek yürütme gerektiriyor. ${decision.suggestedRisk ?? 'READ'} sınırıyla ayrı bir mission oluşturulmalı. AI sohbet yanıtı şu anda kullanılamıyor.`;
+      } else {
+        content = `Mesajını aldım ancak conversational AI şu anda yanıt üretemedi: ${(error as Error).message}`;
+      }
+    }
+
+    const assistantMessage = conversations.append({
+      projectId,
+      role: 'assistant',
+      content,
+      intent: decision.intent,
+    });
+
+    return reply.code(201).send({
+      decision,
+      userMessage,
+      assistantMessage,
+      suggestedMission: decision.executionRequested ? {
+        objective: text,
+        riskLevel: decision.suggestedRisk ?? 'READ',
+        dataClass: 'private_code',
+      } : undefined,
+      conversation: conversationAi.status(),
+    });
+  });
 
   app.post<{ Body: CreateProjectInput }>('/v1/projects', async (request, reply) => {
     try {

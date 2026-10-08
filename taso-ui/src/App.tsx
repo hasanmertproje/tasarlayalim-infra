@@ -175,9 +175,11 @@ export default function App() {
   }
 
   async function api<T>(path: string, init?: RequestInit): Promise<T> {
+    const headers = new Headers(init?.headers ?? {});
+    if (init?.body != null && !headers.has('content-type')) headers.set('content-type', 'application/json');
     const response = await fetch(`${API_URL}${path}`, {
       ...init,
-      headers: { 'content-type': 'application/json', ...(init?.headers ?? {}) },
+      headers,
     });
     if (!response.ok) {
       let detail = `${response.status} ${response.statusText}`;
@@ -260,7 +262,6 @@ export default function App() {
         ? 'Görev oluşturuldu. Yüksek etkili işlem olduğu için onayın bekleniyor.'
         : 'Görev Taso Core görev kuyruğuna alındı.';
       setNotice(text);
-      speak(text);
       return payload.mission;
     } catch (cause) {
       showError(`Görev oluşturulamadı: ${(cause as Error).message}`);
@@ -283,7 +284,6 @@ export default function App() {
       const payload = await api<{ mission: Mission }>(`/v1/missions/${mission.id}/approve`, { method: 'POST' });
       setMissions((current) => current.map((item) => item.id === mission.id ? payload.mission : item));
       setNotice(`${mission.id} onaylandı ve kuyruğa alındı.`);
-      speak('Onay verildi. Görev kuyruğa alındı.');
     } catch (cause) {
       showError(`Onay başarısız: ${(cause as Error).message}`);
     } finally {
