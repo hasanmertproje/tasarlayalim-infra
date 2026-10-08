@@ -17,9 +17,9 @@ VOICE_DIR = Path(os.getenv("TASO_VOICE_PACK_DIR", "/voices"))
 MANIFEST_PATH = Path(os.getenv("TASO_VOICE_MANIFEST", str(VOICE_DIR / "voices.json")))
 FREYA_MODEL = os.getenv("TASO_FREYA_MODEL", "freyavoice/freya-tts")
 FREYA_DEVICE = os.getenv("TASO_FREYA_DEVICE", "cpu")
-FREYA_STEPS = max(12, min(48, int(os.getenv("TASO_FREYA_STEPS", "32"))))
+FREYA_STEPS = max(12, min(48, int(os.getenv("TASO_FREYA_STEPS", "16"))))
 
-app = FastAPI(title="Taso Local Neural Voice", version="0.2.0")
+app = FastAPI(title="Taso Local Neural Voice", version="0.2.1")
 
 
 class VoiceProfile(BaseModel):
