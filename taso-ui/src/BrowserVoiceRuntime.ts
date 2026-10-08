@@ -81,7 +81,7 @@ export class BrowserVoiceRuntime {
     return this.speaking;
   }
 
-  private async speakLocal(text: string, options: SpeakOptions, generation: number): Promise<BrowserVoiceResult | undefined> {
+  private async speakLocal(text: string, options: SpeakOptions, generation: number): Promise<BrowserVoiceResult> {
     const { profile, onState } = options;
     const voiceId = localStorage.getItem('taso-neural-voice-id') || undefined;
     try {
@@ -91,15 +91,30 @@ export class BrowserVoiceRuntime {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ text, voiceId, speed: profile.rate }),
       });
-      if (!response.ok) return undefined;
+      if (!response.ok) {
+        let detail = `HTTP ${response.status}`;
+        try {
+          const payload = await response.json() as { error?: string };
+          if (payload?.error) detail = payload.error;
+        } catch {
+          try { detail = (await response.text()).slice(0, 400) || detail; } catch { /* ignore */ }
+        }
+        return { started: false, completed: false, voiceName: voiceId, retried: false, engine: 'local-neural', error: detail };
+      }
       if (generation !== this.generation) return { started: false, completed: false, retried: false, engine: 'local-neural', error: 'cancelled' };
 
       const AudioContextCtor = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-      if (!AudioContextCtor) return undefined;
+      if (!AudioContextCtor) return { started: false, completed: false, retried: false, engine: 'local-neural', error: 'web-audio-unavailable' };
       this.context ??= new AudioContextCtor();
       if (this.context.state === 'suspended') await this.context.resume();
       const audio = await response.arrayBuffer();
-      const decoded = await this.context.decodeAudioData(audio.slice(0));
+      if (!audio.byteLength) return { started: false, completed: false, retried: false, engine: 'local-neural', error: 'empty-audio' };
+      let decoded: AudioBuffer;
+      try {
+        decoded = await this.context.decodeAudioData(audio.slice(0));
+      } catch (error) {
+        return { started: false, completed: false, retried: false, engine: 'local-neural', error: `audio-decode-failed: ${(error as Error)?.message || 'unknown'}` };
+      }
       if (generation !== this.generation) return { started: false, completed: false, retried: false, engine: 'local-neural', error: 'cancelled' };
 
       return await new Promise<BrowserVoiceResult>((resolve) => {
@@ -117,10 +132,15 @@ export class BrowserVoiceRuntime {
           this.speaking = false;
           resolve({ started: true, completed: true, voiceName: voiceId, retried: false, engine: 'local-neural' });
         };
-        source.start();
+        try {
+          source.start();
+        } catch (error) {
+          this.speaking = false;
+          resolve({ started: false, completed: false, voiceName: voiceId, retried: false, engine: 'local-neural', error: `audio-start-failed: ${(error as Error)?.message || 'unknown'}` });
+        }
       });
-    } catch {
-      return undefined;
+    } catch (error) {
+      return { started: false, completed: false, voiceName: voiceId, retried: false, engine: 'local-neural', error: (error as Error)?.message || 'local-neural-error' };
     }
   }
 
@@ -199,14 +219,14 @@ export class BrowserVoiceRuntime {
     await this.unlock();
 
     const local = await this.speakLocal(normalized, options, generation);
-    if (local?.started) {
+    if (local.started) {
       if (local.completed) options.onState?.('idle');
       return local;
     }
 
     if (!this.browserTtsSupported()) {
       options.onState?.('error');
-      return { started: false, completed: false, retried: false, error: 'no-local-neural-or-browser-tts' };
+      return { started: false, completed: false, retried: false, error: local.error || 'no-local-neural-or-browser-tts' };
     }
 
     await wait(isAndroid() ? 160 : 70);
@@ -217,8 +237,13 @@ export class BrowserVoiceRuntime {
       result = await this.speakAttempt(normalized, options, true, generation);
     }
 
-    if (!result.started) options.onState?.('error');
-    else if (result.completed) options.onState?.('idle');
+    if (!result.started) {
+      options.onState?.('error');
+      const fallbackError = result.error || 'browser-tts-failed';
+      result.error = `Neural: ${local.error || 'not-started'} · Fallback: ${fallbackError}`;
+    } else if (result.completed) {
+      options.onState?.('idle');
+    }
     return result;
   }
 }
