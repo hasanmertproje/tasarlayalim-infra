@@ -1,6 +1,7 @@
 FROM python:3.11-slim
 
 ARG FREYA_TTS_COMMIT=146d36c1cb6660646be57d31339db4eed9315de3
+ARG VOXCPM_COMMIT=cce58a5b59303c9bd63d12f23afe6a49a4a80c59
 ARG TORCH_VERSION=2.8.0
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -15,11 +16,14 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends git ca-certificates libsndfile1 \
     && rm -rf /var/lib/apt/lists/*
 
-# The deployment server is CPU-only. Installing Torch from the official CPU
-# wheel index prevents pip from pulling the much larger CUDA/NVIDIA runtime.
+# Taso Voice is CPU-only. Install CPU wheels explicitly so pip never resolves
+# CUDA/NVIDIA runtime packages for torch/torchaudio.
 RUN pip install --no-cache-dir \
     --index-url https://download.pytorch.org/whl/cpu \
-    "torch==${TORCH_VERSION}"
+    "torch==${TORCH_VERSION}" \
+    "torchaudio==${TORCH_VERSION}"
+
+COPY prepare_freya_cpu.py /tmp/prepare_freya_cpu.py
 
 RUN mkdir -p /opt/FreyaTTS \
     && cd /opt/FreyaTTS \
@@ -27,8 +31,9 @@ RUN mkdir -p /opt/FreyaTTS \
     && git remote add origin https://github.com/freyavoiceai/FreyaTTS.git \
     && git fetch --depth 1 origin "$FREYA_TTS_COMMIT" \
     && git checkout --detach FETCH_HEAD \
+    && python /tmp/prepare_freya_cpu.py "$VOXCPM_COMMIT" \
     && pip install --no-cache-dir -r requirements.txt \
-    && rm -rf /opt/FreyaTTS/.git
+    && rm -rf /opt/FreyaTTS/.git /tmp/prepare_freya_cpu.py
 
 COPY requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r /app/requirements.txt
