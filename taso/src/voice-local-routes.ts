@@ -5,8 +5,8 @@ function baseUrl() {
 }
 
 function timeoutMs() {
-  const parsed = Number(process.env.TASO_LOCAL_VOICE_TIMEOUT_MS || 20_000);
-  return Number.isFinite(parsed) ? Math.min(60_000, Math.max(2_000, parsed)) : 20_000;
+  const parsed = Number(process.env.TASO_LOCAL_VOICE_TIMEOUT_MS || 90_000);
+  return Number.isFinite(parsed) ? Math.min(120_000, Math.max(5_000, parsed)) : 90_000;
 }
 
 type LocalVoiceHealth = {
@@ -68,26 +68,37 @@ export function registerLocalVoiceRoutes(app: FastifyInstance) {
     if (!text) return reply.code(400).send({ error: 'text is required.' });
     if (text.length > 1_500) return reply.code(400).send({ error: 'text is too long.' });
 
-    const response = await fetch(`${url}/synthesize`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        text,
-        voiceId: request.body?.voiceId?.trim() || undefined,
-        speed: request.body?.speed,
-      }),
-      signal: AbortSignal.timeout(timeoutMs()),
-    });
+    try {
+      const response = await fetch(`${url}/synthesize`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          text,
+          voiceId: request.body?.voiceId?.trim() || undefined,
+          speed: request.body?.speed,
+        }),
+        signal: AbortSignal.timeout(timeoutMs()),
+      });
 
-    if (!response.ok) {
-      const detail = (await response.text()).slice(0, 300);
-      return reply.code(response.status >= 500 ? 502 : response.status).send({ error: detail || `Voice service HTTP ${response.status}` });
+      if (!response.ok) {
+        const detail = (await response.text()).slice(0, 500);
+        return reply.code(response.status >= 500 ? 502 : response.status).send({ error: detail || `Voice service HTTP ${response.status}` });
+      }
+
+      const audio = Buffer.from(await response.arrayBuffer());
+      if (!audio.length) return reply.code(502).send({ error: 'Voice service returned empty audio.' });
+      const contentType = response.headers.get('content-type') || 'audio/wav';
+      reply.header('cache-control', 'no-store');
+      reply.type(contentType);
+      return reply.send(audio);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const timedOut = /timeout|aborted|abort/i.test(message);
+      return reply.code(timedOut ? 504 : 502).send({
+        error: timedOut
+          ? `Local neural synthesis timed out after ${timeoutMs()} ms.`
+          : `Local neural synthesis request failed: ${message}`,
+      });
     }
-
-    const audio = Buffer.from(await response.arrayBuffer());
-    const contentType = response.headers.get('content-type') || 'audio/wav';
-    reply.header('cache-control', 'no-store');
-    reply.type(contentType);
-    return reply.send(audio);
   });
 }
