@@ -1,4 +1,3 @@
-import { GoogleGenAI, Modality } from '@google/genai';
 import type {
   RealtimeVoiceCallbacks,
   RealtimeVoiceConnectOptions,
@@ -7,6 +6,7 @@ import type {
 } from './RealtimeVoiceClient';
 
 const API_URL = ((import.meta.env.VITE_TASO_API_URL as string | undefined) || '/api').replace(/\/$/, '');
+const GEMINI_WS = 'wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContentConstrained';
 
 type GeminiTokenPayload = {
   session: {
@@ -68,8 +68,13 @@ function floatToPcm16(input: Float32Array) {
   return new Uint8Array(buffer);
 }
 
+function closeDetail(event: CloseEvent) {
+  const reason = event.reason?.trim();
+  return `Gemini Live bağlantısı kapandı (code ${event.code}${reason ? ` · ${reason}` : ''}).`;
+}
+
 export class GeminiLiveVoiceClient {
-  private session: any;
+  private socket?: WebSocket;
   private media?: MediaStream;
   private inputContext?: AudioContext;
   private inputSource?: MediaStreamAudioSourceNode;
@@ -84,6 +89,10 @@ export class GeminiLiveVoiceClient {
   private assistantTranscript = '';
   private userTurnClassified = false;
   private stopped = true;
+  private setupComplete = false;
+  private connectResolve?: () => void;
+  private connectReject?: (error: Error) => void;
+  private connectTimer?: number;
 
   constructor(private readonly callbacks: RealtimeVoiceCallbacks = {}) {}
 
@@ -121,6 +130,12 @@ export class GeminiLiveVoiceClient {
     return { core, executor, operations, localVoice };
   }
 
+  private send(payload: unknown) {
+    if (this.socket?.readyState !== WebSocket.OPEN) return false;
+    this.socket.send(JSON.stringify(payload));
+    return true;
+  }
+
   private clearPlayback() {
     for (const source of this.outputSources) {
       try { source.stop(); } catch { /* already ended */ }
@@ -155,14 +170,17 @@ export class GeminiLiveVoiceClient {
     const startAt = Math.max(context.currentTime + 0.015, this.nextPlayAt);
     this.nextPlayAt = startAt + buffer.duration;
     this.outputSources.add(source);
-    source.addEventListener('ended', () => this.outputSources.delete(source), { once: true });
+    source.addEventListener('ended', () => {
+      this.outputSources.delete(source);
+      if (!this.outputSources.size && this.setupComplete && !this.stopped) this.state('listening');
+    }, { once: true });
     source.start(startAt);
     this.state('speaking');
   }
 
   private async handleToolCall(message: any) {
     const calls = message?.toolCall?.functionCalls;
-    if (!Array.isArray(calls) || !calls.length || !this.session) return;
+    if (!Array.isArray(calls) || !calls.length) return;
     const functionResponses = [];
     for (const call of calls) {
       if (call.name === 'get_taso_runtime_status') {
@@ -172,11 +190,24 @@ export class GeminiLiveVoiceClient {
         functionResponses.push({ id: call.id, name: call.name, response: { error: 'Tool not allowed in Taso Live.' } });
       }
     }
-    this.session.sendToolResponse({ functionResponses });
+    this.send({ toolResponse: { functionResponses } });
   }
 
   private handleMessage(message: any) {
     if (this.stopped) return;
+
+    if (message?.setupComplete) {
+      this.setupComplete = true;
+      if (this.connectTimer) window.clearTimeout(this.connectTimer);
+      this.connectTimer = undefined;
+      this.connectResolve?.();
+      this.connectResolve = undefined;
+      this.connectReject = undefined;
+      this.state('listening');
+      this.callbacks.onConnected?.();
+      return;
+    }
+
     if (message?.toolCall) void this.handleToolCall(message);
 
     const server = message?.serverContent;
@@ -185,7 +216,7 @@ export class GeminiLiveVoiceClient {
       this.state('listening');
     }
 
-    const inputText = String(server?.inputTranscription?.text ?? '').trim();
+    const inputText = String(server?.inputTranscription?.text ?? '');
     if (inputText) {
       this.userTranscript += inputText;
       this.userTurnClassified = false;
@@ -193,23 +224,18 @@ export class GeminiLiveVoiceClient {
       this.state('listening');
     }
 
-    const outputText = String(server?.outputTranscription?.text ?? '').trim();
+    const outputText = String(server?.outputTranscription?.text ?? '');
     if (outputText) {
       if (!this.userTurnClassified) void this.classifyTurn(this.userTranscript.trim());
       this.assistantTranscript += outputText;
       this.callbacks.onAssistantTranscript?.(this.assistantTranscript.trim(), false);
     }
 
-    if (typeof message?.data === 'string' && message.data) {
-      if (!this.userTurnClassified) void this.classifyTurn(this.userTranscript.trim());
-      this.playPcm(message.data);
-    } else {
-      const parts = server?.modelTurn?.parts;
-      if (Array.isArray(parts)) {
-        for (const part of parts) {
-          const data = part?.inlineData?.data;
-          if (typeof data === 'string' && data) this.playPcm(data);
-        }
+    const parts = server?.modelTurn?.parts;
+    if (Array.isArray(parts)) {
+      for (const part of parts) {
+        const data = part?.inlineData?.data;
+        if (typeof data === 'string' && data) this.playPcm(data);
       }
     }
 
@@ -249,12 +275,14 @@ export class GeminiLiveVoiceClient {
     this.inputMute = mute;
 
     processor.onaudioprocess = (event) => {
-      if (this.stopped || !this.session) return;
+      if (this.stopped || !this.setupComplete) return;
       const pcm = floatToPcm16(event.inputBuffer.getChannelData(0));
-      this.session.sendRealtimeInput({
-        audio: {
-          data: bytesToBase64(pcm),
-          mimeType: `audio/pcm;rate=${context.sampleRate}`,
+      this.send({
+        realtimeInput: {
+          audio: {
+            data: bytesToBase64(pcm),
+            mimeType: `audio/pcm;rate=${context.sampleRate}`,
+          },
         },
       });
     };
@@ -267,6 +295,7 @@ export class GeminiLiveVoiceClient {
     this.userTranscript = '';
     this.assistantTranscript = '';
     this.userTurnClassified = false;
+    this.setupComplete = false;
     this.state('connecting');
 
     if (!navigator.mediaDevices?.getUserMedia) throw new Error('Bu tarayıcı mikrofon erişimini desteklemiyor.');
@@ -277,52 +306,80 @@ export class GeminiLiveVoiceClient {
         body: JSON.stringify({ projectId: options.projectId, workspaceName: options.workspaceName }),
       });
       const token = tokenPayload.session;
-      const ai = new GoogleGenAI({ apiKey: token.token, httpOptions: { apiVersion: 'v1beta' } });
+
       this.ensureOutput();
       await this.outputContext?.resume();
 
-      this.session = await ai.live.connect({
-        model: token.model,
-        callbacks: {
-          onopen: () => {
-            if (!this.stopped) {
-              this.state('listening');
-              this.callbacks.onConnected?.();
-            }
-          },
-          onmessage: (message: any) => this.handleMessage(message),
-          onerror: (event: any) => this.error(event?.message ?? 'Gemini Live bağlantı hatası.'),
-          onclose: () => {
-            if (!this.stopped) this.callbacks.onDisconnected?.();
-          },
-        },
-        config: {
-          responseModalities: [Modality.AUDIO],
-          systemInstruction: token.instructions,
-          inputAudioTranscription: {},
-          outputAudioTranscription: {},
-          speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: token.voice } } },
-          contextWindowCompression: { slidingWindow: {} },
-          realtimeInputConfig: {
-            automaticActivityDetection: {
-              disabled: false,
-              prefixPaddingMs: 120,
-              silenceDurationMs: 260,
-            },
-          },
-          tools: [{
-            functionDeclarations: [{
-              name: 'get_taso_runtime_status',
-              description: 'Taso Core, executor, recent operations ve local voice runtime durumunu salt-okunur olarak getirir. Sistem durumu sorularında bunu kullan.',
-            }],
-          }],
-        },
+      const ws = new WebSocket(`${GEMINI_WS}?access_token=${encodeURIComponent(token.token)}`);
+      this.socket = ws;
+
+      const setupReady = new Promise<void>((resolve, reject) => {
+        this.connectResolve = resolve;
+        this.connectReject = reject;
+        this.connectTimer = window.setTimeout(() => {
+          reject(new Error('Gemini Live setup 12 saniye içinde tamamlanmadı.'));
+        }, 12_000);
       });
 
+      ws.addEventListener('open', () => {
+        this.send({
+          setup: {
+            model: `models/${token.model}`,
+            generationConfig: {
+              responseModalities: ['AUDIO'],
+              speechConfig: {
+                voiceConfig: { prebuiltVoiceConfig: { voiceName: token.voice } },
+              },
+            },
+            systemInstruction: { parts: [{ text: token.instructions }] },
+            inputAudioTranscription: {},
+            outputAudioTranscription: {},
+            realtimeInputConfig: {
+              automaticActivityDetection: {
+                disabled: false,
+                prefixPaddingMs: 120,
+                silenceDurationMs: 260,
+              },
+            },
+            tools: [{
+              functionDeclarations: [{
+                name: 'get_taso_runtime_status',
+                description: 'Taso Core, executor, recent operations ve local voice runtime durumunu salt-okunur getirir.',
+              }],
+            }],
+          },
+        });
+      });
+
+      ws.addEventListener('message', (event) => {
+        try { this.handleMessage(JSON.parse(String(event.data))); }
+        catch (error) { this.error(`Gemini Live mesajı çözümlenemedi: ${(error as Error).message}`); }
+      });
+
+      ws.addEventListener('error', () => {
+        const error = new Error('Gemini Live WebSocket bağlantı hatası.');
+        this.connectReject?.(error);
+        this.error(error);
+      });
+
+      ws.addEventListener('close', (event) => {
+        if (this.connectTimer) window.clearTimeout(this.connectTimer);
+        this.connectTimer = undefined;
+        const detail = closeDetail(event);
+        if (!this.setupComplete) this.connectReject?.(new Error(detail));
+        this.connectResolve = undefined;
+        this.connectReject = undefined;
+        if (!this.stopped) {
+          this.error(detail);
+          this.callbacks.onDisconnected?.();
+        }
+      });
+
+      await setupReady;
       await this.startMicrophone();
       this.state('listening');
     } catch (error) {
-      this.stop();
+      this.error(error);
       throw error;
     }
   }
@@ -339,8 +396,13 @@ export class GeminiLiveVoiceClient {
   stop() {
     const wasActive = !this.stopped;
     this.stopped = true;
-    try { this.session?.close?.(); } catch { /* noop */ }
-    this.session = undefined;
+    this.setupComplete = false;
+    if (this.connectTimer) window.clearTimeout(this.connectTimer);
+    this.connectTimer = undefined;
+    this.connectResolve = undefined;
+    this.connectReject = undefined;
+    try { this.socket?.close(1000, 'client-stop'); } catch { /* noop */ }
+    this.socket = undefined;
     if (this.inputProcessor) this.inputProcessor.onaudioprocess = null;
     try { this.inputProcessor?.disconnect(); } catch { /* noop */ }
     try { this.inputSource?.disconnect(); } catch { /* noop */ }

@@ -45,31 +45,40 @@ export function classifyConversationIntent(text: string): ConversationDecision {
   if (/\b(iptal|durdur|cancel|vazgeç)\b/i.test(value)) {
     return { intent: 'CANCEL', executionRequested: false, confidence: 0.94 };
   }
-  if (/\b(production|prod|canlıya al|yayına al|deploy et|sil|drop|yetki|permission|secret|credential)\b/i.test(value)) {
-    return { intent: 'HIGH_IMPACT_REQUEST', executionRequested: true, suggestedRisk: 'HIGH_IMPACT', confidence: 0.94 };
+
+  // HIGH_IMPACT is action-sensitive. Mentioning production, secrets or permissions in a question
+  // must stay ordinary assistant conversation instead of becoming a mission proposal.
+  if (/\b(canlıya al|yayına al|deploy et|production(?:'a|a)? deploy|prod(?:'a|a)? deploy|sil(?:me)?\s+(?:repo|veri|kayıt|dosya)|drop\s+(?:table|database)|yetki\s+(?:ver|kaldır|değiştir)|permission\s+(?:grant|revoke|change)|secret\s+(?:değiştir|sil|rotate)|credential\s+(?:değiştir|sil|rotate))\b/i.test(value)) {
+    return { intent: 'HIGH_IMPACT_REQUEST', executionRequested: true, suggestedRisk: 'HIGH_IMPACT', confidence: 0.95 };
   }
-  if (/\b(ben yatıyorum|ben çıkıyorum|dönene kadar|sabaha kadar|night shift|otonom|autonomous)\b/i.test(value)) {
+
+  if (/\b(ben yatıyorum|ben çıkıyorum|dönene kadar|sabaha kadar|night shift|otonom çalış|autonomous session)\b/i.test(value)) {
     return { intent: 'AUTONOMOUS_SESSION', executionRequested: true, suggestedRisk: 'WRITE', confidence: 0.93 };
   }
-  if (/\b(düzelt|geliştir|ekle|uygula|kodla|oluştur|refactor|değiştir|fix|implement|build)\b/i.test(value)) {
+
+  if (/\b(düzelt|geliştir|ekle|uygula|kodla|oluştur|refactor|değiştir|fix|implement|build|hazırla|üret|başlat|kur)\b/i.test(value)) {
     return { intent: 'WRITE_REQUEST', executionRequested: true, suggestedRisk: 'WRITE', confidence: 0.9 };
   }
-  if (/\b(incele|analiz et|araştır|kontrol et|nedenini bul|tespit et|review|analyze|inspect)\b/i.test(value)) {
-    return { intent: 'READ_REQUEST', executionRequested: true, suggestedRisk: 'READ', confidence: 0.86 };
+
+  // Read/research requests are normal assistant capabilities. They should not create a mission
+  // unless the user explicitly asks Taso to perform workspace execution.
+  if (/\b(incele|analiz et|araştır|kontrol et|nedenini bul|tespit et|review|analyze|inspect|bak|karşılaştır|özetle)\b/i.test(value)) {
+    return { intent: 'READ_REQUEST', executionRequested: false, suggestedRisk: 'READ', confidence: 0.9 };
   }
+
   if (/\b(ne yapıyorsun|durum ne|son durum|ne oldu|status|hangi aşama|sistem durumu|sistem ne durumda|sistem nasıl|core durumu|core ne durumda|servisler|agent durumu|agentlar|health)\b/i.test(value)) {
     return { intent: 'STATUS', executionRequested: false, confidence: 0.96 };
   }
-  if (/\b(plan|nasıl yaparız|nasıl ilerleriz|yol haritası)\b/i.test(value)) {
-    return { intent: 'PLAN', executionRequested: false, confidence: 0.82 };
+  if (/\b(plan|nasıl yaparız|nasıl ilerleriz|yol haritası|fikir ver|öneri ver)\b/i.test(value)) {
+    return { intent: 'PLAN', executionRequested: false, confidence: 0.86 };
   }
   if (/\b(workspace|projeye geç|projesine geç)\b/i.test(value)) {
     return { intent: 'WORKSPACE_SWITCH', executionRequested: false, confidence: 0.72 };
   }
-  if (/[?？]$/.test(text.trim()) || /\b(ne|neden|nasıl|hangi|kim|nerede|kaç)\b/i.test(value)) {
-    return { intent: 'QUESTION', executionRequested: false, confidence: 0.7 };
+  if (/[?？]$/.test(text.trim()) || /\b(ne|neden|nasıl|hangi|kim|nerede|kaç|nedir|mı|mi|mu|mü)\b/i.test(value)) {
+    return { intent: 'QUESTION', executionRequested: false, confidence: 0.82 };
   }
-  return { intent: 'CHAT', executionRequested: false, confidence: 0.9 };
+  return { intent: 'CHAT', executionRequested: false, confidence: 0.92 };
 }
 
 export class ConversationStore {
