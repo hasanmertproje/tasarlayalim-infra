@@ -1,7 +1,8 @@
 import type { Mission, Project } from './domain.js';
 import type { ProjectRegistry } from './project-registry.js';
 import type { TaskEngine } from './task-engine.js';
-import { OpenAiCompatiblePlanner } from './agent-planner.js';
+import { MultiProviderPlanner } from './multi-provider-planner.js';
+import { defaultProviders } from './provider-router.js';
 import { GitHubTools } from './github-tools.js';
 import { CoolifyTools } from './coolify-tools.js';
 
@@ -43,7 +44,7 @@ export class MissionExecutor {
   constructor(
     private readonly tasks: TaskEngine,
     private readonly projects: ProjectRegistry,
-    private readonly planner = OpenAiCompatiblePlanner.fromEnv(),
+    private readonly planner = MultiProviderPlanner.fromEnv(defaultProviders().map((provider) => provider.id)),
     private readonly github = GitHubTools.fromEnv(),
     private readonly coolify = CoolifyTools.fromEnv(),
   ) {}
@@ -100,7 +101,6 @@ export class MissionExecutor {
     if (!this.planner) throw new Error('AI planner is not configured.');
     if (!this.github) throw new Error('GitHub tool broker is not configured.');
     assertRepository(project.repository);
-    this.planner.assertDataClass(mission.dataClass);
 
     this.tasks.transitionMission(mission.id, 'planning', 'Taso is inspecting the repository and selecting relevant files.');
     const paths = await this.github.listFiles(project.repository, project.defaultBranch);
