@@ -1,1 +1,0 @@
-🤖 Emo is currently operational and ready to assist.

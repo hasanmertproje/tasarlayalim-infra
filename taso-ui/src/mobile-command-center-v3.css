@@ -1,0 +1,92 @@
+@media(max-width:820px){
+  html,body,#root{max-width:100%;overflow-x:hidden}
+  body{min-width:0}
+  .app-shell{display:block;min-width:0}
+  .sidebar{display:none!important}
+  .main-area{width:100%;max-width:none;padding:14px 14px calc(116px + env(safe-area-inset-bottom));margin:0}
+  .topbar{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin:0 0 14px;padding:0}
+  .topbar>div:first-child{min-width:0}
+  .topbar h1{font-size:32px;line-height:1.05;letter-spacing:-.045em;margin-top:5px}
+  .eyebrow{font-size:8px;letter-spacing:.18em}
+  .topbar-actions{display:flex;gap:8px;flex:0 0 auto}
+  .theme-toggle,.icon-button{width:48px;min-width:48px;height:48px;padding:0;justify-content:center;border-radius:14px}
+  .theme-toggle span,.operator-chip{display:none!important}
+
+  .project-strip{margin:0 -14px 14px;padding:0 14px}
+  .project-switcher-label{font-size:9px;letter-spacing:.18em;margin-bottom:9px}
+  .project-tabs{display:flex;grid-template-columns:none!important;gap:9px;overflow-x:auto;overflow-y:hidden;scroll-snap-type:x proximity;padding:0 0 4px;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+  .project-tabs::-webkit-scrollbar{display:none}
+  .project-tab{flex:0 0 auto;min-width:max-content;min-height:48px;padding:0 16px;border-radius:15px;scroll-snap-align:start;font-size:12px}
+
+  .command-grid{display:block!important}
+  .taso-panel{min-height:0!important;padding:18px!important;border-radius:24px!important;overflow:hidden}
+  .panel-kicker{font-size:9px;letter-spacing:.16em}
+  .orb-stage{position:relative!important;display:block!important;min-height:255px!important;padding:26px 0 8px!important}
+  .orb-copy{position:relative!important;z-index:3!important;width:68%!important;max-width:none!important;padding:0!important;text-align:left!important}
+  .orb-copy>span{font-size:10px!important}
+  .orb-copy h2{font-size:clamp(38px,10vw,48px)!important;line-height:.98!important;max-width:320px!important;margin:12px 0 12px!important;letter-spacing:-.055em}
+  .orb-copy p{font-size:12px!important;line-height:1.5!important;max-width:300px!important;margin:0!important}
+  .orb-shell{position:absolute!important;right:-6px!important;bottom:4px!important;grid-column:auto!important;grid-row:auto!important;width:170px!important;height:170px!important;margin:0!important;opacity:.96!important;filter:drop-shadow(0 0 28px rgba(58,133,255,.28))}
+  .orb-core{width:86px!important;height:86px!important;border-radius:22px!important}
+  .orb-mark{font-size:38px!important}
+
+  .mission-rail{display:grid!important;grid-template-columns:1fr!important;gap:10px;margin-top:10px}
+  .context-panel,.approval-panel{min-height:0!important;padding:14px!important}
+  .context-panel h3{font-size:17px;margin-bottom:6px}
+  .meta-row{padding:7px 0}
+  .approval-panel{display:grid;gap:8px}
+
+  .live-metrics{display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:10px!important;margin:10px 0!important}
+  .live-metric{min-height:104px!important;padding:14px!important;border-radius:18px!important}
+  .live-metric>strong{font-size:30px!important}
+  .live-metric>small{font-size:10px!important;line-height:1.35}
+
+  .lower-grid{display:grid!important;grid-template-columns:1fr!important;gap:10px!important;margin-top:10px!important}
+  .tasks-panel,.systems-panel{min-height:0!important;padding:14px!important;border-radius:20px!important}
+  .data-row{min-height:64px!important;padding:8px!important;grid-template-columns:auto minmax(0,1fr) auto!important;gap:8px!important}
+  .data-row .badge{display:none}
+  .data-main strong{font-size:11px;line-height:1.35}
+  .data-main small{font-size:9px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .systems-grid{grid-template-columns:1fr!important;gap:8px!important}
+  .system-card{min-height:54px!important}
+
+  .status-footer{display:none!important}
+  .mobile-nav{position:fixed!important;left:14px!important;right:14px!important;bottom:calc(10px + env(safe-area-inset-bottom))!important;z-index:80!important;height:78px!important;padding:8px 10px!important;border:1px solid color-mix(in srgb,var(--line-strong) 65%,transparent)!important;border-radius:24px!important;backdrop-filter:blur(24px)!important;box-shadow:0 20px 55px rgba(0,0,0,.22)!important}
+  .mobile-nav button{min-height:54px!important;font-size:9px!important;gap:4px!important}
+  .mobile-nav button svg{width:21px!important;height:21px!important}
+  .mobile-nav .mobile-taso{width:62px!important;height:62px!important;min-height:62px!important;transform:translateY(-13px)!important}
+
+  :root[data-theme="light"] .taso-panel{background:linear-gradient(160deg,rgba(255,255,255,.96),rgba(238,246,255,.92))!important}
+  :root[data-theme="light"] .orb-copy h2{color:#17334f!important;text-shadow:none!important}
+  :root[data-theme="light"] .orb-copy p{color:#667b91!important}
+  :root[data-theme="light"] .panel-kicker{color:#46647f!important}
+  :root[data-theme="light"] .live-metric>strong,:root[data-theme="light"] .context-panel h3{color:#18344f!important}
+  :root[data-theme="light"] .mobile-nav{background:rgba(255,255,255,.92)!important}
+}
+
+@media(max-width:560px){
+  .main-area{padding-left:12px!important;padding-right:12px!important}
+  .topbar h1{font-size:29px!important}
+  .topbar-actions{gap:6px}
+  .theme-toggle,.icon-button{width:44px!important;min-width:44px!important;height:44px!important;border-radius:13px!important}
+  .project-strip{margin-left:-12px!important;margin-right:-12px!important;padding-left:12px!important;padding-right:12px!important}
+  .project-tab{min-height:46px!important;padding:0 14px!important}
+  .taso-panel{padding:16px!important;border-radius:22px!important}
+  .orb-stage{min-height:230px!important;padding-top:20px!important}
+  .orb-copy{width:72%!important}
+  .orb-copy h2{font-size:40px!important;max-width:270px!important}
+  .orb-shell{width:148px!important;height:148px!important;right:-10px!important;bottom:0!important}
+  .orb-core{width:76px!important;height:76px!important}.orb-mark{font-size:34px!important}
+  .live-metrics{gap:8px!important}
+  .live-metric{min-height:96px!important;padding:12px!important}
+  .live-metric>strong{font-size:27px!important}
+  .mobile-nav{left:10px!important;right:10px!important;height:74px!important;border-radius:22px!important}
+}
+
+@media(max-width:390px){
+  .orb-copy{width:74%!important}
+  .orb-copy h2{font-size:36px!important}
+  .orb-shell{width:132px!important;height:132px!important;right:-12px!important}
+  .orb-core{width:68px!important;height:68px!important}.orb-mark{font-size:31px!important}
+  .live-metrics{grid-template-columns:1fr!important}
+}
