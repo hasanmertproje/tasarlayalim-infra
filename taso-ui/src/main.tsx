@@ -6,6 +6,7 @@ import ConversationBridgeV2 from './ConversationBridgeV2';
 import IntegrationsCenter from './IntegrationsCenter';
 import KnowledgeCenter from './KnowledgeCenter';
 import MobileNavigationHub from './MobileNavigationHub';
+import MobileVoiceRouter from './MobileVoiceRouter';
 import SelfImprovementLane from './SelfImprovementLane';
 import TruthSurfaces from './TruthSurfaces';
 import VoiceModeOverlay from './VoiceModeOverlay';
@@ -83,6 +84,7 @@ ReactDOM.createRoot(rootElement).render(
     <TruthSurfaces />
     <MobileNavigationHub />
     <VoiceModeOverlay />
+    <MobileVoiceRouter />
     <SelfImprovementLane />
   </React.StrictMode>,
 );
