@@ -9,21 +9,40 @@ function timeoutMs() {
   return Number.isFinite(parsed) ? Math.min(60_000, Math.max(2_000, parsed)) : 20_000;
 }
 
+type LocalVoiceHealth = {
+  engine?: string;
+  provider?: string;
+  model?: string;
+  device?: string;
+  steps?: number;
+  license?: string;
+  voices?: unknown[];
+  ready?: boolean;
+  loading?: boolean;
+  error?: string | null;
+};
+
 export function registerLocalVoiceRoutes(app: FastifyInstance) {
   app.get('/v1/voice/local', async (_request, reply) => {
     const url = baseUrl();
-    if (!url) return { local: { configured: false, ready: false, provider: 'self-hosted', voices: [] } };
+    if (!url) return { local: { configured: false, ready: false, loading: false, provider: 'self-hosted', voices: [] } };
     try {
       const response = await fetch(`${url}/health`, { signal: AbortSignal.timeout(3_000) });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const payload = await response.json() as { engine?: string; voices?: unknown[]; ready?: boolean };
+      const payload = await response.json() as LocalVoiceHealth;
       return {
         local: {
           configured: true,
           ready: payload.ready === true,
-          provider: 'self-hosted',
+          loading: payload.loading === true,
+          provider: payload.provider ?? 'self-hosted',
           engine: payload.engine ?? 'unknown',
+          model: payload.model,
+          device: payload.device,
+          steps: payload.steps,
+          license: payload.license,
           voices: Array.isArray(payload.voices) ? payload.voices : [],
+          error: payload.error ?? undefined,
         },
       };
     } catch (error) {
@@ -32,6 +51,7 @@ export function registerLocalVoiceRoutes(app: FastifyInstance) {
         local: {
           configured: true,
           ready: false,
+          loading: false,
           provider: 'self-hosted',
           voices: [],
           error: error instanceof Error ? error.message : String(error),
