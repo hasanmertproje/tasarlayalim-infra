@@ -71,6 +71,10 @@ export interface MissionExecution {
   productionUrl?: string;
   checkState?: 'success' | 'failed' | 'pending' | 'missing';
   blockedReason?: string;
+  planningStartedAt?: string;
+  retryCount?: number;
+  lastFailure?: string;
+  nextRetryAt?: string;
 }
 
 export interface Mission {
@@ -89,6 +93,8 @@ export interface Mission {
   updatedAt: string;
 }
 
+export const MAX_AUTONOMOUS_RETRIES = 5;
+
 export const defaultAutonomousPolicy: AutonomousPolicy = {
   enabled: true,
   maxRetries: 5,
@@ -98,6 +104,11 @@ export const defaultAutonomousPolicy: AutonomousPolicy = {
   paidAi: false,
   notifications: 'important_only',
 };
+
+export function clampRetries(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return defaultAutonomousPolicy.maxRetries;
+  return Math.min(MAX_AUTONOMOUS_RETRIES, Math.max(0, Math.trunc(value)));
+}
 
 export function createId(prefix: string): string {
   return `${prefix}_${randomUUID()}`;

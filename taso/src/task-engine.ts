@@ -1,4 +1,5 @@
 import {
+  clampRetries,
   createId,
   defaultAutonomousPolicy,
   nowIso,
@@ -12,6 +13,13 @@ import { MissionEventStore } from './mission-events.js';
 import { evaluateMissionPolicy } from './policy.js';
 import type { ProjectRegistry } from './project-registry.js';
 import type { ProviderRouter } from './provider-router.js';
+
+export type AutomaticRetryResult = {
+  mission: Mission;
+  scheduled: boolean;
+  retryCount: number;
+  maxRetries: number;
+};
 
 export class TaskEngine {
   private readonly missions = new Map<string, Mission>();
@@ -31,7 +39,11 @@ export class TaskEngine {
     if (!project) throw new Error('Project not found.');
     if (!input.objective.trim()) throw new Error('Mission objective is required.');
 
-    const autonomous: AutonomousPolicy = { ...defaultAutonomousPolicy, ...input.autonomous };
+    const autonomous: AutonomousPolicy = {
+      ...defaultAutonomousPolicy,
+      ...input.autonomous,
+      maxRetries: clampRetries(input.autonomous?.maxRetries ?? defaultAutonomousPolicy.maxRetries),
+    };
     const decision = evaluateMissionPolicy(project, input);
     if (!decision.allowed) throw new Error(decision.reason);
 
@@ -60,6 +72,7 @@ export class TaskEngine {
       riskLevel: mission.riskLevel,
       dataClass: mission.dataClass,
       providerChain: mission.providerChain,
+      maxRetries: mission.autonomous.maxRetries,
     });
     if (mission.approvalRequired) this.events.append(mission.id, 'mission.approval_required', decision.reason);
     this.onChange();
@@ -98,6 +111,7 @@ export class TaskEngine {
     if (!mission) throw new Error('Mission not found.');
     mission.status = 'cancelled';
     mission.updatedAt = nowIso();
+    mission.execution = mission.execution ? { ...mission.execution, nextRetryAt: undefined } : undefined;
     this.missions.set(id, mission);
     this.events.append(id, 'mission.cancelled', 'Mission cancelled.');
     this.onChange();
@@ -110,24 +124,94 @@ export class TaskEngine {
     if (mission.status !== 'failed') throw new Error(`Mission cannot be retried from status ${mission.status}.`);
     mission.status = mission.approvalRequired && !mission.approvedAt ? 'waiting_approval' : 'queued';
     mission.updatedAt = nowIso();
-    mission.execution = mission.execution ? { ...mission.execution, blockedReason: undefined } : undefined;
+    mission.execution = mission.execution ? {
+      ...mission.execution,
+      blockedReason: undefined,
+      planningStartedAt: undefined,
+      retryCount: 0,
+      lastFailure: undefined,
+      nextRetryAt: undefined,
+    } : { retryCount: 0 };
     this.missions.set(id, mission);
-    this.events.append(id, 'mission.status_changed', 'Mission queued for retry.', { status: mission.status });
+    this.events.append(id, 'mission.status_changed', 'Mission queued for explicit retry.', { status: mission.status, retryCount: 0 });
     this.onChange();
     return mission;
+  }
+
+  scheduleAutomaticRetry(id: string, reason: string, delayMs: number): AutomaticRetryResult {
+    const mission = this.missions.get(id);
+    if (!mission) throw new Error('Mission not found.');
+    if (mission.status === 'cancelled') throw new Error('Cancelled mission cannot retry.');
+    if (['failed', 'completed', 'preview_ready'].includes(mission.status)) throw new Error(`Terminal mission cannot retry from ${mission.status}.`);
+
+    const maxRetries = clampRetries(mission.autonomous.maxRetries);
+    const retryCount = Math.max(0, mission.execution?.retryCount ?? 0);
+    const safeReason = reason.trim() || 'Planning failed for an unknown reason.';
+
+    if (retryCount >= maxRetries) {
+      mission.status = 'failed';
+      mission.updatedAt = nowIso();
+      mission.execution = {
+        ...(mission.execution ?? {}),
+        retryCount,
+        lastFailure: safeReason,
+        blockedReason: safeReason,
+        nextRetryAt: undefined,
+      };
+      this.missions.set(id, mission);
+      this.events.append(id, 'mission.status_changed', `Planning failed and the automatic retry budget is exhausted: ${safeReason}`, {
+        status: 'failed',
+        retryCount,
+        maxRetries,
+        blockedReason: safeReason,
+      });
+      this.onChange();
+      return { mission, scheduled: false, retryCount, maxRetries };
+    }
+
+    const nextRetryCount = retryCount + 1;
+    const boundedDelayMs = Math.max(0, Math.min(60_000, Math.trunc(delayMs)));
+    const nextRetryAt = new Date(Date.now() + boundedDelayMs).toISOString();
+    mission.status = 'queued';
+    mission.updatedAt = nowIso();
+    mission.execution = {
+      ...(mission.execution ?? {}),
+      planningStartedAt: undefined,
+      retryCount: nextRetryCount,
+      lastFailure: safeReason,
+      blockedReason: undefined,
+      nextRetryAt,
+    };
+    this.missions.set(id, mission);
+    this.events.append(id, 'mission.retry_scheduled', `Planning failed: ${safeReason} Automatic retry ${nextRetryCount}/${maxRetries} scheduled.`, {
+      status: 'queued',
+      retryCount: nextRetryCount,
+      maxRetries,
+      delayMs: boundedDelayMs,
+      nextRetryAt,
+      reason: safeReason,
+    });
+    this.onChange();
+    return { mission, scheduled: true, retryCount: nextRetryCount, maxRetries };
   }
 
   recoverInterruptedMissions(): Mission[] {
     const recovered: Mission[] = [];
     for (const mission of this.missions.values()) {
       if (!['planning', 'running', 'testing'].includes(mission.status)) continue;
+      const reason = 'Taso Core restarted while this mission was executing. Review and retry it explicitly.';
       mission.status = 'failed';
       mission.updatedAt = nowIso();
       mission.execution = {
         ...(mission.execution ?? {}),
-        blockedReason: 'Taso Core restarted while this mission was executing. Review and retry it explicitly.',
+        blockedReason: reason,
+        lastFailure: reason,
+        nextRetryAt: undefined,
       };
-      this.events.append(mission.id, 'mission.status_changed', 'Interrupted mission marked failed after Taso Core restart.', { status: 'failed' });
+      this.events.append(mission.id, 'mission.status_changed', 'Interrupted mission marked failed after Taso Core restart.', {
+        status: 'failed',
+        blockedReason: reason,
+      });
       recovered.push(mission);
     }
     if (recovered.length) this.onChange();
@@ -144,11 +228,26 @@ export class TaskEngine {
     const mission = this.missions.get(id);
     if (!mission) throw new Error('Mission not found.');
     if (mission.status === 'cancelled') throw new Error('Cancelled mission cannot transition.');
+    if (['failed', 'completed', 'preview_ready'].includes(mission.status)) throw new Error(`Terminal mission cannot transition from ${mission.status}.`);
+
+    const timestamp = nowIso();
     mission.status = status;
-    mission.updatedAt = nowIso();
-    if (execution) mission.execution = { ...(mission.execution ?? {}), ...execution };
+    mission.updatedAt = timestamp;
+    const lifecycleExecution: Partial<MissionExecution> = status === 'planning'
+      ? { planningStartedAt: timestamp, nextRetryAt: undefined, blockedReason: undefined }
+      : status === 'failed' || status === 'completed' || status === 'preview_ready'
+        ? { nextRetryAt: undefined }
+        : {};
+    if (execution || Object.keys(lifecycleExecution).length) {
+      mission.execution = { ...(mission.execution ?? {}), ...lifecycleExecution, ...(execution ?? {}) };
+    }
     this.missions.set(id, mission);
-    this.events.append(id, 'mission.status_changed', message, { status, ...(metadata ?? {}) });
+    this.events.append(id, 'mission.status_changed', message, {
+      status,
+      ...(metadata ?? {}),
+      ...(execution?.blockedReason ? { blockedReason: execution.blockedReason } : {}),
+      ...(mission.execution?.retryCount !== undefined ? { retryCount: mission.execution.retryCount } : {}),
+    });
     this.onChange();
     return mission;
   }
