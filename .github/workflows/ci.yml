@@ -160,18 +160,20 @@ jobs:
           NTFY_BASE_URL: ${{ secrets.NTFY_BASE_URL }}
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
           NTFY_TOKEN: ${{ secrets.NTFY_TOKEN }}
+          NTFY_SOURCE: GitHub
+          NTFY_CATEGORY: ci
           EVENT_NAME: ${{ github.event_name }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           NTFY_ACTIONS: view, CI loglarini ac, ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}; view, Taso panelini ac, https://taso-v2.demo.tasarlayalim.com/
         run: |
           if [ "$EVENT_NAME" = "pull_request" ]; then
-            TITLE="Taso PR #${PR_NUMBER} - CI müdahale gerekiyor"
-            MESSAGE="PR #${PR_NUMBER} zorunlu kontrollerden gecemedi. Commit ${GITHUB_SHA::7}. CI logundaki ilk hatali adim duzeltilmeden merge edilmemeli."
+            TITLE="🚨 ACİL DÜZELTME · PR #${PR_NUMBER}"
+            MESSAGE="GitHub doğrulaması başarısız. PR #${PR_NUMBER} şu anda merge edilmemeli. Commit: ${GITHUB_SHA::7}. Senden gereken: CI detayını aç; ilk başarısız adım düzeltilip doğrulama yeniden geçmeden merge etme."
           else
-            TITLE="Taso Release Gate - müdahale gerekiyor"
-            MESSAGE="Main dalindaki ${GITHUB_SHA::7} commit'i release gate kontrollerinden gecemedi. Production release guvenli kabul edilmemeli; CI logunu incele."
+            TITLE="🚨 RELEASE ENGELLENDİ · MAIN"
+            MESSAGE="Main üzerindeki ${GITHUB_SHA::7} commit release gate doğrulamasından geçemedi. Production güvenli kabul edilmemeli. Senden gereken: CI hatasını incele ve düzeltme akışını başlat."
           fi
-          TITLE="$TITLE" MESSAGE="$MESSAGE" sh ./scripts/notify-ntfy.sh failed
+          TITLE="$TITLE" MESSAGE="$MESSAGE" sh ./scripts/notify-ntfy.sh urgent_fix
 
       - name: Notify PR ready for review
         if: success() && github.event_name == 'pull_request'
@@ -180,13 +182,15 @@ jobs:
           NTFY_BASE_URL: ${{ secrets.NTFY_BASE_URL }}
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
           NTFY_TOKEN: ${{ secrets.NTFY_TOKEN }}
+          NTFY_SOURCE: GitHub
+          NTFY_CATEGORY: merge
           PR_URL: ${{ github.event.pull_request.html_url }}
           NTFY_CLICK_URL: ${{ github.event.pull_request.html_url }}
           NTFY_ACTIONS: view, PR incele, ${{ github.event.pull_request.html_url }}; view, Taso Approvals, https://taso-v2.demo.tasarlayalim.com/?screen=Approvals
         run: |
-          TITLE="Taso V2 - incelemeye hazir" \
-          MESSAGE="PR #${{ github.event.pull_request.number }} tum zorunlu CI kapilarindan gecti. Core testleri, UI build, Core/UI/voice container build, gateway, operations snapshot, voice readiness, yetkisiz Core erisimi, infra smoke ve ntfy image kontrolleri basarili. Production'a otomatik deploy yapilmadi." \
-          sh ./scripts/notify-ntfy.sh success
+          TITLE="🟣 MERGE HAZIR · PR #${{ github.event.pull_request.number }}" \
+          MESSAGE="Tüm zorunlu doğrulamalar geçti. PR #${{ github.event.pull_request.number }} main'e alınmaya hazır. Commit: ${GITHUB_SHA::7}. Senden gereken: PR'ı inceleyip merge et. Merge sonrası production deploy ayrı deploy politikası tarafından yönetilir." \
+          sh ./scripts/notify-ntfy.sh merge_ready
 
       - name: Notify main CI success
         if: success() && github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -195,10 +199,12 @@ jobs:
           NTFY_BASE_URL: ${{ secrets.NTFY_BASE_URL }}
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
           NTFY_TOKEN: ${{ secrets.NTFY_TOKEN }}
+          NTFY_SOURCE: GitHub
+          NTFY_CATEGORY: release
           NTFY_ACTIONS: view, GitHub run, ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}; view, Taso paneli, https://taso-v2.demo.tasarlayalim.com/
         run: |
-          TITLE="Taso Release Gate - PASS" \
-          MESSAGE="Main dalindaki ${GITHUB_SHA::7} commit'i dogrulandi. Core + UI + local voice image + gateway + operations + voice readiness + security + infra + ntfy kontrolleri basarili. Bu bildirim sadece dogrulanmis sonucu raporlar; production deploy politikasi ayri kalir." \
+          TITLE="✅ RELEASE GATE GEÇTİ · MAIN" \
+          MESSAGE="Main üzerindeki ${GITHUB_SHA::7} commit doğrulandı. Kod release açısından hazır. Bu durum production'ın deploy edildiği anlamına gelmez; Coolify deployment ve canlı health doğrulaması ayrı aşamadır." \
           sh ./scripts/notify-ntfy.sh success
 
       - name: Cleanup containers
