@@ -1,11 +1,8 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { browserVoiceRuntime } from './BrowserVoiceRuntime';
+import { geminiTtsVoiceRuntime } from './GeminiTtsVoiceRuntime';
 
 const API_URL = ((import.meta.env.VITE_TASO_API_URL as string | undefined) || '/api').replace(/\/$/, '');
-const DEFAULT_RATE = 0.92;
-const DEFAULT_PITCH = 0.86;
-const DEFAULT_VOLUME = 1;
 
 type Project = { id: string; name: string; slug: string };
 type RiskLevel = 'READ' | 'WRITE' | 'HIGH_IMPACT';
@@ -20,25 +17,10 @@ type ConversationResponse = {
 };
 type Mission = { id: string; status: string; objective: string };
 type VoiceState = 'idle' | 'listening' | 'thinking' | 'starting' | 'speaking' | 'error' | 'unsupported';
-type VoiceProfile = { voiceName: string; rate: number; pitch: number; volume: number };
 
 function storedNumber(key: string, fallback: number) {
   const parsed = Number(localStorage.getItem(key));
   return Number.isFinite(parsed) ? parsed : fallback;
-}
-
-function voiceScore(voice: SpeechSynthesisVoice) {
-  let score = 0;
-  if (/^tr-TR$/i.test(voice.lang)) score += 20;
-  else if (/^tr/i.test(voice.lang)) score += 12;
-  if (/microsoft|google|samsung/i.test(voice.name)) score += 5;
-  if (/ahmet|tolga|mert|kerem|emre|kaan|hakan|cem|barış|baris|erkek|male/i.test(voice.name)) score += 8;
-  if (voice.localService) score += 2;
-  return score;
-}
-
-function chooseSignatureVoice(voices: SpeechSynthesisVoice[]) {
-  return [...voices].sort((a, b) => voiceScore(b) - voiceScore(a))[0];
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -74,23 +56,16 @@ export default function ConversationBridgeV2() {
   const [provider, setProvider] = useState('AI');
   const [voiceState, setVoiceState] = useState<VoiceState>('idle');
   const [voiceReplies, setVoiceReplies] = useState(() => localStorage.getItem('taso-voice-replies') !== 'false');
+  const [voiceVolume, setVoiceVolume] = useState(() => storedNumber('taso-gemini-tts-volume', 1));
   const [liveSession, setLiveSession] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
-  const [voiceProfile, setVoiceProfile] = useState<VoiceProfile>(() => ({
-    voiceName: localStorage.getItem('taso-voice-name') ?? '',
-    rate: storedNumber('taso-voice-rate', DEFAULT_RATE),
-    pitch: storedNumber('taso-voice-pitch', DEFAULT_PITCH),
-    volume: storedNumber('taso-voice-volume', DEFAULT_VOLUME),
-  }));
 
   const recognitionRef = useRef<any>(null);
   const liveSessionRef = useRef(false);
   const busyRef = useRef(false);
   const projectIdRef = useRef('');
   const voiceRepliesRef = useRef(voiceReplies);
-  const voicesRef = useRef<SpeechSynthesisVoice[]>([]);
-  const profileRef = useRef(voiceProfile);
+  const voiceVolumeRef = useRef(voiceVolume);
   const restartTimerRef = useRef<number>();
 
   const activeProject = useMemo(() => projects.find((project) => project.id === projectId), [projects, projectId]);
@@ -99,8 +74,7 @@ export default function ConversationBridgeV2() {
   useEffect(() => { busyRef.current = busy; }, [busy]);
   useEffect(() => { projectIdRef.current = projectId; }, [projectId]);
   useEffect(() => { voiceRepliesRef.current = voiceReplies; }, [voiceReplies]);
-  useEffect(() => { voicesRef.current = voices; }, [voices]);
-  useEffect(() => { profileRef.current = voiceProfile; }, [voiceProfile]);
+  useEffect(() => { voiceVolumeRef.current = voiceVolume; }, [voiceVolume]);
 
   useEffect(() => {
     const sync = () => setTarget(document.querySelector('.taso-panel'));
@@ -137,28 +111,7 @@ export default function ConversationBridgeV2() {
   }, [projects]);
 
   useEffect(() => { localStorage.setItem('taso-voice-replies', String(voiceReplies)); }, [voiceReplies]);
-  useEffect(() => {
-    localStorage.setItem('taso-voice-name', voiceProfile.voiceName);
-    localStorage.setItem('taso-voice-rate', String(voiceProfile.rate));
-    localStorage.setItem('taso-voice-pitch', String(voiceProfile.pitch));
-    localStorage.setItem('taso-voice-volume', String(voiceProfile.volume));
-  }, [voiceProfile]);
-
-  useEffect(() => {
-    if (!('speechSynthesis' in window)) return;
-    const load = () => {
-      const turkish = window.speechSynthesis.getVoices().filter((voice) => /^tr(?:-|_)/i.test(voice.lang));
-      setVoices(turkish);
-      setVoiceProfile((current) => {
-        if (current.voiceName && turkish.some((voice) => voice.name === current.voiceName)) return current;
-        const signature = chooseSignatureVoice(turkish);
-        return signature ? { ...current, voiceName: signature.name } : current;
-      });
-    };
-    load();
-    window.speechSynthesis.addEventListener('voiceschanged', load);
-    return () => window.speechSynthesis.removeEventListener('voiceschanged', load);
-  }, []);
+  useEffect(() => { localStorage.setItem('taso-gemini-tts-volume', String(voiceVolume)); }, [voiceVolume]);
 
   useEffect(() => {
     if (!target) return;
@@ -176,17 +129,13 @@ export default function ConversationBridgeV2() {
     liveSessionRef.current = false;
     if (restartTimerRef.current) window.clearTimeout(restartTimerRef.current);
     recognitionRef.current?.stop?.();
-    browserVoiceRuntime.cancel();
+    geminiTtsVoiceRuntime.cancel();
   }, []);
-
-  function profile() {
-    return { ...profileRef.current, lang: 'tr-TR' };
-  }
 
   function scheduleListening(delay = 320) {
     if (restartTimerRef.current) window.clearTimeout(restartTimerRef.current);
     restartTimerRef.current = window.setTimeout(() => {
-      if (!liveSessionRef.current || busyRef.current || !projectIdRef.current || browserVoiceRuntime.isSpeaking()) return;
+      if (!liveSessionRef.current || busyRef.current || !projectIdRef.current || geminiTtsVoiceRuntime.isSpeaking()) return;
       beginRecognition();
     }, delay);
   }
@@ -199,9 +148,9 @@ export default function ConversationBridgeV2() {
     }
 
     setError('');
-    const result = await browserVoiceRuntime.speak(text, {
-      profile: profile(),
-      voices: voicesRef.current,
+    const result = await geminiTtsVoiceRuntime.speak(text, {
+      projectId: projectIdRef.current,
+      volume: voiceVolumeRef.current,
       onState: (state) => {
         if (state === 'starting') setVoiceState('starting');
         if (state === 'speaking') setVoiceState('speaking');
@@ -212,7 +161,7 @@ export default function ConversationBridgeV2() {
 
     if (!result.started) {
       setVoiceState('error');
-      setError('Taso yanıtı hazır fakat cihaz TTS motoru sesi başlatmadı. Ses ayarlarından “Taso sesini test et” ile cihaz çıkışını doğrula.');
+      setError(`Gemini TTS sesi başlatılamadı${result.error ? `: ${result.error}` : '.'}`);
       return false;
     }
 
@@ -223,10 +172,9 @@ export default function ConversationBridgeV2() {
 
   async function previewSignatureVoice() {
     if (busyRef.current || liveSessionRef.current) return;
-    await browserVoiceRuntime.unlock();
+    await geminiTtsVoiceRuntime.unlock();
     setError('');
-    const ok = await speak('Merhaba. Ben Taso. Hazırım. Nasıl ilerliyoruz?', false);
-    if (!ok) setSettingsOpen(true);
+    await speak('Merhaba. Ben Taso. Sistemler hazır. Seni dinliyorum.', false);
   }
 
   async function sendConversation(text: string, fromVoice = false) {
@@ -264,13 +212,13 @@ export default function ConversationBridgeV2() {
     event.preventDefault();
     const text = input.trim();
     if (!text) return;
-    await browserVoiceRuntime.unlock();
+    await geminiTtsVoiceRuntime.unlock();
     setInput('');
     await sendConversation(text, false);
   }
 
   function beginRecognition() {
-    if (busyRef.current || !projectIdRef.current || recognitionRef.current || browserVoiceRuntime.isSpeaking()) return;
+    if (busyRef.current || !projectIdRef.current || recognitionRef.current || geminiTtsVoiceRuntime.isSpeaking()) return;
     const Recognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!Recognition) {
       liveSessionRef.current = false;
@@ -332,7 +280,7 @@ export default function ConversationBridgeV2() {
     restartTimerRef.current = undefined;
     recognitionRef.current?.stop?.();
     recognitionRef.current = null;
-    browserVoiceRuntime.cancel();
+    geminiTtsVoiceRuntime.cancel();
     setVoiceState('idle');
   }
 
@@ -342,17 +290,12 @@ export default function ConversationBridgeV2() {
       return;
     }
     if (busyRef.current) return;
-    await browserVoiceRuntime.unlock();
+    await geminiTtsVoiceRuntime.unlock();
     setError('');
     liveSessionRef.current = true;
     setLiveSession(true);
     setVoiceState('idle');
     window.setTimeout(beginRecognition, 80);
-  }
-
-  function applySignaturePreset() {
-    const signature = chooseSignatureVoice(voicesRef.current);
-    setVoiceProfile({ voiceName: signature?.name ?? '', rate: DEFAULT_RATE, pitch: DEFAULT_PITCH, volume: DEFAULT_VOLUME });
   }
 
   async function createSuggestedMission() {
@@ -376,7 +319,7 @@ export default function ConversationBridgeV2() {
 
   if (!target) return null;
 
-  const stateText = voiceState === 'listening' ? 'Dinliyor' : voiceState === 'thinking' ? 'Düşünüyor' : voiceState === 'starting' ? 'Ses başlatılıyor' : voiceState === 'speaking' ? 'Konuşuyor' : voiceState === 'error' ? 'Ses hatası' : 'Hazır';
+  const stateText = voiceState === 'listening' ? 'Dinliyor' : voiceState === 'thinking' ? 'Düşünüyor' : voiceState === 'starting' ? 'Ses hazırlanıyor' : voiceState === 'speaking' ? 'Konuşuyor' : voiceState === 'error' ? 'Ses hatası' : 'Hazır';
 
   return createPortal(
     <section className={`conversation-bridge voice-${voiceState} ${liveSession ? 'live-session' : ''}`} aria-label="Taso konuşma">
@@ -402,19 +345,17 @@ export default function ConversationBridgeV2() {
       <div className="conversation-meta">
         <span>Chat ≠ Mission</span>
         <button type="button" className={liveSession ? 'active' : ''} onClick={() => void toggleVoiceSession()}>Canlı konuşma {liveSession ? 'Açık' : 'Kapalı'}</button>
-        <button type="button" onClick={() => setVoiceReplies((value) => !value)}>TTS {voiceReplies ? 'Açık' : 'Kapalı'}</button>
+        <button type="button" onClick={() => setVoiceReplies((value) => !value)}>Ses yanıtı {voiceReplies ? 'Açık' : 'Kapalı'}</button>
         <button type="button" onClick={() => setSettingsOpen((value) => !value)}>Ses ayarları</button>
         <span>{stateText}</span>
       </div>
 
       {settingsOpen && (
         <div className="taso-voice-settings">
-          <div className="taso-voice-settings-head"><div><span>TASO SIGNATURE</span><strong>İstanbul Türkçesi ses profili</strong></div><button type="button" onClick={applySignaturePreset}>Profili sıfırla</button></div>
-          <label><span>Türkçe ses</span><select value={voiceProfile.voiceName} onChange={(event) => setVoiceProfile((current) => ({ ...current, voiceName: event.target.value }))} disabled={!voices.length}>{voices.length ? voices.map((voice) => <option key={`${voice.name}-${voice.lang}`} value={voice.name}>{voice.name} · {voice.lang}</option>) : <option value="">Cihazda tr-TR ses bulunamadı</option>}</select></label>
-          <label><span>Konuşma hızı <b>{voiceProfile.rate.toFixed(2)}</b></span><input type="range" min="0.72" max="1.16" step="0.01" value={voiceProfile.rate} onChange={(event) => setVoiceProfile((current) => ({ ...current, rate: Number(event.target.value) }))} /></label>
-          <label><span>Ses tonu <b>{voiceProfile.pitch.toFixed(2)}</b></span><input type="range" min="0.65" max="1.15" step="0.01" value={voiceProfile.pitch} onChange={(event) => setVoiceProfile((current) => ({ ...current, pitch: Number(event.target.value) }))} /></label>
-          <label><span>Ses seviyesi <b>{Math.round(voiceProfile.volume * 100)}%</b></span><input type="range" min="0.35" max="1" step="0.05" value={voiceProfile.volume} onChange={(event) => setVoiceProfile((current) => ({ ...current, volume: Number(event.target.value) }))} /></label>
-          <div className="taso-voice-settings-actions"><button type="button" onClick={() => void previewSignatureVoice()} disabled={busy || liveSession}>Taso sesini test et</button><small>Test ancak tarayıcı TTS motoru gerçekten konuşmayı başlatırsa başarılı sayılır.</small></div>
+          <div className="taso-voice-settings-head"><div><span>TASO VOICE</span><strong>Gemini TTS · normal sohbet</strong></div></div>
+          <div className="conversation-created">Canlı konuşma: Gemini Live · Normal sohbet: Gemini TTS · Cihaz TTS otomatik fallback kapalı.</div>
+          <label><span>Ses seviyesi <b>{Math.round(voiceVolume * 100)}%</b></span><input type="range" min="0.35" max="1" step="0.05" value={voiceVolume} onChange={(event) => setVoiceVolume(Number(event.target.value))} /></label>
+          <div className="taso-voice-settings-actions"><button type="button" onClick={() => void previewSignatureVoice()} disabled={busy || liveSession}>Taso sesini test et</button><small>Test Gemini TTS üzerinden yapılır; cihazın speechSynthesis motoru kullanılmaz.</small></div>
         </div>
       )}
     </section>,
