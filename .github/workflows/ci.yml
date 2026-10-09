@@ -167,11 +167,11 @@ jobs:
           NTFY_ACTIONS: view, CI loglarini ac, ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}; view, Taso panelini ac, https://taso-v2.demo.tasarlayalim.com/
         run: |
           if [ "$EVENT_NAME" = "pull_request" ]; then
-            TITLE="🚨 ACİL DÜZELTME · PR #${PR_NUMBER}"
-            MESSAGE="GitHub doğrulaması başarısız. PR #${PR_NUMBER} şu anda merge edilmemeli. Commit: ${GITHUB_SHA::7}. Senden gereken: CI detayını aç; ilk başarısız adım düzeltilip doğrulama yeniden geçmeden merge etme."
+            TITLE="MÜDAHALE GEREKİYOR · PR #${PR_NUMBER}"
+            MESSAGE="PR #${PR_NUMBER} doğrulamadan geçemedi. Merge şu anda güvenli değil. Senden beklenen: Hatayı İncele."
           else
-            TITLE="🚨 RELEASE ENGELLENDİ · MAIN"
-            MESSAGE="Main üzerindeki ${GITHUB_SHA::7} commit release gate doğrulamasından geçemedi. Production güvenli kabul edilmemeli. Senden gereken: CI hatasını incele ve düzeltme akışını başlat."
+            TITLE="MÜDAHALE GEREKİYOR · MAIN"
+            MESSAGE="Main doğrulaması başarısız. Yeni sürüm güvenli kabul edilmiyor. Senden beklenen: Hatayı İncele."
           fi
           TITLE="$TITLE" MESSAGE="$MESSAGE" sh ./scripts/notify-ntfy.sh urgent_fix
 
@@ -191,21 +191,6 @@ jobs:
           TITLE="🟣 MERGE HAZIR · PR #${{ github.event.pull_request.number }}" \
           MESSAGE="Tüm zorunlu doğrulamalar geçti. PR #${{ github.event.pull_request.number }} main'e alınmaya hazır. Commit: ${GITHUB_SHA::7}. Senden gereken: PR'ı inceleyip merge et. Merge sonrası production deploy ayrı deploy politikası tarafından yönetilir." \
           sh ./scripts/notify-ntfy.sh merge_ready
-
-      - name: Notify main CI success
-        if: success() && github.event_name == 'push' && github.ref == 'refs/heads/main'
-        continue-on-error: true
-        env:
-          NTFY_BASE_URL: ${{ secrets.NTFY_BASE_URL }}
-          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
-          NTFY_TOKEN: ${{ secrets.NTFY_TOKEN }}
-          NTFY_SOURCE: GitHub
-          NTFY_CATEGORY: release
-          NTFY_ACTIONS: view, GitHub run, ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}; view, Taso paneli, https://taso-v2.demo.tasarlayalim.com/
-        run: |
-          TITLE="✅ RELEASE GATE GEÇTİ · MAIN" \
-          MESSAGE="Main üzerindeki ${GITHUB_SHA::7} commit doğrulandı. Kod release açısından hazır. Bu durum production'ın deploy edildiği anlamına gelmez; Coolify deployment ve canlı health doğrulaması ayrı aşamadır." \
-          sh ./scripts/notify-ntfy.sh success
 
       - name: Cleanup containers
         if: always()
