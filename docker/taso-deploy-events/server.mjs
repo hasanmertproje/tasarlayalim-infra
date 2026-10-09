@@ -1,5 +1,4 @@
 import http from 'node:http';
-import { timingSafeEqual } from 'node:crypto';
 
 const secret = process.env.COOLIFY_EVENT_SECRET || '';
 const ntfyBase = process.env.NTFY_BASE_URL || '';
@@ -13,10 +12,6 @@ if (!secret || secret.length < 32 || !ntfyBase || !ntfyTopic || !ntfyToken || !O
 }
 const seen = new Map();
 const clean = () => { for (const [key, timestamp] of seen) if (Date.now() - timestamp > 86400000) seen.delete(key); };
-function equal(a, b) {
-  const x = Buffer.from(a), y = Buffer.from(b);
-  return x.length === y.length && timingSafeEqual(x, y);
-}
 function serviceFor(event) {
   if (!event.application_uuid || typeof event.application_uuid !== 'string') return null;
   const found = Object.entries(services).find(([, v]) => v && v.uuid === event.application_uuid);
@@ -27,12 +22,12 @@ async function healthcheck(service) {
   const u = new URL(service.healthUrl);
   if (u.protocol !== 'https:' || u.username || u.password || u.search || u.hash) return false;
   // Only operator-configured health URLs are requested; never follow redirects or use payload URLs.
-  for (let attempt = 0; attempt < 5; attempt++) {
+  for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const response = await fetch(u, { redirect: 'manual', signal: AbortSignal.timeout(5000) });
       if (response.ok) return true;
     } catch {}
-    if (attempt < 4) await new Promise(resolve => setTimeout(resolve, 3000));
+    if (attempt < 1) await new Promise(resolve => setTimeout(resolve, 1000));
   }
   return false;
 }
