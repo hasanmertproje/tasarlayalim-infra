@@ -35,7 +35,7 @@ export interface ConversationDecision {
 
 const normalize = (value: string) => value.trim().toLocaleLowerCase('tr-TR');
 const includesAny = (value: string, terms: string[]) => terms.some((term) => value.includes(term));
-const words = (value: string) => value.match(/\p{L}+/gu) ?? [];
+const words = (value: string): string[] => value.match(/\p{L}+/gu) ?? [];
 const hasWord = (value: string, terms: string[]) => {
   const tokens = words(value);
   return terms.some((term) => tokens.includes(term));
