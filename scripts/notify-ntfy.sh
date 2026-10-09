@@ -18,7 +18,7 @@ URL="${BASE_URL}/${TOPIC}"
 
 case "$STATUS" in
   merge_ready)
-    TAGS="twisted_rightwards_arrows,white_check_mark"
+    TAGS="twisted_rightwards_arrows"
     PRIORITY="4"
     ;;
   success)
@@ -26,11 +26,11 @@ case "$STATUS" in
     PRIORITY="3"
     ;;
   failure|failed|urgent_fix)
-    TAGS="rotating_light,x"
+    TAGS="rotating_light"
     PRIORITY="5"
     ;;
   approval|waiting_approval)
-    TAGS="warning,lock"
+    TAGS="lock"
     PRIORITY="4"
     ;;
   cancelled)
