@@ -7,8 +7,15 @@ const ntfyToken = process.env.NTFY_TOKEN || '';
 const port = Number(process.env.PORT || 8080);
 let services;
 try { services = JSON.parse(process.env.DEPLOY_SERVICES_JSON || '{}'); } catch { throw new Error('Invalid DEPLOY_SERVICES_JSON'); }
-if (!secret || secret.length < 32 || !ntfyBase || !ntfyTopic || !ntfyToken || !Object.keys(services).length) {
-  throw new Error('COOLIFY_EVENT_SECRET (32+ chars), ntfy credentials and DEPLOY_SERVICES_JSON are required');
+const startupChecks = {
+  COOLIFY_EVENT_SECRET: secret ? (secret.length >= 32 ? 'ok' : 'too-short') : 'missing',
+  NTFY_BASE_URL: ntfyBase ? 'ok' : 'missing',
+  NTFY_TOPIC: ntfyTopic ? 'ok' : 'missing',
+  NTFY_TOKEN: ntfyToken ? 'ok' : 'missing',
+  DEPLOY_SERVICES_JSON: Object.keys(services).length ? 'ok' : 'empty',
+};
+if (Object.values(startupChecks).some(status => status !== 'ok')) {
+  throw new Error('Startup configuration invalid: ' + Object.entries(startupChecks).map(([key, status]) => `${key}=${status}`).join(', '));
 }
 const seen = new Map();
 const clean = () => { for (const [key, timestamp] of seen) if (Date.now() - timestamp > 86400000) seen.delete(key); };
