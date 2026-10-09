@@ -189,7 +189,7 @@ jobs:
           NTFY_ACTIONS: view, PR incele, ${{ github.event.pull_request.html_url }}; view, Taso Approvals, https://taso-v2.demo.tasarlayalim.com/?screen=Approvals
         run: |
           TITLE="MERGE GEREKİYOR · PR #${{ github.event.pull_request.number }}" \
-          MESSAGE="Tüm kontroller başarıyla geçti. Senden beklenen: PR #${{ github.event.pull_request.number }}'yi merge et." \
+          MESSAGE="Tüm kontroller başarıyla geçti. Senden beklenen: PR #${{ github.event.pull_request.number }} için merge ver." \
           sh ./scripts/notify-ntfy.sh merge_ready
 
       - name: Cleanup containers
