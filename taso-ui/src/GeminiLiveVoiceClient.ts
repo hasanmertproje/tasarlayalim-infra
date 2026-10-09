@@ -254,6 +254,35 @@ export class GeminiLiveVoiceClient {
     }
   }
 
+  private async decodeSocketMessage(data: unknown) {
+    if (typeof data === 'string') return JSON.parse(data);
+    if (data instanceof Blob) {
+      const text = await data.text();
+      if (!text.trim()) return undefined;
+      return JSON.parse(text);
+    }
+    if (data instanceof ArrayBuffer) {
+      const text = new TextDecoder().decode(new Uint8Array(data));
+      if (!text.trim()) return undefined;
+      return JSON.parse(text);
+    }
+    if (ArrayBuffer.isView(data)) {
+      const text = new TextDecoder().decode(new Uint8Array(data.buffer, data.byteOffset, data.byteLength));
+      if (!text.trim()) return undefined;
+      return JSON.parse(text);
+    }
+    throw new Error(`Desteklenmeyen Gemini Live frame tipi: ${Object.prototype.toString.call(data)}`);
+  }
+
+  private async handleSocketMessage(data: unknown) {
+    try {
+      const message = await this.decodeSocketMessage(data);
+      if (message !== undefined) this.handleMessage(message);
+    } catch (error) {
+      this.error(`Gemini Live mesajı çözümlenemedi: ${(error as Error).message}`);
+    }
+  }
+
   private async startMicrophone() {
     const media = await navigator.mediaDevices.getUserMedia({
       audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
@@ -352,8 +381,7 @@ export class GeminiLiveVoiceClient {
       });
 
       ws.addEventListener('message', (event) => {
-        try { this.handleMessage(JSON.parse(String(event.data))); }
-        catch (error) { this.error(`Gemini Live mesajı çözümlenemedi: ${(error as Error).message}`); }
+        void this.handleSocketMessage(event.data);
       });
 
       ws.addEventListener('error', () => {
