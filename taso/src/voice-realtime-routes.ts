@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { classifyConversationIntent } from './conversation.js';
 import { GeminiLiveRuntime } from './gemini-live.js';
+import { GeminiTtsRuntime } from './gemini-tts.js';
 import { VoiceRealtimeRuntime } from './voice-realtime.js';
 
 interface CreateRealtimeSessionBody {
@@ -13,6 +14,12 @@ interface CreateRealtimeSessionBody {
 interface CreateGeminiSessionBody {
   projectId?: string;
   workspaceName?: string;
+}
+
+interface GeminiTtsBody {
+  projectId?: string;
+  text?: string;
+  style?: string;
 }
 
 interface ClassifyVoiceTurnBody {
@@ -37,6 +44,7 @@ function consumeWindow(windows: Map<string, WindowState>, projectId: string, lim
 export function registerVoiceRealtimeRoutes(app: FastifyInstance) {
   const openai = new VoiceRealtimeRuntime();
   const gemini = new GeminiLiveRuntime();
+  const geminiTts = new GeminiTtsRuntime();
   const windows = new Map<string, WindowState>();
 
   app.get('/v1/voice/realtime', async () => {
@@ -45,6 +53,7 @@ export function registerVoiceRealtimeRoutes(app: FastifyInstance) {
       realtime: geminiStatus.ready ? geminiStatus : openai.status(),
       providers: {
         gemini: geminiStatus,
+        geminiTts: geminiTts.status(),
         openai: openai.status(),
       },
     };
@@ -80,6 +89,24 @@ export function registerVoiceRealtimeRoutes(app: FastifyInstance) {
       const message = (error as Error).message;
       const unavailable = /disabled|not configured/i.test(message);
       return reply.code(unavailable ? 503 : 502).send({ error: message, realtime: gemini.status() });
+    }
+  });
+
+  app.post<{ Body: GeminiTtsBody }>('/v1/voice/gemini/tts', async (request, reply) => {
+    const projectId = request.body?.projectId?.trim();
+    const text = request.body?.text?.trim();
+    const style = request.body?.style?.trim();
+    if (!projectId || !text) return reply.code(400).send({ error: 'projectId and text are required.' });
+    if (!consumeWindow(windows, `gemini-tts:${projectId}`, 24)) {
+      return reply.code(429).send({ error: 'Gemini TTS rate limit exceeded for this workspace.' });
+    }
+    try {
+      const audio = await geminiTts.synthesize({ text, style });
+      return reply.send({ audio, tts: geminiTts.status() });
+    } catch (error) {
+      const message = (error as Error).message;
+      const unavailable = /disabled|not configured/i.test(message);
+      return reply.code(unavailable ? 503 : 502).send({ error: message, tts: geminiTts.status() });
     }
   });
 
