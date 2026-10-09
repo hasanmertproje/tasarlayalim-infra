@@ -4,6 +4,7 @@ import TasoOperationsApp from './TasoOperationsApp';
 import ConversationBridgeV2 from './ConversationBridgeV2';
 import IntegrationsCenter from './IntegrationsCenter';
 import KnowledgeCenter from './KnowledgeCenter';
+import RuntimeCompatibilityBridge from './RuntimeCompatibilityBridge';
 import TruthSurfaces from './TruthSurfaces';
 import VoiceIdentitySettings from './VoiceIdentitySettings';
 import VoiceModeOverlay from './VoiceModeOverlay';
@@ -49,6 +50,7 @@ function OperationsSurfaceBridge() {
 ReactDOM.createRoot(rootElement).render(
   <React.StrictMode>
     <TasoOperationsApp />
+    <RuntimeCompatibilityBridge />
     <OperationsSurfaceBridge />
     <TruthSurfaces />
     <VoiceIdentitySettings />
