@@ -6,16 +6,6 @@ const ntfyTopic = process.env.NTFY_TOPIC || '';
 const ntfyToken = process.env.NTFY_TOKEN || '';
 const port = Number(process.env.PORT || 8080);
 const selfUuid = process.env.COOLIFY_RESOURCE_UUID || '';
-const selfUrlRaw = (process.env.COOLIFY_URL || '').split(',')[0]?.trim() || '';
-let selfHealthUrl = '';
-try {
-  if (selfUrlRaw) {
-    const selfUrl = new URL(selfUrlRaw);
-    if (selfUrl.protocol === 'https:' && !selfUrl.username && !selfUrl.password) {
-      selfHealthUrl = new URL('/health', selfUrl).toString();
-    }
-  }
-} catch {}
 let services;
 try { services = JSON.parse(process.env.DEPLOY_SERVICES_JSON || '{}'); } catch { throw new Error('Invalid DEPLOY_SERVICES_JSON'); }
 const startupChecks = {
@@ -32,20 +22,29 @@ const seen = new Map();
 const clean = () => { for (const [key, timestamp] of seen) if (Date.now() - timestamp > 86400000) seen.delete(key); };
 function serviceFor(event) {
   if (!event.application_uuid || typeof event.application_uuid !== 'string') return null;
-  // Coolify injects these predefined values into the running application. This lets
-  // the bridge report its own deployments without weakening the explicit allowlist
-  // used for every other production application.
-  if (selfUuid && selfHealthUrl && event.application_uuid === selfUuid) {
-    return { name: 'taso-deploy-events', uuid: selfUuid, healthUrl: selfHealthUrl };
+  // Coolify injects the resource UUID into the running application. Self-deploy
+  // recognition depends only on that exact UUID; public URL formatting is irrelevant.
+  if (selfUuid && event.application_uuid === selfUuid) {
+    return { name: 'taso-deploy-events', uuid: selfUuid, localHealth: true };
   }
   const found = Object.entries(services).find(([, v]) => v && v.uuid === event.application_uuid);
   return found ? { name: found[0], ...found[1] } : null;
 }
 async function healthcheck(service) {
+  if (service.localHealth) {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const response = await fetch(`http://127.0.0.1:${port}/health`, { redirect: 'manual', signal: AbortSignal.timeout(5000) });
+        if (response.ok) return true;
+      } catch {}
+      if (attempt < 1) await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+    return false;
+  }
   if (!service.healthUrl) return false;
   const u = new URL(service.healthUrl);
   if (u.protocol !== 'https:' || u.username || u.password || u.search || u.hash) return false;
-  // Only operator-configured or Coolify-predefined health URLs are requested; never follow redirects or use payload URLs.
+  // Only operator-configured health URLs are requested; never follow redirects or use payload URLs.
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const response = await fetch(u, { redirect: 'manual', signal: AbortSignal.timeout(5000) });
@@ -96,13 +95,25 @@ async function publish(status, title, message, link) {
   throw lastError;
 }
 async function processEvent(event) {
-  if (!event || !['deployment_success', 'deployment_failed'].includes(event.event)) return { accepted: false, reason: 'ignored_event' };
-  if (event.pull_request_id != null) return { accepted: false, reason: 'preview_ignored' };
+  if (!event || !['deployment_success', 'deployment_failed'].includes(event.event)) {
+    console.log(`deploy-event ignored reason=ignored_event event=${event?.event || 'missing'}`);
+    return { accepted: false, reason: 'ignored_event' };
+  }
+  if (event.pull_request_id != null) {
+    console.log(`deploy-event ignored reason=preview event=${event.event}`);
+    return { accepted: false, reason: 'preview_ignored' };
+  }
   const service = serviceFor(event);
-  if (!service || !event.deployment_uuid || typeof event.deployment_uuid !== 'string') return { accepted: false, reason: 'unknown_resource' };
+  if (!service || !event.deployment_uuid || typeof event.deployment_uuid !== 'string') {
+    console.log(`deploy-event ignored reason=unknown_resource event=${event.event} application_uuid=${event.application_uuid || 'missing'} deployment_uuid=${typeof event.deployment_uuid === 'string' ? 'present' : 'missing'} self_uuid=${selfUuid ? 'present' : 'missing'} self_match=${Boolean(selfUuid && event.application_uuid === selfUuid)}`);
+    return { accepted: false, reason: 'unknown_resource' };
+  }
   clean();
   const key = event.event + ':' + event.application_uuid + ':' + event.deployment_uuid;
-  if (seen.has(key)) return { accepted: true, duplicate: true };
+  if (seen.has(key)) {
+    console.log(`deploy-event duplicate event=${event.event} service=${service.name} deployment_uuid=${event.deployment_uuid}`);
+    return { accepted: true, duplicate: true };
+  }
   // A successful Coolify deployment alone does not establish that production is healthy.
   const healthy = event.event === 'deployment_success' && await healthcheck(service);
   const failed = event.event === 'deployment_failed' || !healthy;
@@ -134,4 +145,4 @@ const server = http.createServer(async (req, res) => {
     return send(502, { error: 'delivery_failed' });
   }
 });
-server.listen(port, '0.0.0.0', () => console.log('Taso deploy event bridge listening on', port));
+server.listen(port, '0.0.0.0', () => console.log(`Taso deploy event bridge listening on ${port}; self_uuid=${selfUuid ? 'present' : 'missing'}`));
