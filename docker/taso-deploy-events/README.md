@@ -19,13 +19,15 @@ Set server-side environment variables (never paste secrets into chat or commit t
 
 Do not guess UUIDs or health URLs. The `/health` UI endpoint checks nginx only; `/api/health` checks Core through the gateway. The service uses configured URLs exclusively, never the webhook-supplied `fqdn` or `deployment_url`. Add voice/ntfy only when their actual health URLs and UUIDs are verified.
 
+The bridge also recognizes **its own** Coolify deployment without another manual UUID entry. Coolify's predefined `COOLIFY_RESOURCE_UUID` is matched against the incoming application UUID and the first predefined `COOLIFY_URL` HTTPS origin is used for `/health`. This self-recognition does not broaden the allowlist for any other resource.
+
 In **Coolify > Notifications > Webhook**, set the endpoint to `https://<bridge-domain>/events/<COOLIFY_EVENT_SECRET>`, enable it, and select **Deployment Success** and **Deployment Failure**. Coolify does not sign these events. The unguessable HTTPS path is the authentication boundary; protect it like a token, do not log it or share screenshots of the full URL.
 
 The bridge publishes to ntfy through the official JSON publish API. User-visible Turkish text stays in the UTF-8 JSON body rather than custom HTTP headers, avoiding Node/Undici ByteString limitations. Bearer authentication remains in the `Authorization` header.
 
 ## Semantics and limits
 
-- Only exact UUID allowlisted production application deployments are processed; PR previews are ignored.
+- Only configured exact UUID allowlisted production applications plus the bridge's own Coolify-injected resource UUID are processed; PR previews are ignored.
 - Success requires a Coolify success event **and** a successful health probe. It does not prove that the deployed commit equals a specific main SHA; version attestation remains future work.
 - Failure and failed health probes send MAX priority. Successful, healthy deploy sends normal priority.
 - ntfy publishing is retried once for transient delivery failures; a successful publish is logged with event/service/deployment UUID/health/ntfy message id. Secrets and tokens are never logged.
