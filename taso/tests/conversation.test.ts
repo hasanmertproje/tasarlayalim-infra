@@ -12,9 +12,30 @@ test('casual greeting never requests execution', () => {
   }
 });
 
-test('question never requests execution', () => {
-  const decision = classifyConversationIntent('Taso bugün ne yaptık?');
-  assert.equal(decision.executionRequested, false);
+test('questions stay ordinary assistant conversation', () => {
+  for (const text of [
+    'Taso bugün ne yaptık?',
+    'Gemini Live nasıl çalışıyor?',
+    'Production ortamı nedir?',
+    'Secret key neden tarayıcıya konmamalı?',
+  ]) {
+    const decision = classifyConversationIntent(text);
+    assert.equal(decision.executionRequested, false);
+  }
+});
+
+test('research and analysis requests do not create missions', () => {
+  for (const text of [
+    'Gemini ile Grok voice seçeneklerini araştır',
+    'Bu iki yaklaşımı karşılaştır',
+    'Şu logu analiz et',
+    'Bunu özetle',
+  ]) {
+    const decision = classifyConversationIntent(text);
+    assert.equal(decision.intent, 'READ_REQUEST');
+    assert.equal(decision.executionRequested, false);
+    assert.equal(decision.suggestedRisk, 'READ');
+  }
 });
 
 test('system status questions are STATUS and never request a mission', () => {
@@ -27,17 +48,26 @@ test('system status questions are STATUS and never request a mission', () => {
 });
 
 test('write language creates only an execution proposal decision', () => {
-  const decision = classifyConversationIntent('mobil tasarımı düzelt ve daha profesyonel yap');
-  assert.equal(decision.intent, 'WRITE_REQUEST');
-  assert.equal(decision.executionRequested, true);
-  assert.equal(decision.suggestedRisk, 'WRITE');
+  for (const text of [
+    'mobil tasarımı düzelt ve daha profesyonel yap',
+    'müşteri bulma saas ürününü geliştirmeye başla',
+    'sosyal medya için yeni tasarımlar üret',
+  ]) {
+    const decision = classifyConversationIntent(text);
+    assert.equal(decision.intent, 'WRITE_REQUEST');
+    assert.equal(decision.executionRequested, true);
+    assert.equal(decision.suggestedRisk, 'WRITE');
+  }
 });
 
-test('production language is high impact', () => {
-  const decision = classifyConversationIntent('bunu production canlıya al');
-  assert.equal(decision.intent, 'HIGH_IMPACT_REQUEST');
-  assert.equal(decision.executionRequested, true);
-  assert.equal(decision.suggestedRisk, 'HIGH_IMPACT');
+test('production action language is high impact but production questions are not', () => {
+  const action = classifyConversationIntent('bunu production canlıya al');
+  assert.equal(action.intent, 'HIGH_IMPACT_REQUEST');
+  assert.equal(action.executionRequested, true);
+  assert.equal(action.suggestedRisk, 'HIGH_IMPACT');
+
+  const question = classifyConversationIntent('production deploy neden riskli?');
+  assert.equal(question.executionRequested, false);
 });
 
 test('conversation store isolates messages by workspace', () => {
