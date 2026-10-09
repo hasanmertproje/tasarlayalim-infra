@@ -5,6 +5,17 @@ const ntfyBase = process.env.NTFY_BASE_URL || '';
 const ntfyTopic = process.env.NTFY_TOPIC || '';
 const ntfyToken = process.env.NTFY_TOKEN || '';
 const port = Number(process.env.PORT || 8080);
+const selfUuid = process.env.COOLIFY_RESOURCE_UUID || '';
+const selfUrlRaw = (process.env.COOLIFY_URL || '').split(',')[0]?.trim() || '';
+let selfHealthUrl = '';
+try {
+  if (selfUrlRaw) {
+    const selfUrl = new URL(selfUrlRaw);
+    if (selfUrl.protocol === 'https:' && !selfUrl.username && !selfUrl.password) {
+      selfHealthUrl = new URL('/health', selfUrl).toString();
+    }
+  }
+} catch {}
 let services;
 try { services = JSON.parse(process.env.DEPLOY_SERVICES_JSON || '{}'); } catch { throw new Error('Invalid DEPLOY_SERVICES_JSON'); }
 const startupChecks = {
@@ -21,6 +32,12 @@ const seen = new Map();
 const clean = () => { for (const [key, timestamp] of seen) if (Date.now() - timestamp > 86400000) seen.delete(key); };
 function serviceFor(event) {
   if (!event.application_uuid || typeof event.application_uuid !== 'string') return null;
+  // Coolify injects these predefined values into the running application. This lets
+  // the bridge report its own deployments without weakening the explicit allowlist
+  // used for every other production application.
+  if (selfUuid && selfHealthUrl && event.application_uuid === selfUuid) {
+    return { name: 'taso-deploy-events', uuid: selfUuid, healthUrl: selfHealthUrl };
+  }
   const found = Object.entries(services).find(([, v]) => v && v.uuid === event.application_uuid);
   return found ? { name: found[0], ...found[1] } : null;
 }
@@ -28,7 +45,7 @@ async function healthcheck(service) {
   if (!service.healthUrl) return false;
   const u = new URL(service.healthUrl);
   if (u.protocol !== 'https:' || u.username || u.password || u.search || u.hash) return false;
-  // Only operator-configured health URLs are requested; never follow redirects or use payload URLs.
+  // Only operator-configured or Coolify-predefined health URLs are requested; never follow redirects or use payload URLs.
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const response = await fetch(u, { redirect: 'manual', signal: AbortSignal.timeout(5000) });
