@@ -39,21 +39,44 @@ async function healthcheck(service) {
   return false;
 }
 async function publish(status, title, message, link) {
-  const url = new URL(ntfyBase.replace(/\/$/, '') + '/' + encodeURIComponent(ntfyTopic));
-  if (url.protocol !== 'https:') throw new Error('ntfy must use HTTPS');
-  const headers = {
-    Authorization: 'Bearer ' + ntfyToken,
-    // Node's fetch requires request header values to fit ByteString. ntfy accepts RFC 2047 encoded UTF-8 titles.
-    Title: '=?UTF-8?B?' + Buffer.from(title, 'utf8').toString('base64') + '?=',
-    Priority: status === 'failed' ? '5' : '3',
-    Tags: status === 'failed' ? 'rotating_light' : 'white_check_mark',
-    'Content-Type': 'text/plain; charset=utf-8',
+  const url = new URL(ntfyBase.replace(/\/$/, '') + '/');
+  if (url.protocol !== 'https:' || url.username || url.password) throw new Error('ntfy must use credential-free HTTPS URL');
+
+  // Use ntfy's JSON publish API so all user-visible Unicode stays in the UTF-8 body.
+  // The only custom request header containing dynamic data is the ASCII bearer token.
+  const payload = {
+    topic: ntfyTopic,
+    title,
+    message,
+    priority: status === 'failed' ? 5 : 3,
+    tags: [status === 'failed' ? 'rotating_light' : 'white_check_mark'],
   };
-  if (link && link.startsWith('https://')) headers.Click = link;
-  const response = await fetch(url, { method: 'POST', headers, body: message, signal: AbortSignal.timeout(10000) });
-  if (!response.ok) throw new Error('ntfy rejected request: HTTP ' + response.status);
-  const result = await response.json();
-  if (!result?.id) throw new Error('ntfy did not return a message id');
+  if (link && link.startsWith('https://')) payload.click = link;
+
+  let lastError;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer ' + ntfyToken,
+          'Content-Type': 'application/json; charset=utf-8',
+        },
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(10000),
+      });
+      const responseText = await response.text();
+      if (!response.ok) throw new Error('ntfy rejected request: HTTP ' + response.status + (responseText ? ' ' + responseText.slice(0, 200) : ''));
+      let result;
+      try { result = JSON.parse(responseText); } catch { throw new Error('ntfy returned invalid JSON'); }
+      if (!result?.id) throw new Error('ntfy did not return a message id');
+      return result.id;
+    } catch (error) {
+      lastError = error;
+      if (attempt < 1) await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+  }
+  throw lastError;
 }
 async function processEvent(event) {
   if (!event || !['deployment_success', 'deployment_failed'].includes(event.event)) return { accepted: false, reason: 'ignored_event' };
@@ -71,9 +94,10 @@ async function processEvent(event) {
     ? (event.event === 'deployment_failed' ? 'Coolify deployment başarısız oldu.' : 'Coolify deployment tamamlandı ancak sağlık kontrolü geçmedi.')
     : 'Coolify deployment tamamlandı ve servis sağlık kontrolünü geçti.';
   // Only operator-configured links, not untrusted webhook payload links.
-  await publish(failed ? 'failed' : 'success', title, message, service.dashboardUrl);
+  const ntfyId = await publish(failed ? 'failed' : 'success', title, message, service.dashboardUrl);
   seen.set(key, Date.now());
-  return { accepted: true, notified: true, healthy };
+  console.log(`deploy-event notified event=${event.event} service=${service.name} deployment_uuid=${event.deployment_uuid} healthy=${healthy} ntfy_id=${ntfyId}`);
+  return { accepted: true, notified: true, healthy, ntfy_id: ntfyId };
 }
 const server = http.createServer(async (req, res) => {
   const send = (code, body) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(body)); };
