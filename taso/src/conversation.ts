@@ -35,6 +35,15 @@ export interface ConversationDecision {
 
 const normalize = (value: string) => value.trim().toLocaleLowerCase('tr-TR');
 const includesAny = (value: string, terms: string[]) => terms.some((term) => value.includes(term));
+const words = (value: string) => value.match(/\p{L}+/gu) ?? [];
+const hasWord = (value: string, terms: string[]) => {
+  const tokens = words(value);
+  return terms.some((term) => tokens.includes(term));
+};
+const hasVerbStem = (value: string, stems: string[]) => {
+  const tokens = words(value);
+  return stems.some((stem) => tokens.some((token) => token === stem || token.startsWith(stem)));
+};
 
 export function classifyConversationIntent(text: string): ConversationDecision {
   const value = normalize(text);
@@ -63,7 +72,7 @@ export function classifyConversationIntent(text: string): ConversationDecision {
 
   // Turkish verbs are often inflected (geliştirmeye, geliştirerek, üretsin, etc.).
   // Stem matching is more reliable here than JavaScript \b, which is ASCII-centric.
-  if (includesAny(value, [
+  if (hasVerbStem(value, [
     'düzelt', 'geliştir', 'ekle', 'uygula', 'kodla', 'oluştur', 'refactor',
     'değiştir', 'fix', 'implement', 'build', 'hazırla', 'üret', 'başlat', 'başla', 'kur',
   ])) {
@@ -72,10 +81,10 @@ export function classifyConversationIntent(text: string): ConversationDecision {
 
   // Read/research requests are normal assistant capabilities. They stay conversational and
   // may use read-only tools later, but they do not become missions by default.
-  if (includesAny(value, [
-    'incele', 'analiz et', 'araştır', 'kontrol et', 'nedenini bul', 'tespit et',
-    'review', 'analyze', 'inspect', 'bak', 'karşılaştır', 'özetle',
-  ])) {
+  if (
+    hasVerbStem(value, ['incele', 'araştır', 'kontrol', 'tespit', 'review', 'analyze', 'inspect', 'bak', 'karşılaştır', 'özetle'])
+    || includesAny(value, ['analiz et', 'nedenini bul'])
+  ) {
     return { intent: 'READ_REQUEST', executionRequested: false, suggestedRisk: 'READ', confidence: 0.9 };
   }
 
@@ -88,7 +97,7 @@ export function classifyConversationIntent(text: string): ConversationDecision {
   if (includesAny(value, ['workspace', 'projeye geç', 'projesine geç'])) {
     return { intent: 'WORKSPACE_SWITCH', executionRequested: false, confidence: 0.72 };
   }
-  if (/[?？]$/.test(text.trim()) || includesAny(value, [' ne ', 'neden', 'nasıl', 'hangi', 'kim', 'nerede', 'kaç', 'nedir', ' mı', ' mi', ' mu', ' mü'])) {
+  if (/[?？]$/.test(text.trim()) || hasWord(value, ['ne', 'neden', 'nasıl', 'hangi', 'kim', 'nerede', 'kaç', 'nedir', 'mı', 'mi', 'mu', 'mü'])) {
     return { intent: 'QUESTION', executionRequested: false, confidence: 0.82 };
   }
   return { intent: 'CHAT', executionRequested: false, confidence: 0.92 };
