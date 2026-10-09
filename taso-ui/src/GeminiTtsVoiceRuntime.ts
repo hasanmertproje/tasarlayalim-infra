@@ -110,9 +110,10 @@ export class GeminiTtsVoiceRuntime {
       if (this.context.state === 'suspended') await this.context.resume();
 
       const bytes = base64ToBytes(base64);
+      const audioBuffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
       let decoded: AudioBuffer;
       try {
-        decoded = await this.context.decodeAudioData(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength));
+        decoded = await this.context.decodeAudioData(audioBuffer);
       } catch (error) {
         options.onState?.('error');
         return {
