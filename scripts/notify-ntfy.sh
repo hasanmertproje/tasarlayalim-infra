@@ -4,6 +4,8 @@ set -eu
 STATUS="${1:-unknown}"
 TITLE="${TITLE:-Tasarlayalim CI}"
 MESSAGE="${MESSAGE:-Status: ${STATUS}}"
+SOURCE="${NTFY_SOURCE:-Taso}"
+CATEGORY="${NTFY_CATEGORY:-operations}"
 
 if [ -z "${NTFY_BASE_URL:-}" ] || [ -z "${NTFY_TOPIC:-}" ] || [ -z "${NTFY_TOKEN:-}" ]; then
   echo "ntfy notification skipped: required secrets are not configured"
@@ -15,12 +17,16 @@ TOPIC="${NTFY_TOPIC#/}"
 URL="${BASE_URL}/${TOPIC}"
 
 case "$STATUS" in
+  merge_ready)
+    TAGS="twisted_rightwards_arrows,white_check_mark"
+    PRIORITY="4"
+    ;;
   success)
     TAGS="white_check_mark"
     PRIORITY="3"
     ;;
-  failure|failed)
-    TAGS="x,warning"
+  failure|failed|urgent_fix)
+    TAGS="rotating_light,x"
     PRIORITY="5"
     ;;
   approval|waiting_approval)
@@ -54,6 +60,8 @@ set -- \
   --max-time 15 \
   -H "Authorization: Bearer ${NTFY_TOKEN}" \
   -H "Title: ${TITLE}" \
+  -H "X-Taso-Source: ${SOURCE}" \
+  -H "X-Taso-Category: ${CATEGORY}" \
   -H "Tags: ${TAGS}" \
   -H "Priority: ${PRIORITY}"
 
