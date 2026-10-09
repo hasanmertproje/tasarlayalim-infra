@@ -43,7 +43,8 @@ async function publish(status, title, message, link) {
   if (url.protocol !== 'https:') throw new Error('ntfy must use HTTPS');
   const headers = {
     Authorization: 'Bearer ' + ntfyToken,
-    Title: title,
+    // Node's fetch requires request header values to fit ByteString. ntfy accepts RFC 2047 encoded UTF-8 titles.
+    Title: '=?UTF-8?B?' + Buffer.from(title, 'utf8').toString('base64') + '?=',
     Priority: status === 'failed' ? '5' : '3',
     Tags: status === 'failed' ? 'rotating_light' : 'white_check_mark',
     'Content-Type': 'text/plain; charset=utf-8',
