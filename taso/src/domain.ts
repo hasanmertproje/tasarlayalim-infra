@@ -99,6 +99,11 @@ export interface MissionIntentProfile {
   skillHints: string[];
   acceptanceHints: string[];
   constraints: string[];
+  projectContext?: string[];
+  contextSources?: {
+    manifest: boolean;
+    knowledgeRecords: number;
+  };
   derivedAt: string;
 }
 
