@@ -52,6 +52,8 @@ import './command-center-foundation-v11.css';
 import './notifications-center-v12.css';
 import './settings-command-center-v12.css';
 import './context-integrations-v13.css';
+/* Premium Reset V16 intentionally loads last and owns global design/layout contracts. */
+import './premium-reset-v16.css';
 
 const rootElement = document.getElementById('root')!;
 const requestedScreen = new URLSearchParams(window.location.search).get('screen');
