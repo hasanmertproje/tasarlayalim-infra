@@ -1,0 +1,34 @@
+name: Taso Browser CI
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'docker/taso-browser/**'
+      - 'taso/src/visual-qa.ts'
+      - 'taso/tests/visual-qa.test.ts'
+      - '.github/workflows/taso-browser-ci.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'docker/taso-browser/**'
+      - 'taso/src/visual-qa.ts'
+      - 'taso/tests/visual-qa.test.ts'
+      - '.github/workflows/taso-browser-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  browser-worker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Syntax check browser worker
+        run: node --check docker/taso-browser/server.mjs
+      - name: Build browser worker image
+        run: docker build -t tasarlayalim-taso-browser ./docker/taso-browser

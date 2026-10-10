@@ -42,12 +42,13 @@ const viewports = {
   mobile: { width: 390, height: 844, isMobile: true, deviceScaleFactor: 1 },
 };
 
-async function runOne(browser, target, viewportName, actions = []) {
+async function runOne(browser, target, viewportName, theme, actions = []) {
   const viewport = viewports[viewportName] || viewports.desktop;
   const context = await browser.newContext({
     viewport: { width: viewport.width, height: viewport.height },
     isMobile: viewport.isMobile,
     deviceScaleFactor: viewport.deviceScaleFactor,
+    colorScheme: theme === 'light' ? 'light' : 'dark',
     ignoreHTTPSErrors: false,
   });
   const page = await context.newPage();
@@ -60,7 +61,16 @@ async function runOne(browser, target, viewportName, actions = []) {
   page.on('pageerror', (error) => pageErrors.push(String(error?.message || error).slice(0, 1000)));
   page.on('requestfailed', (request) => requestFailures.push({ url: request.url(), error: request.failure()?.errorText || 'failed' }));
 
+  await page.addInitScript((requestedTheme) => {
+    try { localStorage.setItem('taso-theme', requestedTheme); } catch {}
+  }, theme);
+
   const response = await page.goto(target.toString(), { waitUntil: 'networkidle', timeout: 30_000 });
+  await page.evaluate((requestedTheme) => {
+    document.documentElement.dataset.theme = requestedTheme;
+    document.documentElement.style.colorScheme = requestedTheme;
+  }, theme).catch(() => {});
+
   for (const action of actions.slice(0, 20)) {
     const selector = String(action?.selector || '').slice(0, 500);
     const kind = String(action?.type || '');
@@ -79,17 +89,36 @@ async function runOne(browser, target, viewportName, actions = []) {
     const doc = document.documentElement;
     const body = document.body;
     const all = [...document.querySelectorAll('*')];
-    const overflowers = all.filter((el) => {
-      const rect = el.getBoundingClientRect();
-      return rect.width > 0 && (rect.right > window.innerWidth + 1 || rect.left < -1);
-    }).slice(0, 30).map((el) => ({
+    const describe = (el) => ({
       tag: el.tagName.toLowerCase(),
       id: el.id || undefined,
       className: typeof el.className === 'string' ? el.className.slice(0, 160) : undefined,
-    }));
+    });
+    const overflowers = all.filter((el) => {
+      const rect = el.getBoundingClientRect();
+      return rect.width > 0 && (rect.right > window.innerWidth + 1 || rect.left < -1);
+    }).slice(0, 30).map(describe);
+    const clippedFixed = all.filter((el) => {
+      const style = getComputedStyle(el);
+      if (!['fixed', 'sticky'].includes(style.position)) return false;
+      const rect = el.getBoundingClientRect();
+      return rect.width > 0 && rect.height > 0 && (rect.right > window.innerWidth + 1 || rect.left < -1 || rect.bottom > window.innerHeight + 1 || rect.top < -1);
+    }).slice(0, 30).map(describe);
+    const smallTapTargets = all.filter((el) => {
+      if (!(el.matches('button,a[href],input,select,textarea,[role="button"]'))) return false;
+      const rect = el.getBoundingClientRect();
+      const style = getComputedStyle(el);
+      if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) === 0) return false;
+      return rect.width > 0 && rect.height > 0 && (rect.width < 40 || rect.height < 40);
+    }).slice(0, 40).map((el) => ({ ...describe(el), width: Math.round(el.getBoundingClientRect().width), height: Math.round(el.getBoundingClientRect().height) }));
+    const fixedElements = all.filter((el) => ['fixed', 'sticky'].includes(getComputedStyle(el).position)).slice(0, 40).map((el) => {
+      const rect = el.getBoundingClientRect();
+      return { ...describe(el), top: Math.round(rect.top), right: Math.round(rect.right), bottom: Math.round(rect.bottom), left: Math.round(rect.left), zIndex: getComputedStyle(el).zIndex };
+    });
     return {
       title: document.title,
       url: location.href,
+      theme: document.documentElement.dataset.theme || null,
       links: document.querySelectorAll('a[href]').length,
       forms: document.forms.length,
       buttons: document.querySelectorAll('button,[role="button"]').length,
@@ -97,6 +126,9 @@ async function runOne(browser, target, viewportName, actions = []) {
       documentWidth: Math.max(doc.scrollWidth, body?.scrollWidth || 0),
       viewportWidth: window.innerWidth,
       overflowers,
+      clippedFixed,
+      smallTapTargets,
+      fixedElements,
     };
   });
 
@@ -104,6 +136,7 @@ async function runOne(browser, target, viewportName, actions = []) {
   const screenshotBase64 = screenshot.length <= maxScreenshotBytes ? screenshot.toString('base64') : undefined;
   const result = {
     viewport: viewportName,
+    theme,
     dimensions: { width: viewport.width, height: viewport.height },
     httpStatus: response?.status() ?? null,
     ...metrics,
@@ -118,23 +151,32 @@ async function runOne(browser, target, viewportName, actions = []) {
 
 async function execute(body) {
   const target = parseTarget(String(body?.url || ''));
-  const requested = Array.isArray(body?.viewports) ? body.viewports.filter((v) => ['desktop', 'mobile'].includes(v)) : ['desktop', 'mobile'];
+  const requestedViewports = Array.isArray(body?.viewports) ? body.viewports.filter((v) => ['desktop', 'mobile'].includes(v)) : ['desktop', 'mobile'];
+  const requestedThemes = Array.isArray(body?.themes) ? body.themes.filter((v) => ['dark', 'light'].includes(v)) : ['dark', 'light'];
   const actions = Array.isArray(body?.actions) ? body.actions : [];
   const browser = await chromium.launch({ headless: true });
   try {
     const evidence = [];
-    for (const name of [...new Set(requested.length ? requested : ['desktop'])]) evidence.push(await runOne(browser, target, name, actions));
+    const viewportNames = [...new Set(requestedViewports.length ? requestedViewports : ['desktop'])];
+    const themeNames = [...new Set(requestedThemes.length ? requestedThemes : ['dark'])];
+    for (const viewportName of viewportNames) {
+      for (const theme of themeNames) evidence.push(await runOne(browser, target, viewportName, theme, actions));
+    }
     return {
       ok: true,
       target: target.toString(),
       generatedAt: new Date().toISOString(),
       evidence,
       summary: {
-        viewports: evidence.length,
+        viewports: viewportNames.length,
+        themes: themeNames.length,
+        evidenceCount: evidence.length,
         consoleErrors: evidence.reduce((n, item) => n + item.console.filter((x) => x.type === 'error').length, 0),
         pageErrors: evidence.reduce((n, item) => n + item.pageErrors.length, 0),
         requestFailures: evidence.reduce((n, item) => n + item.requestFailures.length, 0),
         overflowFailures: evidence.filter((item) => item.horizontalOverflow).length,
+        clippedFixedFailures: evidence.filter((item) => item.clippedFixed.length > 0).length,
+        smallTapTargetEvidence: evidence.reduce((n, item) => n + item.smallTapTargets.length, 0),
       },
     };
   } finally {
