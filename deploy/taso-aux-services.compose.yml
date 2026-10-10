@@ -1,0 +1,51 @@
+services:
+  taso-browser:
+    build:
+      context: ../docker/taso-browser
+    restart: unless-stopped
+    environment:
+      PORT: "3100"
+      TASO_BROWSER_WORKER_SECRET: ${TASO_BROWSER_WORKER_SECRET:?required}
+      TASO_BROWSER_ALLOWED_HOSTS: ${TASO_BROWSER_ALLOWED_HOSTS:?required}
+    expose:
+      - "3100"
+    networks:
+      - taso-internal
+    security_opt:
+      - no-new-privileges:true
+
+  taso-search:
+    build:
+      context: ../docker/taso-search
+    restart: unless-stopped
+    expose:
+      - "8080"
+    networks:
+      - taso-internal
+    security_opt:
+      - no-new-privileges:true
+
+  taso-speaker:
+    build:
+      context: ../docker/taso-speaker
+    restart: unless-stopped
+    environment:
+      PORT: "3200"
+      TASO_SPEAKER_SERVICE_SECRET: ${TASO_SPEAKER_SERVICE_SECRET:?required}
+      TASO_SPEAKER_DATA_DIR: /data
+    expose:
+      - "3200"
+    volumes:
+      - taso-speaker-data:/data
+    networks:
+      - taso-internal
+    security_opt:
+      - no-new-privileges:true
+
+networks:
+  taso-internal:
+    name: ${TASO_INTERNAL_NETWORK:-taso-internal}
+
+volumes:
+  taso-speaker-data:
+    name: ${TASO_SPEAKER_VOLUME:-taso-speaker-data}
