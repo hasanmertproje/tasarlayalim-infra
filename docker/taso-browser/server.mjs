@@ -1,6 +1,6 @@
 import http from 'node:http';
 import { chromium } from 'playwright';
-import { validateTarget } from './security.mjs';
+import { createHostResolverRules, validateTarget } from './security.mjs';
 
 const port = Number(process.env.PORT || 3100);
 const secret = process.env.TASO_BROWSER_WORKER_SECRET || '';
@@ -155,7 +155,8 @@ async function execute(body) {
   const requestedViewports = Array.isArray(body?.viewports) ? body.viewports.filter((v) => ['desktop', 'mobile'].includes(v)) : ['desktop', 'mobile'];
   const requestedThemes = Array.isArray(body?.themes) ? body.themes.filter((v) => ['dark', 'light'].includes(v)) : ['dark', 'light'];
   const actions = Array.isArray(body?.actions) ? body.actions : [];
-  const browser = await chromium.launch({ headless: true });
+  const hostResolverRules = await createHostResolverRules(allowHosts);
+  const browser = await chromium.launch({ headless: true, args: [`--host-resolver-rules=${hostResolverRules}`] });
   try {
     const evidence = [];
     const viewportNames = [...new Set(requestedViewports.length ? requestedViewports : ['desktop'])];
