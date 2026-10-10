@@ -25,7 +25,7 @@ export function parseTarget(raw, allowHosts) {
   const url = new URL(raw);
   if (!['http:', 'https:'].includes(url.protocol)) throw new Error('Only http/https targets are allowed.');
   if (url.username || url.password) throw new Error('URL credentials are not allowed.');
-  const host = url.hostname.toLowerCase().replace(/^\\[|\\]$/g, '');
+  const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, '');
   if (isIP(host)) throw new Error('IP address targets are not allowed.');
   if (!allowHosts.has(host)) throw new Error('Host is not allowlisted.');
   return url;
