@@ -39,6 +39,49 @@ jobs:
         run: |
           sh -n scripts/healthcheck.sh
           sh -n scripts/notify-ntfy.sh
+          bash -n scripts/taso-backup.sh
+          bash -n scripts/taso-backup-verify.sh
+          bash -n scripts/taso-restore.sh
+
+      - name: Smoke test Taso recovery tools
+        run: |
+          set -eu
+          WORK="$(mktemp -d)"
+          trap 'rm -rf "$WORK"' EXIT
+          cat > "$WORK/state.json" <<'JSON'
+          {
+            "projects": [{"id":"project_ci"}],
+            "manifests": [],
+            "milestones": [],
+            "knowledge": [],
+            "missions": [{"id":"mission_ci"}],
+            "events": [],
+            "conversations": []
+          }
+          TASO_STATE_FILE="$WORK/state.json" \
+          TASO_BACKUP_DIR="$WORK/backups" \
+          TASO_BACKUP_RETENTION_DAYS=14 \
+          bash ./scripts/taso-backup.sh > "$WORK/archive-path"
+          ARCHIVE="$(cat "$WORK/archive-path")"
+          bash ./scripts/taso-backup-verify.sh "$ARCHIVE" | grep -q 'snapshot=valid'
+          TASO_STATE_FILE="$WORK/verify-only-target.json" \
+          TASO_BACKUP_DIR="$WORK/backups" \
+          bash ./scripts/taso-restore.sh "$ARCHIVE" | grep -q 'mode=verify-only'
+          test ! -e "$WORK/verify-only-target.json"
+          printf '%s\n' '{"projects":[],"manifests":[],"milestones":[],"knowledge":[],"missions":[],"events":[],"conversations":[]}' > "$WORK/restore-target.json"
+          TASO_RESTORE_APPROVED=YES \
+          TASO_STATE_FILE="$WORK/restore-target.json" \
+          TASO_BACKUP_DIR="$WORK/backups" \
+          bash ./scripts/taso-restore.sh --apply "$ARCHIVE" | grep -q 'mode=applied'
+          python3 - "$WORK/restore-target.json" <<'PY'
+          import json, sys
+          with open(sys.argv[1], encoding='utf-8') as handle:
+              state = json.load(handle)
+          assert state['projects'][0]['id'] == 'project_ci'
+          assert state['missions'][0]['id'] == 'mission_ci'
+          PY
+          ls "$WORK/backups"/pre-restore-*-taso-state.json.gz >/dev/null
+          ls "$WORK/backups"/pre-restore-*-taso-state.json.gz.sha256 >/dev/null
 
       - name: Validate local voice service
         run: python -m py_compile docker/taso-voice/app.py
