@@ -18,7 +18,7 @@ export type AgentRole = 'scout' | 'architect' | 'builder' | 'verifier' | 'releas
 export type AgentRunStatus = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled';
 export type SpecialistRole = 'frontend' | 'backend' | 'database' | 'security' | 'qa' | 'devops' | 'generalist';
 export type MissionStepStatus = 'queued' | 'running' | 'completed' | 'failed' | 'blocked' | 'cancelled';
-export type MissionArtifactType = 'context' | 'analysis' | 'file-change' | 'pull-request' | 'ci' | 'ci-diagnostic' | 'repair-commit' | 'runtime-diagnostic' | 'runtime-repair-commit' | 'preview' | 'deployment';
+export type MissionArtifactType = 'context' | 'analysis' | 'file-change' | 'pull-request' | 'ci' | 'ci-diagnostic' | 'repair-commit' | 'runtime-diagnostic' | 'runtime-repair-commit' | 'functional-verification' | 'functional-diagnostic' | 'preview' | 'deployment';
 
 export interface AgentRun {
   id: string;
@@ -168,6 +168,9 @@ export interface MissionExecution {
   runtimeRepairAttempts?: number;
   maxRuntimeRepairAttempts?: number;
   lastRuntimeFailureSummary?: string;
+  functionalChecksPlanned?: number;
+  functionalChecksPassed?: number;
+  lastFunctionalFailureSummary?: string;
 }
 
 export interface Mission {
