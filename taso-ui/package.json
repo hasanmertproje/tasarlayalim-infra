@@ -14,12 +14,14 @@
   "dependencies": {
     "@google/genai": "^2.24.0",
     "@vitejs/plugin-react": "latest",
+    "qrcode": "^1.5.4",
     "vite": "latest",
     "typescript": "latest",
     "react": "latest",
     "react-dom": "latest"
   },
   "devDependencies": {
+    "@types/qrcode": "^1.5.5",
     "@types/react": "latest",
     "@types/react-dom": "latest"
   }
