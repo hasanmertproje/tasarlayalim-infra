@@ -76,6 +76,9 @@ type Mission = {
     previewUrl?: string;
     workspaceCheckpoint?: WorkspaceCheckpoint;
     resumeAfterRestart?: boolean;
+    ciRepairAttempts?: number;
+    maxCiRepairAttempts?: number;
+    lastCiFailureSummary?: string;
   };
 };
 
@@ -141,12 +144,14 @@ export default function MissionExecutionLive({ expanded = false }: Props) {
   const checkpoint = execution?.workspaceCheckpoint;
   const activeRuns = (execution?.agentRuns ?? []).filter((run) => run.status === 'running');
   const progress = Math.max(0, Math.min(100, execution?.progressPercent ?? 0));
+  const ciRepairAttempts = execution?.ciRepairAttempts ?? 0;
+  const maxCiRepairAttempts = execution?.maxCiRepairAttempts ?? 0;
 
   return (
     <section className={`mission-execution-live ${expanded ? 'expanded' : ''}`} aria-label="Canlı mission orchestration">
       <div className="mission-execution-head">
         <div>
-          <span className="mission-execution-kicker">MISSION ORCHESTRATOR V4 · LIVE 2s</span>
+          <span className="mission-execution-kicker">MISSION ORCHESTRATOR V5 · LIVE 2s</span>
           <strong>{mission?.objective ?? 'Mission execution unavailable'}</strong>
           <small>{execution?.currentAction ?? (error ? `Core error: ${error}` : 'Waiting for execution state…')}</small>
         </div>
@@ -171,6 +176,7 @@ export default function MissionExecutionLive({ expanded = false }: Props) {
             <b>%{progress}</b>
             <span>{activeRuns.length ? `${activeRuns.length} worker active` : mission.status.toUpperCase()}</span>
             {execution?.resumeAfterRestart && <span>RESTART RESUME ARMED</span>}
+            {ciRepairAttempts > 0 && <span>CI SELF-HEAL {ciRepairAttempts}/{maxCiRepairAttempts || '—'}</span>}
           </div>
 
           {execution?.orchestrationSummary && <p className="mission-orchestration-summary">{execution.orchestrationSummary}</p>}
@@ -205,7 +211,7 @@ export default function MissionExecutionLive({ expanded = false }: Props) {
             })}
           </div>
 
-          {(artifacts.length > 0 || handoffs.length > 0 || checkpoint) && (
+          {(artifacts.length > 0 || handoffs.length > 0 || checkpoint || maxCiRepairAttempts > 0) && (
             <div className="mission-output-grid">
               <div>
                 <span>ARTIFACTS</span>
@@ -226,6 +232,11 @@ export default function MissionExecutionLive({ expanded = false }: Props) {
                 <span>DURABLE CHECKPOINT</span>
                 <strong>{checkpoint ? `${checkpoint.completedStepIds.length}/${steps.length}` : '—'}</strong>
                 <small>{checkpoint ? `${checkpoint.files.length} file · ${new Date(checkpoint.updatedAt).toLocaleTimeString('tr-TR')}` : 'Not checkpointed yet'}</small>
+              </div>
+              <div>
+                <span>CI SELF-HEAL</span>
+                <strong>{maxCiRepairAttempts > 0 ? `${ciRepairAttempts}/${maxCiRepairAttempts}` : 'OFF'}</strong>
+                <small>{execution?.lastCiFailureSummary ?? 'No CI repair needed yet'}</small>
               </div>
             </div>
           )}

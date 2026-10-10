@@ -18,6 +18,33 @@ interface ContentsResponse {
   size?: number;
 }
 
+type CheckRun = {
+  id?: number;
+  name?: string;
+  status?: string;
+  conclusion?: string | null;
+  details_url?: string;
+  output?: { title?: string | null; summary?: string | null; text?: string | null };
+};
+
+type WorkflowRun = {
+  id?: number;
+  name?: string;
+  status?: string;
+  conclusion?: string | null;
+  html_url?: string;
+  created_at?: string;
+};
+
+type WorkflowJob = {
+  id?: number;
+  name?: string;
+  status?: string;
+  conclusion?: string | null;
+  html_url?: string;
+  steps?: Array<{ name?: string; status?: string; conclusion?: string | null; number?: number }>;
+};
+
 export interface PullRequestResult {
   number: number;
   url: string;
@@ -27,6 +54,16 @@ export interface PullRequestResult {
 
 export type CheckResult = 'success' | 'failed' | 'pending' | 'missing';
 
+export interface CiFailureDiagnostics {
+  commitSha: string;
+  summary: string;
+  failedChecks: Array<{ name: string; conclusion: string; detailsUrl?: string; output?: string }>;
+  failedJobs: Array<{ name: string; conclusion: string; failedSteps: string[]; url?: string }>;
+  logExcerpt?: string;
+}
+
+const MAX_DIAGNOSTIC_LOG_CHARS = 12_000;
+
 function encodeRepoPath(path: string) {
   return path.split('/').map(encodeURIComponent).join('/');
 }
@@ -35,6 +72,24 @@ function isUsefulPath(path: string) {
   if (!path || /(^|\/)(node_modules|vendor|dist|build|coverage|\.git|\.next|storage\/logs)(\/|$)/i.test(path)) return false;
   if (/\.(png|jpe?g|gif|webp|svg|ico|pdf|zip|gz|tar|mp4|mp3|woff2?|ttf|eot|lock)$/i.test(path)) return false;
   return true;
+}
+
+function sanitizeDiagnostic(value: string, token: string) {
+  const withoutAnsi = value.replace(/\x1b\[[0-9;]*m/g, '');
+  const escapedToken = token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return withoutAnsi
+    .replace(new RegExp(escapedToken, 'g'), '[redacted]')
+    .replace(/Bearer\s+[^\s'"`]+/gi, 'Bearer [redacted]')
+    .replace(/\bgh[pousr]_[A-Za-z0-9_]{20,}\b/g, '[redacted-github-token]')
+    .replace(/\bsk-[A-Za-z0-9_-]{16,}\b/g, '[redacted-api-key]')
+    .replace(/\bAIza[A-Za-z0-9_-]{20,}\b/g, '[redacted-api-key]')
+    .replace(/\b([A-Z0-9_]*(?:TOKEN|SECRET|PASSWORD|API_KEY)[A-Z0-9_]*)\s*=\s*[^\s]+/gi, '$1=[redacted]');
+}
+
+function boundedDiagnostic(value: string, token: string) {
+  const safe = sanitizeDiagnostic(value, token).trim();
+  if (safe.length <= MAX_DIAGNOSTIC_LOG_CHARS) return safe;
+  return `…[diagnostic truncated]\n${safe.slice(-MAX_DIAGNOSTIC_LOG_CHARS)}`;
 }
 
 export class GitHubTools {
@@ -68,6 +123,21 @@ export class GitHubTools {
     }
     if (response.status === 204) return undefined;
     return response.json() as Promise<T>;
+  }
+
+  private async requestText(path: string, allow404 = false): Promise<string | undefined> {
+    const response = await fetch(`${this.config.apiBase}${path}`, {
+      headers: {
+        accept: 'application/vnd.github+json',
+        authorization: `Bearer ${this.config.token}`,
+        'x-github-api-version': '2022-11-28',
+      },
+      redirect: 'follow',
+      signal: AbortSignal.timeout(45_000),
+    });
+    if (allow404 && response.status === 404) return undefined;
+    if (!response.ok) throw new Error(`GitHub ${response.status}: ${(await response.text()).slice(0, 700)}`);
+    return response.text();
   }
 
   async listFiles(repository: string, ref: string): Promise<string[]> {
@@ -157,7 +227,7 @@ export class GitHubTools {
   }
 
   async checkCommit(repository: string, sha: string): Promise<CheckResult> {
-    const checks = await this.request<{ total_count?: number; check_runs?: Array<{ status?: string; conclusion?: string | null }> }>(
+    const checks = await this.request<{ total_count?: number; check_runs?: CheckRun[] }>(
       `/repos/${repository}/commits/${sha}/check-runs`,
     );
     const statuses = await this.request<{ state?: string; total_count?: number }>(`/repos/${repository}/commits/${sha}/status`);
@@ -177,5 +247,65 @@ export class GitHubTools {
       await new Promise((resolve) => setTimeout(resolve, 10_000));
     }
     return missingSeen === 24 ? 'missing' : 'pending';
+  }
+
+  async getFailureDiagnostics(repository: string, sha: string): Promise<CiFailureDiagnostics> {
+    const checks = await this.request<{ check_runs?: CheckRun[] }>(`/repos/${repository}/commits/${sha}/check-runs?per_page=100`);
+    const failedChecks = (checks?.check_runs ?? [])
+      .filter((run) => run.status === 'completed' && !['success', 'neutral', 'skipped'].includes(run.conclusion ?? ''))
+      .slice(0, 10)
+      .map((run) => ({
+        name: run.name?.trim() || 'Unnamed check',
+        conclusion: run.conclusion ?? 'failure',
+        ...(run.details_url ? { detailsUrl: run.details_url } : {}),
+        ...((run.output?.title || run.output?.summary || run.output?.text) ? {
+          output: boundedDiagnostic([run.output?.title, run.output?.summary, run.output?.text].filter(Boolean).join('\n'), this.config.token).slice(0, 4000),
+        } : {}),
+      }));
+
+    const workflowRuns = await this.request<{ workflow_runs?: WorkflowRun[] }>(
+      `/repos/${repository}/actions/runs?head_sha=${encodeURIComponent(sha)}&per_page=10`,
+      undefined,
+      true,
+    );
+    const failedRun = (workflowRuns?.workflow_runs ?? [])
+      .filter((run) => run.conclusion === 'failure')
+      .sort((a, b) => (b.created_at ?? '').localeCompare(a.created_at ?? ''))[0];
+
+    let failedJobs: CiFailureDiagnostics['failedJobs'] = [];
+    let logExcerpt: string | undefined;
+    if (failedRun?.id) {
+      const jobs = await this.request<{ jobs?: WorkflowJob[] }>(`/repos/${repository}/actions/runs/${failedRun.id}/jobs?per_page=100`, undefined, true);
+      const failed = (jobs?.jobs ?? []).filter((job) => job.conclusion === 'failure').slice(0, 6);
+      failedJobs = failed.map((job) => ({
+        name: job.name?.trim() || 'Unnamed job',
+        conclusion: job.conclusion ?? 'failure',
+        failedSteps: (job.steps ?? []).filter((step) => step.conclusion === 'failure').map((step) => step.name?.trim() || `Step ${step.number ?? '?'}`).slice(0, 12),
+        ...(job.html_url ? { url: job.html_url } : {}),
+      }));
+      const logParts: string[] = [];
+      for (const job of failed.slice(0, 2)) {
+        if (!job.id) continue;
+        try {
+          const raw = await this.requestText(`/repos/${repository}/actions/jobs/${job.id}/logs`, true);
+          if (raw) logParts.push(`## ${job.name ?? 'Failed job'}\n${boundedDiagnostic(raw, this.config.token)}`);
+        } catch {
+          // Check output + failed step metadata remain available when raw logs cannot be downloaded.
+        }
+      }
+      if (logParts.length) logExcerpt = boundedDiagnostic(logParts.join('\n\n'), this.config.token);
+    }
+
+    const parts = [
+      failedChecks.length ? `${failedChecks.length} failed check(s): ${failedChecks.map((item) => item.name).join(', ')}` : '',
+      failedJobs.length ? `${failedJobs.length} failed job(s): ${failedJobs.map((item) => item.name).join(', ')}` : '',
+    ].filter(Boolean);
+    return {
+      commitSha: sha,
+      summary: parts.join('. ') || 'GitHub reported failed checks but no bounded failure metadata was available.',
+      failedChecks,
+      failedJobs,
+      ...(logExcerpt ? { logExcerpt } : {}),
+    };
   }
 }
