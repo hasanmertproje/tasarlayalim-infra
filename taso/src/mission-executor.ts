@@ -560,12 +560,13 @@ export class MissionExecutor {
   }
 
   private async verifyPublishedMission(project: Project, mission: Mission): Promise<Mission> {
-    let commitSha = mission.execution?.commitSha;
+    const persistedCommitSha = mission.execution?.commitSha;
     const pullRequestUrl = mission.execution?.pullRequestUrl;
     const pullRequestNumber = mission.execution?.pullRequestNumber;
     const branch = mission.execution?.branch;
-    if (!commitSha || !pullRequestUrl) throw new Error('Published mission resume requires commit SHA and pull request URL.');
+    if (!persistedCommitSha || !pullRequestUrl) throw new Error('Published mission resume requires commit SHA and pull request URL.');
     if (!branch) throw new Error('Published mission verification requires the existing pull request branch.');
+    let commitSha: string = persistedCommitSha;
 
     let repairAttempts = Math.max(0, mission.execution?.ciRepairAttempts ?? 0);
     this.patchExecution(mission, {
@@ -591,7 +592,7 @@ export class MissionExecutor {
         repairAttempts > 0 ? `Waiting for checks after CI repair ${repairAttempts}.` : 'Waiting for repository checks and verifying the generated commit.',
         repairAttempts > 0 ? 84 : 74,
         86,
-        () => this.github!.waitForChecks(project.repository, commitSha!),
+        () => this.github!.waitForChecks(project.repository, commitSha),
         'Repository checks finished.',
       );
       this.addArtifact(mission, {
