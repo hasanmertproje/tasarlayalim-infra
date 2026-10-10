@@ -11,6 +11,7 @@ import KnowledgeCenter from './KnowledgeCenter';
 import MissionControlV8 from './MissionControlV8';
 import MobileNavigationHub from './MobileNavigationHub';
 import MobileVoiceRouter from './MobileVoiceRouter';
+import NotificationsCenterV12 from './NotificationsCenterV12';
 import OperationsCenterV10 from './OperationsCenterV10';
 import ProjectCenterV9 from './ProjectCenterV9';
 import SelfImprovementLane from './SelfImprovementLane';
@@ -47,6 +48,8 @@ import './operations-v9.css';
 import './operations-center-v10.css';
 import './agent-fleet-v11.css';
 import './command-center-foundation-v11.css';
+import './notifications-center-v12.css';
+import './settings-command-center-v12.css';
 
 const rootElement = document.getElementById('root')!;
 const requestedScreen = new URLSearchParams(window.location.search).get('screen');
@@ -75,7 +78,8 @@ function OperationsSurfaceBridge() {
     || activeScreen === 'Approvals'
     || activeScreen === 'Deployments'
     || activeScreen === 'Monitoring'
-    || activeScreen === 'AI Agents';
+    || activeScreen === 'AI Agents'
+    || activeScreen === 'Notifications';
 
   return (
     <>
@@ -86,6 +90,7 @@ function OperationsSurfaceBridge() {
       {activeScreen === 'Deployments' && <OperationsCenterV10 mode="deployments" />}
       {activeScreen === 'Monitoring' && <OperationsCenterV10 mode="monitoring" />}
       {activeScreen === 'AI Agents' && <AgentFleetV11 />}
+      {activeScreen === 'Notifications' && <NotificationsCenterV12 />}
       {!hasDedicatedSurface && <AgentOpsDock mode="dock" />}
       {activeScreen === 'Integrations' && <IntegrationsCenter />}
       {activeScreen === 'Knowledge' && <KnowledgeCenter />}
