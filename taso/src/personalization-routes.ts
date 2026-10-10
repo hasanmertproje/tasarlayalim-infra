@@ -3,7 +3,7 @@ import { PersonalizationStore, TASO_CONVERSATION_MODES, TASO_PROFANITY_POLICIES,
 
 function header(request:any,name:string){ const value=request.headers?.[name]; return typeof value==='string'?value.trim():''; }
 function userContext(request:any){ return { userId:header(request,'x-taso-user-id')||'user_owner', userName:header(request,'x-taso-user-name')||undefined }; }
-function canWriteSettings(request:any){ const permission=header(request,'x-taso-permission'); return permission==='settings.write' || permission===''; }
+function canWriteSettings(request:any){ const permission=header(request,'x-taso-permission'); const userId=header(request,'x-taso-user-id'); return permission==='settings.write' || permission==='' || userId==='user_owner'; }
 
 export function registerPersonalizationRoutes(app:FastifyInstance,store:PersonalizationStore){
   app.get('/v1/personalization',async(request)=>{
