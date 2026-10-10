@@ -50,6 +50,7 @@ import './agent-fleet-v11.css';
 import './command-center-foundation-v11.css';
 import './notifications-center-v12.css';
 import './settings-command-center-v12.css';
+import './context-integrations-v13.css';
 
 const rootElement = document.getElementById('root')!;
 const requestedScreen = new URLSearchParams(window.location.search).get('screen');
@@ -79,7 +80,9 @@ function OperationsSurfaceBridge() {
     || activeScreen === 'Deployments'
     || activeScreen === 'Monitoring'
     || activeScreen === 'AI Agents'
-    || activeScreen === 'Notifications';
+    || activeScreen === 'Notifications'
+    || activeScreen === 'Knowledge'
+    || activeScreen === 'Integrations';
 
   return (
     <>
@@ -91,9 +94,9 @@ function OperationsSurfaceBridge() {
       {activeScreen === 'Monitoring' && <OperationsCenterV10 mode="monitoring" />}
       {activeScreen === 'AI Agents' && <AgentFleetV11 />}
       {activeScreen === 'Notifications' && <NotificationsCenterV12 />}
-      {!hasDedicatedSurface && <AgentOpsDock mode="dock" />}
       {activeScreen === 'Integrations' && <IntegrationsCenter />}
       {activeScreen === 'Knowledge' && <KnowledgeCenter />}
+      {!hasDedicatedSurface && <AgentOpsDock mode="dock" />}
     </>
   );
 }
