@@ -161,6 +161,7 @@ export interface MissionExecution {
   artifacts?: MissionArtifact[];
   handoffs?: AgentHandoff[];
   workspaceCheckpoint?: MissionWorkspaceCheckpoint;
+  resumeAfterRestart?: boolean;
 }
 
 export interface Mission {
