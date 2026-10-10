@@ -11,7 +11,13 @@ export type MissionEventType =
   | 'agent.started'
   | 'agent.progress'
   | 'agent.completed'
-  | 'agent.failed';
+  | 'agent.failed'
+  | 'orchestration.planned'
+  | 'step.started'
+  | 'step.completed'
+  | 'step.failed'
+  | 'artifact.created'
+  | 'handoff.created';
 
 export interface MissionEvent {
   id: string;

@@ -16,12 +16,17 @@ export type MissionStatus =
 
 export type AgentRole = 'scout' | 'architect' | 'builder' | 'verifier' | 'release';
 export type AgentRunStatus = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled';
+export type SpecialistRole = 'frontend' | 'backend' | 'database' | 'security' | 'qa' | 'devops' | 'generalist';
+export type MissionStepStatus = 'queued' | 'running' | 'completed' | 'failed' | 'blocked' | 'cancelled';
+export type MissionArtifactType = 'context' | 'analysis' | 'file-change' | 'pull-request' | 'ci' | 'preview' | 'deployment';
 
 export interface AgentRun {
   id: string;
   missionId: string;
   role: AgentRole;
   label: string;
+  specialist?: SpecialistRole | 'repository-publisher';
+  stepId?: string;
   status: AgentRunStatus;
   action: string;
   progress: number;
@@ -30,6 +35,43 @@ export interface AgentRun {
   completedAt?: string;
   detail?: string;
   error?: string;
+}
+
+export interface MissionStep {
+  id: string;
+  title: string;
+  objective: string;
+  specialist: SpecialistRole;
+  status: MissionStepStatus;
+  dependsOn: string[];
+  targetPaths: string[];
+  progress: number;
+  startedAt?: string;
+  completedAt?: string;
+  outputSummary?: string;
+  error?: string;
+}
+
+export interface MissionArtifact {
+  id: string;
+  missionId: string;
+  stepId?: string;
+  type: MissionArtifactType;
+  label: string;
+  path?: string;
+  url?: string;
+  summary?: string;
+  createdAt: string;
+}
+
+export interface AgentHandoff {
+  id: string;
+  missionId: string;
+  fromStepId: string;
+  toStepId: string;
+  summary: string;
+  artifactIds: string[];
+  createdAt: string;
 }
 
 export type StackMode = 'auto' | 'preserve' | 'pinned';
@@ -97,6 +139,10 @@ export interface MissionExecution {
   currentAction?: string;
   activeAgentRole?: AgentRole;
   agentRuns?: AgentRun[];
+  orchestrationSummary?: string;
+  workPlan?: MissionStep[];
+  artifacts?: MissionArtifact[];
+  handoffs?: AgentHandoff[];
 }
 
 export interface Mission {
