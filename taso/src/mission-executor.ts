@@ -7,6 +7,7 @@ import {
   type MissionArtifact,
   type MissionExecution,
   type MissionStep,
+  type MissionWorkspaceCheckpoint,
   type Project,
   type SpecialistRole,
 } from './domain.js';
@@ -17,6 +18,9 @@ import { MultiProviderPlanner } from './multi-provider-planner.js';
 import { defaultProviders } from './provider-router.js';
 import { GitHubTools } from './github-tools.js';
 import { CoolifyTools } from './coolify-tools.js';
+
+const MAX_CHECKPOINT_FILES = 100;
+const MAX_CHECKPOINT_BYTES = 8 * 1024 * 1024;
 
 function assertRepository(repository: string) {
   if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository)) {
@@ -89,6 +93,11 @@ function dependsTransitively(stepId: string, ancestorId: string, steps: MissionS
   return step.dependsOn.some((dependency) => dependency === ancestorId || dependsTransitively(dependency, ancestorId, steps, seen));
 }
 
+function checkpointProgress(steps: MissionStep[], completedStepIds: Set<string>) {
+  if (!steps.length) return 34;
+  return Math.min(60, 34 + Math.trunc((completedStepIds.size / steps.length) * 26));
+}
+
 class RetryablePlanningError extends Error {
   constructor(readonly operation: string, cause: unknown) {
     super(`Planning ${operation} failed: ${safeErrorMessage(cause)}`);
@@ -129,6 +138,14 @@ export class MissionExecutor {
       ?? boundedEnvMs('TASO_PLANNING_WATCHDOG_GRACE_MS', 15_000, 0, 120_000);
     this.stepMaxAttempts = options.stepMaxAttempts
       ?? boundedEnvInt('TASO_STEP_MAX_ATTEMPTS', 2, 1, 3);
+
+    queueMicrotask(() => {
+      for (const mission of this.tasks.listMissions()) {
+        if (mission.status === 'queued' && mission.execution?.resumeAfterRestart && mission.autonomous.enabled) {
+          this.executeSoon(mission.id);
+        }
+      }
+    });
   }
 
   readiness() {
@@ -239,6 +256,8 @@ export class MissionExecutor {
   }
 
   private addHandoff(mission: Mission, fromStepId: string, toStepId: string, summary: string) {
+    const existing = (mission.execution?.handoffs ?? []).find((handoff) => handoff.fromStepId === fromStepId && handoff.toStepId === toStepId);
+    if (existing) return existing;
     const artifactIds = (mission.execution?.artifacts ?? []).filter((artifact) => artifact.stepId === fromStepId).map((artifact) => artifact.id);
     const handoff: AgentHandoff = {
       id: createId('handoff'),
@@ -256,6 +275,41 @@ export class MissionExecutor {
       { handoffId: handoff.id, fromStepId, toStepId, artifactIds },
     );
     return handoff;
+  }
+
+  private persistCheckpoint(
+    mission: Mission,
+    changedFiles: Map<string, string>,
+    producerByPath: Map<string, string>,
+    completedStepIds: Set<string>,
+  ): MissionWorkspaceCheckpoint {
+    if (changedFiles.size > MAX_CHECKPOINT_FILES) {
+      throw new Error(`Durable checkpoint exceeds ${MAX_CHECKPOINT_FILES} changed files; refusing an incomplete checkpoint.`);
+    }
+    let bytes = 0;
+    const updatedAt = nowIso();
+    const files = [...changedFiles.entries()].map(([path, content]) => {
+      bytes += Buffer.byteLength(path, 'utf8') + Buffer.byteLength(content, 'utf8');
+      const producedByStepId = producerByPath.get(path);
+      if (!producedByStepId) throw new Error(`Checkpoint producer missing for ${path}.`);
+      return { path, content, producedByStepId, updatedAt };
+    });
+    if (bytes > MAX_CHECKPOINT_BYTES) {
+      throw new Error(`Durable checkpoint exceeds ${Math.trunc(MAX_CHECKPOINT_BYTES / 1024 / 1024)} MiB; refusing partial persistence.`);
+    }
+    const checkpoint: MissionWorkspaceCheckpoint = {
+      version: 1,
+      files,
+      completedStepIds: [...completedStepIds],
+      updatedAt,
+    };
+    this.patchExecution(
+      mission,
+      { workspaceCheckpoint: checkpoint, progressPercent: checkpointProgress(mission.execution?.workPlan ?? [], completedStepIds) },
+      `Durable checkpoint saved: ${completedStepIds.size} completed step(s), ${files.length} changed file(s).`,
+      { completedStepIds: checkpoint.completedStepIds, changedFiles: files.map((file) => file.path), bytes },
+    );
+    return checkpoint;
   }
 
   private async runAgent<T>(
@@ -316,34 +370,16 @@ export class MissionExecutor {
     this.retryTimers.set(id, timer);
   }
 
-  private mergeWorkerPlans(mission: Mission, plans: Array<{ step: MissionStep; plan: ChangePlan }>): ChangePlan {
-    const files = new Map<string, string>();
-    const producerByPath = new Map<string, string>();
-    const summaries: string[] = [];
-    const allSteps = mission.execution?.workPlan ?? plans.map(({ step }) => step);
-    for (const { step, plan } of plans) {
-      summaries.push(`${specialistLabel(step.specialist)} — ${plan.summary}`);
-      for (const file of plan.files) {
-        const existing = files.get(file.path);
-        const producer = producerByPath.get(file.path);
-        if (existing !== undefined && existing !== file.content && producer && !dependsTransitively(step.id, producer, allSteps)) {
-          throw new Error(`Independent specialist worker conflict on ${file.path}. Taso stopped instead of silently overwriting another agent's output.`);
-        }
-        files.set(file.path, file.content);
-        producerByPath.set(file.path, step.id);
-      }
-    }
-    return {
-      summary: summaries.join('\n'),
-      commitMessage: `Taso: ${mission.objective}`.slice(0, 120),
-      files: [...files.entries()].map(([path, content]) => ({ path, content })),
-    };
-  }
-
   private effectiveTargetPaths(step: MissionStep, steps: MissionStep[]): string[] {
     if (step.targetPaths.length) return step.targetPaths;
     if (!step.dependsOn.length) return [];
     return [...new Set(step.dependsOn.flatMap((dependency) => steps.find((item) => item.id === dependency)?.targetPaths ?? []))];
+  }
+
+  private dependencyContextPaths(step: MissionStep, steps: MissionStep[], producerByPath: Map<string, string>) {
+    return [...producerByPath.entries()]
+      .filter(([, producer]) => producer !== step.id && dependsTransitively(step.id, producer, steps))
+      .map(([path]) => path);
   }
 
   private async executeWorkGraph(
@@ -354,16 +390,32 @@ export class MissionExecutor {
   ): Promise<ChangePlan> {
     const steps = mission.execution?.workPlan ?? [];
     if (!steps.length) throw new Error('Mission work graph is empty.');
-    const pending = new Set(steps.map((step) => step.id));
-    const completed = new Set<string>();
-    const plans: Array<{ step: MissionStep; plan: ChangePlan }> = [];
+
+    const checkpoint = mission.execution?.workspaceCheckpoint;
+    if (checkpoint && checkpoint.version !== 1) throw new Error(`Unsupported checkpoint version: ${checkpoint.version}.`);
+    const completed = new Set<string>(checkpoint?.completedStepIds ?? steps.filter((step) => step.status === 'completed').map((step) => step.id));
+    const pending = new Set(steps.filter((step) => !completed.has(step.id)).map((step) => step.id));
     const workingFiles = new Map(files.map((file) => [file.path, file.content]));
+    const changedFiles = new Map<string, string>();
+    const producerByPath = new Map<string, string>();
+    for (const file of checkpoint?.files ?? []) {
+      workingFiles.set(file.path, file.content);
+      changedFiles.set(file.path, file.content);
+      producerByPath.set(file.path, file.producedByStepId);
+    }
     const total = steps.length;
+
+    if (checkpoint) {
+      this.tasks.noteMission(mission.id, `Restored durable checkpoint with ${completed.size}/${steps.length} completed work item(s).`, {
+        completedStepIds: [...completed],
+        changedFiles: [...changedFiles.keys()],
+      });
+    }
 
     while (pending.size) {
       const currentPlan = mission.execution?.workPlan ?? [];
       const ready = currentPlan.filter((step) => pending.has(step.id) && step.dependsOn.every((dependency) => completed.has(dependency)));
-      if (!ready.length) throw new Error('Mission work graph contains an unresolved dependency cycle.');
+      if (!ready.length) throw new Error('Mission work graph contains an unresolved dependency cycle or missing completed dependency.');
 
       const batch = await Promise.all(ready.map(async (step) => {
         for (const dependency of step.dependsOn) {
@@ -379,22 +431,26 @@ export class MissionExecutor {
         const ordinal = Math.max(0, steps.findIndex((item) => item.id === step.id));
         const startProgress = 34 + Math.trunc((ordinal / Math.max(1, total)) * 24);
         const endProgress = Math.min(60, startProgress + Math.max(4, Math.trunc(24 / Math.max(1, total))));
-        const contextFiles = effectivePaths.length
-          ? effectivePaths.flatMap((path) => workingFiles.has(path) ? [{ path, content: workingFiles.get(path)! }] : [])
+        const dependencyPaths = this.dependencyContextPaths(step, currentPlan, producerByPath);
+        const contextPaths = [...new Set([...effectivePaths, ...dependencyPaths])];
+        const contextFiles = contextPaths.length
+          ? contextPaths.flatMap((path) => workingFiles.has(path) ? [{ path, content: workingFiles.get(path)! }] : [])
           : [...workingFiles.entries()].map(([path, content]) => ({ path, content }));
         const handoffContext = (mission.execution?.handoffs ?? [])
           .filter((handoff) => handoff.toStepId === step.id)
           .map((handoff) => handoff.summary);
 
         let lastError: unknown;
-        for (let attempt = 1; attempt <= this.stepMaxAttempts; attempt += 1) {
-          const startedAt = attempt === 1 ? nowIso() : (mission.execution?.workPlan?.find((item) => item.id === step.id)?.startedAt ?? nowIso());
+        const initialAttempt = Math.max(1, (step.attempts ?? 0) + 1);
+        const maxAttempts = step.maxAttempts ?? this.stepMaxAttempts;
+        for (let attempt = initialAttempt; attempt <= maxAttempts; attempt += 1) {
+          const startedAt = step.startedAt ?? nowIso();
           const lastAttemptAt = nowIso();
           this.updateStep(
             mission,
             step.id,
-            { status: 'running', startedAt, lastAttemptAt, attempts: attempt, maxAttempts: this.stepMaxAttempts, progress: 10, error: undefined },
-            `${specialistLabel(step.specialist)} started ${step.title}${attempt > 1 ? ` retry ${attempt}/${this.stepMaxAttempts}` : ''}.`,
+            { status: 'running', startedAt, lastAttemptAt, attempts: attempt, maxAttempts, progress: 10, error: undefined },
+            `${specialistLabel(step.specialist)} started ${step.title}${attempt > 1 ? ` retry ${attempt}/${maxAttempts}` : ''}.`,
           );
           try {
             const plan = await this.runAgent(
@@ -413,32 +469,23 @@ export class MissionExecutor {
             );
             const manifest = this.projects.getManifest(project.id);
             assertSafeChanges(mission, plan.files.map((file) => file.path), manifest?.protectedPaths ?? []);
-            for (const file of plan.files) {
-              this.addArtifact(mission, { stepId: step.id, type: 'file-change', label: file.path, path: file.path, summary: plan.summary });
-            }
-            this.updateStep(
-              mission,
-              step.id,
-              { status: 'completed', completedAt: nowIso(), progress: 100, attempts: attempt, maxAttempts: this.stepMaxAttempts, outputSummary: plan.summary, error: undefined },
-              `${specialistLabel(step.specialist)} completed ${step.title}.`,
-            );
-            return { step: { ...effectiveStep, attempts: attempt, maxAttempts: this.stepMaxAttempts }, plan };
+            return { step: { ...effectiveStep, attempts: attempt, maxAttempts }, plan };
           } catch (error) {
             lastError = error;
             const reason = safeErrorMessage(error);
-            if (attempt < this.stepMaxAttempts) {
+            if (attempt < maxAttempts) {
               this.updateStep(
                 mission,
                 step.id,
-                { status: 'queued', attempts: attempt, maxAttempts: this.stepMaxAttempts, error: reason, progress: 10 },
-                `${specialistLabel(step.specialist)} will retry ${step.title} after attempt ${attempt}/${this.stepMaxAttempts}.`,
+                { status: 'queued', attempts: attempt, maxAttempts, error: reason, progress: 10 },
+                `${specialistLabel(step.specialist)} will retry ${step.title} after attempt ${attempt}/${maxAttempts}.`,
               );
               continue;
             }
             this.updateStep(
               mission,
               step.id,
-              { status: 'failed', completedAt: nowIso(), attempts: attempt, maxAttempts: this.stepMaxAttempts, error: reason },
+              { status: 'failed', completedAt: nowIso(), attempts: attempt, maxAttempts, error: reason },
               `${specialistLabel(step.specialist)} failed ${step.title} after ${attempt} attempt(s).`,
             );
           }
@@ -447,14 +494,93 @@ export class MissionExecutor {
       }));
 
       for (const result of batch) {
-        plans.push(result);
-        for (const file of result.plan.files) workingFiles.set(file.path, file.content);
+        for (const file of result.plan.files) {
+          const existing = changedFiles.get(file.path);
+          const producer = producerByPath.get(file.path);
+          if (existing !== undefined && existing !== file.content && producer && !dependsTransitively(result.step.id, producer, steps)) {
+            throw new Error(`Independent specialist worker conflict on ${file.path}. Taso stopped instead of silently overwriting another agent's output.`);
+          }
+          workingFiles.set(file.path, file.content);
+          changedFiles.set(file.path, file.content);
+          producerByPath.set(file.path, result.step.id);
+        }
+        for (const file of result.plan.files) {
+          this.addArtifact(mission, { stepId: result.step.id, type: 'file-change', label: file.path, path: file.path, summary: result.plan.summary });
+        }
+        this.updateStep(
+          mission,
+          result.step.id,
+          { status: 'completed', completedAt: nowIso(), progress: 100, attempts: result.step.attempts, maxAttempts: result.step.maxAttempts, outputSummary: result.plan.summary, error: undefined },
+          `${specialistLabel(result.step.specialist)} completed ${result.step.title}.`,
+        );
         pending.delete(result.step.id);
         completed.add(result.step.id);
       }
+
+      this.persistCheckpoint(mission, changedFiles, producerByPath, completed);
     }
 
-    return this.mergeWorkerPlans(mission, plans);
+    if (!changedFiles.size) throw new Error('Completed work graph has no durable changed files to publish.');
+    const summaries = (mission.execution?.workPlan ?? steps)
+      .filter((step) => completed.has(step.id) && step.outputSummary)
+      .map((step) => `${specialistLabel(step.specialist)} — ${step.outputSummary}`);
+    return {
+      summary: summaries.join('\n') || `Resumed ${completed.size} completed specialist work item(s) from durable checkpoint.`,
+      commitMessage: `Taso: ${mission.objective}`.slice(0, 120),
+      files: [...changedFiles.entries()].map(([path, content]) => ({ path, content })),
+    };
+  }
+
+  private async verifyPublishedMission(project: Project, mission: Mission): Promise<Mission> {
+    const commitSha = mission.execution?.commitSha;
+    const pullRequestUrl = mission.execution?.pullRequestUrl;
+    const pullRequestNumber = mission.execution?.pullRequestNumber;
+    if (!commitSha || !pullRequestUrl) throw new Error('Published mission resume requires commit SHA and pull request URL.');
+
+    this.tasks.transitionMission(mission.id, 'testing', 'Resuming verification for the existing published change.', { pullRequest: pullRequestUrl }, {
+      progressPercent: 72,
+      resumeAfterRestart: false,
+    });
+    const checkState = await this.runAgent(
+      mission,
+      'verifier',
+      'Resuming repository checks for the existing generated commit.',
+      74,
+      86,
+      () => this.github!.waitForChecks(project.repository, commitSha),
+      'Repository checks finished.',
+    );
+    this.addArtifact(mission, { type: 'ci', label: `CI ${checkState}`, url: pullRequestUrl, summary: `Checks for ${commitSha.slice(0, 8)} finished with state ${checkState}.` });
+    if (checkState !== 'success') {
+      const reason = checkState === 'failed' ? 'CI checks failed.' : checkState === 'missing' ? 'No CI checks were detected for the generated commit.' : 'CI checks did not complete before timeout.';
+      return this.tasks.transitionMission(mission.id, 'failed', reason, { checkState }, { checkState, blockedReason: reason, lastFailure: reason });
+    }
+
+    if (mission.autonomous.previewRequired) {
+      if (!this.coolify || !this.coolify.hasProject(project)) {
+        const reason = 'CI passed, but a Coolify resource is not configured for this project, so preview could not be verified.';
+        return this.tasks.transitionMission(mission.id, 'failed', reason, { checkState }, { checkState, blockedReason: reason, lastFailure: reason });
+      }
+      if (!pullRequestNumber) throw new Error('Preview resume requires the existing pull request number.');
+      const preview = await this.runAgent(
+        mission,
+        'release',
+        'Creating and verifying the isolated preview deployment for the existing pull request.',
+        88,
+        100,
+        () => this.coolify!.deploy(project, pullRequestNumber),
+        'Preview deployment completed and verified.',
+      );
+      this.addArtifact(mission, { type: 'preview', label: 'Verified preview', url: preview.url, summary: `Coolify deployment ${preview.deploymentUuid}` });
+      return this.tasks.transitionMission(mission.id, 'preview_ready', 'CI passed and Coolify preview deployment completed.', { deploymentUuid: preview.deploymentUuid }, {
+        checkState,
+        previewDeploymentUuid: preview.deploymentUuid,
+        previewUrl: preview.url,
+        progressPercent: 100,
+      });
+    }
+
+    return this.tasks.transitionMission(mission.id, 'completed', 'CI passed. Resumed mission completed without a preview requirement.', undefined, { checkState, progressPercent: 100 });
   }
 
   private async executeRepositoryMission(project: Project, mission: Mission): Promise<Mission> {
@@ -462,13 +588,27 @@ export class MissionExecutor {
     if (!this.github) throw new Error('GitHub tool broker is not configured.');
     assertRepository(project.repository);
 
-    this.tasks.transitionMission(mission.id, 'planning', 'Taso agent team is inspecting the repository.', undefined, {
+    if (mission.execution?.commitSha && mission.execution?.pullRequestUrl) {
+      return this.verifyPublishedMission(project, mission);
+    }
+
+    const resumable = Boolean(mission.execution?.workspaceCheckpoint && mission.execution?.workPlan?.length);
+    this.tasks.transitionMission(mission.id, 'planning', resumable
+      ? 'Restoring durable mission checkpoint and refreshing repository context.'
+      : 'Taso agent team is inspecting the repository.', undefined, resumable ? {
+      progressPercent: checkpointProgress(mission.execution?.workPlan ?? [], new Set(mission.execution?.workspaceCheckpoint?.completedStepIds ?? [])),
+      currentAction: 'Restoring completed specialist work from durable checkpoint.',
+      resumeAfterRestart: false,
+    } : {
       progressPercent: 2,
       currentAction: 'Starting repository reconnaissance.',
       workPlan: [],
       artifacts: [],
       handoffs: [],
+      workspaceCheckpoint: undefined,
+      resumeAfterRestart: false,
     });
+
     const deadline = Date.now() + this.planningTimeoutMs;
     const controller = new AbortController();
     this.planningControllers.set(mission.id, controller);
@@ -496,17 +636,32 @@ export class MissionExecutor {
       }
     };
 
-    this.tasks.noteMission(mission.id, 'Autonomous execution deadline started.', {
+    this.tasks.noteMission(mission.id, resumable ? 'Durable resume deadline started.' : 'Autonomous execution deadline started.', {
       timeoutMs: this.planningTimeoutMs,
       retryCount: mission.execution?.retryCount ?? 0,
       maxRetries: mission.autonomous.maxRetries,
       stepMaxAttempts: this.stepMaxAttempts,
+      resumable,
     });
 
     try {
-      const reconnaissance = await this.runAgent(mission, 'scout', 'Scanning repository and locating relevant source files.', 5, 22, async (runId) => {
+      const reconnaissance = await this.runAgent(mission, 'scout', resumable
+        ? 'Refreshing repository context around the durable checkpoint.'
+        : 'Scanning repository and locating relevant source files.', 5, 22, async (runId) => {
         const paths = await withinDeadline('repository listing', () => this.github!.listFiles(project.repository, project.defaultBranch));
-        if (!paths.length) throw new Error('Repository has no readable source files.');
+        if (!paths.length && !mission.execution?.workspaceCheckpoint?.files.length) throw new Error('Repository has no readable source files.');
+
+        if (resumable) {
+          const checkpointPaths = mission.execution?.workspaceCheckpoint?.files.map((file) => file.path) ?? [];
+          const plannedPaths = (mission.execution?.workPlan ?? []).flatMap((step) => step.targetPaths);
+          const selectedPaths = [...new Set([...checkpointPaths, ...plannedPaths])].filter((path) => paths.includes(path)).slice(0, 40);
+          this.tasks.updateAgent(mission.id, runId, `Checkpoint context refresh: ${selectedPaths.length} existing repository path(s).`, 16, selectedPaths.join(', '));
+          const selectedFiles = selectedPaths.length
+            ? await withinDeadline('checkpoint file reading', () => this.github!.readFiles(project.repository, project.defaultBranch, selectedPaths))
+            : [];
+          return { files: selectedFiles, selectedPaths };
+        }
+
         this.tasks.updateAgent(mission.id, runId, `Repository indexed: ${paths.length} paths. Selecting mission-relevant files.`, 10);
         const selected = await withinDeadline('file selection', (signal) => this.planner!.chooseFiles(project, mission, paths, signal));
         const fallback = ['README.md', 'package.json', 'composer.json'].filter((path) => paths.includes(path));
@@ -514,13 +669,15 @@ export class MissionExecutor {
         this.tasks.updateAgent(mission.id, runId, `Reading ${selectedPaths.length} selected files.`, 16, selectedPaths.slice(0, 12).join(', '));
         const selectedFiles = await withinDeadline('file reading', () => this.github!.readFiles(project.repository, project.defaultBranch, selectedPaths));
         return { files: selectedFiles, selectedPaths };
-      }, 'Repository context collected.');
+      }, resumable ? 'Durable repository context refreshed.' : 'Repository context collected.');
 
-      this.addArtifact(mission, {
-        type: 'context',
-        label: 'Repository context',
-        summary: `${reconnaissance.selectedPaths.length} mission-relevant files loaded: ${reconnaissance.selectedPaths.join(', ')}`,
-      });
+      if (!resumable) {
+        this.addArtifact(mission, {
+          type: 'context',
+          label: 'Repository context',
+          summary: `${reconnaissance.selectedPaths.length} mission-relevant files loaded: ${reconnaissance.selectedPaths.join(', ')}`,
+        });
+      }
 
       if (mission.riskLevel === 'READ') {
         const readStep: MissionStep = {
@@ -553,39 +710,52 @@ export class MissionExecutor {
         return this.tasks.transitionMission(mission.id, 'completed', 'Read-only mission completed.', undefined, { summary, checkState: 'success', progressPercent: 100 });
       }
 
-      const orchestration = await this.runAgent(
-        mission,
-        'architect',
-        'Decomposing the mission into specialist work items and dependencies.',
-        24,
-        32,
-        (runId) => withinDeadline('mission decomposition', async (signal) => {
-          const plan = await this.planner!.decomposeMission(project, mission, reconnaissance.files, signal);
-          this.tasks.updateAgent(mission.id, runId, `Work graph ready: ${plan.steps.length} specialist step(s).`, 31, plan.summary);
-          return plan;
-        }),
-        'Mission work graph created.',
-      );
-      const normalizedSteps = orchestration.steps.map((step) => ({ ...step, attempts: 0, maxAttempts: this.stepMaxAttempts }));
-      this.patchExecution(
-        mission,
-        { orchestrationSummary: orchestration.summary, workPlan: normalizedSteps, artifacts: mission.execution?.artifacts ?? [], handoffs: [] },
-        `Mission decomposed into ${normalizedSteps.length} specialist work item(s).`,
-        { steps: normalizedSteps.map((step) => ({ id: step.id, specialist: step.specialist, dependsOn: step.dependsOn, targetPaths: step.targetPaths, maxAttempts: step.maxAttempts })) },
-      );
+      let orchestrationSummary = mission.execution?.orchestrationSummary ?? '';
+      let orchestrationSteps = mission.execution?.workPlan ?? [];
+      if (!resumable) {
+        const orchestration = await this.runAgent(
+          mission,
+          'architect',
+          'Decomposing the mission into specialist work items and dependencies.',
+          24,
+          32,
+          (runId) => withinDeadline('mission decomposition', async (signal) => {
+            const plan = await this.planner!.decomposeMission(project, mission, reconnaissance.files, signal);
+            this.tasks.updateAgent(mission.id, runId, `Work graph ready: ${plan.steps.length} specialist step(s).`, 31, plan.summary);
+            return plan;
+          }),
+          'Mission work graph created.',
+        );
+        orchestrationSummary = orchestration.summary;
+        orchestrationSteps = orchestration.steps.map((step) => ({ ...step, attempts: 0, maxAttempts: this.stepMaxAttempts }));
+        this.patchExecution(
+          mission,
+          { orchestrationSummary, workPlan: orchestrationSteps, artifacts: mission.execution?.artifacts ?? [], handoffs: [] },
+          `Mission decomposed into ${orchestrationSteps.length} specialist work item(s).`,
+          { steps: orchestrationSteps.map((step) => ({ id: step.id, specialist: step.specialist, dependsOn: step.dependsOn, targetPaths: step.targetPaths, maxAttempts: step.maxAttempts })) },
+        );
+      } else {
+        this.tasks.noteMission(mission.id, `Skipping mission decomposition; restoring ${orchestrationSteps.length} persisted work item(s).`);
+      }
 
-      this.tasks.transitionMission(mission.id, 'running', 'Specialist workers are executing the mission work graph.', undefined, { progressPercent: 34 });
+      this.tasks.transitionMission(mission.id, 'running', resumable
+        ? 'Specialist workers are resuming only incomplete work items.'
+        : 'Specialist workers are executing the mission work graph.', undefined, {
+        progressPercent: resumable
+          ? checkpointProgress(orchestrationSteps, new Set(mission.execution?.workspaceCheckpoint?.completedStepIds ?? []))
+          : 34,
+      });
       const plan = await this.executeWorkGraph(project, mission, reconnaissance.files, withinDeadline);
       if (!plan.files.length) throw new Error('Specialist workers completed without producing any repository changes.');
       const manifest = this.projects.getManifest(project.id);
       assertSafeChanges(mission, plan.files.map((file) => file.path), manifest?.protectedPaths ?? []);
 
-      const branch = safeBranch(project, mission);
-      this.patchExecution(mission, { summary: plan.summary, branch, progressPercent: 61, currentAction: 'Repository Publisher is preparing the unified change set.' }, 'Specialist outputs merged into one dependency-aware change set.');
+      const branch = mission.execution?.branch ?? safeBranch(project, mission);
+      this.patchExecution(mission, { summary: plan.summary, branch, progressPercent: 61, currentAction: 'Repository Publisher is preparing the durable unified change set.' }, 'Specialist outputs restored and merged into one dependency-aware change set.');
       const result = await this.runAgent(
         mission,
         'builder',
-        `Publishing ${plan.files.length} dependency-aware file changes and opening a pull request.`,
+        `Publishing ${plan.files.length} durable checkpoint file changes and opening a pull request.`,
         62,
         70,
         () => this.github!.createPullRequestWithChanges({
@@ -598,69 +768,30 @@ export class MissionExecutor {
           body: [
             '## Taso mission',
             '',
-            orchestration.summary,
+            orchestrationSummary,
             '',
             plan.summary,
             '',
             `Mission: \`${mission.id}\``,
             `Risk: \`${mission.riskLevel}\``,
-            `Specialist workers: \`${orchestration.steps.map((step) => step.specialist).join(', ')}\``,
+            `Specialist workers: \`${orchestrationSteps.map((step) => step.specialist).join(', ')}\``,
             '',
-            'Generated by Taso Mission Orchestrator V3 with incremental handoff context and step-scoped recovery. CI and preview gates must pass before merge.',
+            'Generated by Taso Mission Orchestrator V4 with durable checkpoints and restart-safe resume. CI and preview gates must pass before merge.',
           ].join('\n'),
         }),
-        'Unified changes committed and pull request opened.',
+        'Durable unified changes committed and pull request opened.',
         { label: 'Repository Publisher', specialist: 'repository-publisher' },
       );
-      this.addArtifact(mission, { type: 'pull-request', label: `PR #${result.number}`, url: result.url, summary: plan.summary });
-
-      this.tasks.transitionMission(mission.id, 'testing', 'Verification Agent is checking the generated change.', { pullRequest: result.url }, {
+      this.patchExecution(mission, {
         branch: result.branch,
         commitSha: result.commitSha,
         pullRequestNumber: result.number,
         pullRequestUrl: result.url,
         progressPercent: 72,
-      });
+      }, `Published checkpoint as PR #${result.number}; durable verification state saved.`, { pullRequest: result.url, commitSha: result.commitSha });
+      this.addArtifact(mission, { type: 'pull-request', label: `PR #${result.number}`, url: result.url, summary: plan.summary });
 
-      const checkState = await this.runAgent(
-        mission,
-        'verifier',
-        'Waiting for repository checks and verifying the generated commit.',
-        74,
-        86,
-        () => this.github!.waitForChecks(project.repository, result.commitSha),
-        'Repository checks finished.',
-      );
-      this.addArtifact(mission, { type: 'ci', label: `CI ${checkState}`, url: result.url, summary: `Checks for ${result.commitSha.slice(0, 8)} finished with state ${checkState}.` });
-      if (checkState !== 'success') {
-        const reason = checkState === 'failed' ? 'CI checks failed.' : checkState === 'missing' ? 'No CI checks were detected for the generated commit.' : 'CI checks did not complete before timeout.';
-        return this.tasks.transitionMission(mission.id, 'failed', reason, { checkState }, { checkState, blockedReason: reason, lastFailure: reason });
-      }
-
-      if (mission.autonomous.previewRequired) {
-        if (!this.coolify || !this.coolify.hasProject(project)) {
-          const reason = 'CI passed, but a Coolify resource is not configured for this project, so preview could not be verified.';
-          return this.tasks.transitionMission(mission.id, 'failed', reason, { checkState }, { checkState, blockedReason: reason, lastFailure: reason });
-        }
-        const preview = await this.runAgent(
-          mission,
-          'release',
-          'Creating and verifying the isolated preview deployment.',
-          88,
-          100,
-          () => this.coolify!.deploy(project, result.number),
-          'Preview deployment completed and verified.',
-        );
-        this.addArtifact(mission, { type: 'preview', label: 'Verified preview', url: preview.url, summary: `Coolify deployment ${preview.deploymentUuid}` });
-        return this.tasks.transitionMission(mission.id, 'preview_ready', 'CI passed and Coolify preview deployment completed.', { deploymentUuid: preview.deploymentUuid }, {
-          checkState,
-          previewDeploymentUuid: preview.deploymentUuid,
-          previewUrl: preview.url,
-          progressPercent: 100,
-        });
-      }
-
-      return this.tasks.transitionMission(mission.id, 'completed', 'CI passed. Mission completed without a preview requirement.', undefined, { checkState, progressPercent: 100 });
+      return this.verifyPublishedMission(project, mission);
     } finally {
       this.planningControllers.delete(mission.id);
       if (!controller.signal.aborted && this.tasks.getMission(mission.id)?.status !== 'planning') {
