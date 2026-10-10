@@ -5,6 +5,7 @@ import AgentOpsDock from './AgentOpsDock';
 import CommandCenterV8 from './CommandCenterV8';
 import IntegrationsCenter from './IntegrationsCenter';
 import KnowledgeCenter from './KnowledgeCenter';
+import MissionControlV8 from './MissionControlV8';
 import MissionExecutionLive from './MissionExecutionLive';
 import MobileNavigationHub from './MobileNavigationHub';
 import MobileVoiceRouter from './MobileVoiceRouter';
@@ -36,6 +37,7 @@ import './truth-surfaces.css';
 import './voice-identity-v2.css';
 import './mission-execution-live.css';
 import './command-center-v8.css';
+import './mission-control-v8.css';
 
 const rootElement = document.getElementById('root')!;
 const requestedScreen = new URLSearchParams(window.location.search).get('screen');
@@ -51,34 +53,19 @@ function OperationsSurfaceBridge() {
     const handleMissionOpen = (event: Event) => {
       const missionId = (event as CustomEvent<{ missionId?: string }>).detail?.missionId;
       if (!missionId) return;
-
       navigate('Tasks');
-      let attempts = 0;
-      const timer = window.setInterval(() => {
-        attempts += 1;
-        const row = [...rootElement.querySelectorAll<HTMLButtonElement>('.data-row')]
-          .find((item) => item.textContent?.includes(missionId));
-        if (row) {
-          row.click();
-          row.scrollIntoView({ block: 'center', behavior: 'smooth' });
-          window.clearInterval(timer);
-          return;
-        }
-        if (attempts >= 20) window.clearInterval(timer);
-      }, 50);
     };
 
     window.addEventListener('taso:open-mission', handleMissionOpen);
     return () => window.removeEventListener('taso:open-mission', handleMissionOpen);
   }, [navigate]);
 
-  const showExecution = activeScreen === 'Tasks' || activeScreen === 'AI Agents';
-
   return (
     <>
       {activeScreen === 'Command Center' && <CommandCenterV8 />}
-      {activeScreen !== 'Command Center' && <AgentOpsDock mode={activeScreen === 'AI Agents' ? 'page' : 'dock'} />}
-      {showExecution && <MissionExecutionLive expanded={activeScreen === 'AI Agents'} />}
+      {activeScreen === 'Tasks' && <MissionControlV8 />}
+      {activeScreen !== 'Command Center' && activeScreen !== 'Tasks' && <AgentOpsDock mode={activeScreen === 'AI Agents' ? 'page' : 'dock'} />}
+      {activeScreen === 'AI Agents' && <MissionExecutionLive expanded />}
       {activeScreen === 'Integrations' && <IntegrationsCenter />}
       {activeScreen === 'Knowledge' && <KnowledgeCenter />}
     </>
