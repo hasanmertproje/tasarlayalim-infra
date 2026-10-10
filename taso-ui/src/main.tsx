@@ -6,6 +6,7 @@ import AgentOpsDock from './AgentOpsDock';
 import ApprovalCenterV9 from './ApprovalCenterV9';
 import AuthGateV17 from './AuthGateV17';
 import CommandCenterV21 from './CommandCenterV21';
+import ControlPlaneV24 from './ControlPlaneV24';
 import GlobalUiControlsV11 from './GlobalUiControlsV11';
 import IntegrationsCenter from './IntegrationsCenter';
 import KnowledgeCenter from './KnowledgeCenter';
@@ -53,15 +54,12 @@ import './command-center-foundation-v11.css';
 import './notifications-center-v12.css';
 import './settings-command-center-v12.css';
 import './context-integrations-v13.css';
-/* Premium Reset V16 intentionally loads last and owns global design/layout contracts. */
 import './premium-reset-v16.css';
 import './auth-v17.css';
-/* Command Center V21 is the final owner of the dashboard surface. */
 import './command-center-v21.css';
-/* Voice Experience V22 is the final owner of cinematic live voice presentation. */
 import './voice-experience-v22.css';
-/* V23 unifies detailed Projects / Missions / Agents / Approvals surfaces. */
 import './operations-surfaces-v23.css';
+import './control-plane-v24.css';
 
 const rootElement = document.getElementById('root')!;
 const requestedScreen = new URLSearchParams(window.location.search).get('screen');
@@ -79,7 +77,6 @@ function OperationsSurfaceBridge() {
       if (!missionId) return;
       navigate('Tasks');
     };
-
     window.addEventListener('taso:open-mission', handleMissionOpen);
     return () => window.removeEventListener('taso:open-mission', handleMissionOpen);
   }, [navigate]);
@@ -93,7 +90,8 @@ function OperationsSurfaceBridge() {
     || activeScreen === 'AI Agents'
     || activeScreen === 'Notifications'
     || activeScreen === 'Knowledge'
-    || activeScreen === 'Integrations';
+    || activeScreen === 'Integrations'
+    || activeScreen === 'Settings';
 
   return (
     <>
@@ -107,6 +105,7 @@ function OperationsSurfaceBridge() {
       {activeScreen === 'Notifications' && <NotificationsCenterV12 />}
       {activeScreen === 'Integrations' && <IntegrationsCenter />}
       {activeScreen === 'Knowledge' && <KnowledgeCenter />}
+      {activeScreen === 'Settings' && <ControlPlaneV24 />}
       {!hasDedicatedSurface && <AgentOpsDock mode="dock" />}
     </>
   );

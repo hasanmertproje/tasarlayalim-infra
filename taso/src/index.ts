@@ -1,5 +1,6 @@
 import { registerAuthRoutes } from './auth.js';
 import { AuthServiceV18 } from './auth-v18.js';
+import { registerControlPlaneRoutes } from './control-plane-routes.js';
 import { IdentityStore } from './identity-store.js';
 import { registerRbacRoutes } from './rbac-routes.js';
 import { buildServer } from './server.js';
@@ -14,6 +15,7 @@ const auth = new AuthServiceV18();
 const identities = new IdentityStore(process.env.TASO_OWNER_EMAIL || '');
 registerAuthRoutes(app, auth);
 registerRbacRoutes(app, auth, identities);
+registerControlPlaneRoutes(app, auth, identities);
 registerVoiceRealtimeRoutes(app);
 registerLocalVoiceRoutes(app);
 
