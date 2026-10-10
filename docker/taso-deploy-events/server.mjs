@@ -6,6 +6,8 @@ const ntfyTopic = process.env.NTFY_TOPIC || '';
 const ntfyToken = process.env.NTFY_TOKEN || '';
 const port = Number(process.env.PORT || 8080);
 const selfUuid = process.env.COOLIFY_RESOURCE_UUID || '';
+const sourceCommit = process.env.SOURCE_COMMIT || '';
+let selfStartupNotified = false;
 let services;
 try { services = JSON.parse(process.env.DEPLOY_SERVICES_JSON || '{}'); } catch { throw new Error('Invalid DEPLOY_SERVICES_JSON'); }
 const startupChecks = {
@@ -22,8 +24,6 @@ const seen = new Map();
 const clean = () => { for (const [key, timestamp] of seen) if (Date.now() - timestamp > 86400000) seen.delete(key); };
 function serviceFor(event) {
   if (!event.application_uuid || typeof event.application_uuid !== 'string') return null;
-  // Coolify injects the resource UUID into the running application. Self-deploy
-  // recognition depends only on that exact UUID; public URL formatting is irrelevant.
   if (selfUuid && event.application_uuid === selfUuid) {
     return { name: 'taso-deploy-events', uuid: selfUuid, localHealth: true };
   }
@@ -32,19 +32,18 @@ function serviceFor(event) {
 }
 async function healthcheck(service) {
   if (service.localHealth) {
-    for (let attempt = 0; attempt < 2; attempt++) {
+    for (let attempt = 0; attempt < 3; attempt++) {
       try {
         const response = await fetch(`http://127.0.0.1:${port}/health`, { redirect: 'manual', signal: AbortSignal.timeout(5000) });
         if (response.ok) return true;
       } catch {}
-      if (attempt < 1) await new Promise(resolve => setTimeout(resolve, 1000));
+      if (attempt < 2) await new Promise(resolve => setTimeout(resolve, 1000));
     }
     return false;
   }
   if (!service.healthUrl) return false;
   const u = new URL(service.healthUrl);
   if (u.protocol !== 'https:' || u.username || u.password || u.search || u.hash) return false;
-  // Only operator-configured health URLs are requested; never follow redirects or use payload URLs.
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const response = await fetch(u, { redirect: 'manual', signal: AbortSignal.timeout(5000) });
@@ -57,9 +56,6 @@ async function healthcheck(service) {
 async function publish(status, title, message, link) {
   const url = new URL(ntfyBase.replace(/\/$/, '') + '/');
   if (url.protocol !== 'https:' || url.username || url.password) throw new Error('ntfy must use credential-free HTTPS URL');
-
-  // Use ntfy's JSON publish API so all user-visible Unicode stays in the UTF-8 body.
-  // The only custom request header containing dynamic data is the ASCII bearer token.
   const payload = {
     topic: ntfyTopic,
     title,
@@ -70,7 +66,7 @@ async function publish(status, title, message, link) {
   if (link && link.startsWith('https://')) payload.click = link;
 
   let lastError;
-  for (let attempt = 0; attempt < 2; attempt++) {
+  for (let attempt = 0; attempt < 3; attempt++) {
     try {
       const response = await fetch(url, {
         method: 'POST',
@@ -89,10 +85,27 @@ async function publish(status, title, message, link) {
       return result.id;
     } catch (error) {
       lastError = error;
-      if (attempt < 1) await new Promise(resolve => setTimeout(resolve, 1000));
+      if (attempt < 2) await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1)));
     }
   }
   throw lastError;
+}
+async function notifySelfStartup() {
+  const service = { name: 'taso-deploy-events', localHealth: true };
+  const healthy = await healthcheck(service);
+  const shortCommit = sourceCommit ? sourceCommit.slice(0, 8) : 'unknown';
+  const failed = !healthy;
+  const title = failed ? 'MÜDAHALE GEREKİYOR · taso-deploy-events' : 'YAYIN TAMAMLANDI · taso-deploy-events';
+  const message = failed
+    ? `Yeni bridge container ayağa kalktı ancak lokal sağlık kontrolü geçmedi. Commit: ${shortCommit}`
+    : `Yeni bridge container sağlıklı ayağa kalktı. Commit: ${shortCommit}`;
+  try {
+    const ntfyId = await publish(failed ? 'failed' : 'success', title, message);
+    selfStartupNotified = true;
+    console.log(`self-startup notified healthy=${healthy} source_commit=${shortCommit} ntfy_id=${ntfyId}`);
+  } catch (error) {
+    console.error(`self-startup notification failed healthy=${healthy} source_commit=${shortCommit}:`, error.message);
+  }
 }
 async function processEvent(event) {
   if (!event || !['deployment_success', 'deployment_failed'].includes(event.event)) {
@@ -108,22 +121,25 @@ async function processEvent(event) {
     console.log(`deploy-event ignored reason=unknown_resource event=${event.event} application_uuid=${event.application_uuid || 'missing'} deployment_uuid=${typeof event.deployment_uuid === 'string' ? 'present' : 'missing'} self_uuid=${selfUuid ? 'present' : 'missing'} self_match=${Boolean(selfUuid && event.application_uuid === selfUuid)}`);
     return { accepted: false, reason: 'unknown_resource' };
   }
+  if (service.localHealth && selfStartupNotified) {
+    console.log(`deploy-event duplicate reason=self_startup_already_notified event=${event.event} deployment_uuid=${event.deployment_uuid}`);
+    return { accepted: true, duplicate: true, reason: 'self_startup_already_notified' };
+  }
   clean();
   const key = event.event + ':' + event.application_uuid + ':' + event.deployment_uuid;
   if (seen.has(key)) {
     console.log(`deploy-event duplicate event=${event.event} service=${service.name} deployment_uuid=${event.deployment_uuid}`);
     return { accepted: true, duplicate: true };
   }
-  // A successful Coolify deployment alone does not establish that production is healthy.
   const healthy = event.event === 'deployment_success' && await healthcheck(service);
   const failed = event.event === 'deployment_failed' || !healthy;
   const title = failed ? 'MÜDAHALE GEREKİYOR · ' + service.name : 'YAYIN TAMAMLANDI · ' + service.name;
   const message = failed
     ? (event.event === 'deployment_failed' ? 'Coolify deployment başarısız oldu.' : 'Coolify deployment tamamlandı ancak sağlık kontrolü geçmedi.')
     : 'Coolify deployment tamamlandı ve servis sağlık kontrolünü geçti.';
-  // Only operator-configured links, not untrusted webhook payload links.
   const ntfyId = await publish(failed ? 'failed' : 'success', title, message, service.dashboardUrl);
   seen.set(key, Date.now());
+  if (service.localHealth) selfStartupNotified = true;
   console.log(`deploy-event notified event=${event.event} service=${service.name} deployment_uuid=${event.deployment_uuid} healthy=${healthy} ntfy_id=${ntfyId}`);
   return { accepted: true, notified: true, healthy, ntfy_id: ntfyId };
 }
@@ -145,4 +161,7 @@ const server = http.createServer(async (req, res) => {
     return send(502, { error: 'delivery_failed' });
   }
 });
-server.listen(port, '0.0.0.0', () => console.log(`Taso deploy event bridge listening on ${port}; self_uuid=${selfUuid ? 'present' : 'missing'}`));
+server.listen(port, '0.0.0.0', () => {
+  console.log(`Taso deploy event bridge listening on ${port}; self_uuid=${selfUuid ? 'present' : 'missing'}; source_commit=${sourceCommit ? sourceCommit.slice(0, 8) : 'missing'}`);
+  setTimeout(() => { void notifySelfStartup(); }, 8000);
+});
