@@ -1,4 +1,4 @@
-import type { DataClass, Mission, Project } from './domain.js';
+import type { DataClass, Mission, MissionStep, Project, SpecialistRole } from './domain.js';
 import type { ChangePlan, RepositoryFile } from './agent-planner.js';
 
 interface RuntimeProvider {
@@ -17,6 +17,22 @@ type ProviderStatus = {
   privateCode?: boolean;
   sensitive?: boolean;
 };
+
+type OrchestrationStepDraft = {
+  id?: string;
+  title?: string;
+  objective?: string;
+  specialist?: string;
+  dependsOn?: string[];
+  targetPaths?: string[];
+};
+
+export type OrchestrationPlan = {
+  summary: string;
+  steps: MissionStep[];
+};
+
+const specialistRoles = new Set<SpecialistRole>(['frontend', 'backend', 'database', 'security', 'qa', 'devops', 'generalist']);
 
 function envPrefix(id: string) {
   return `TASO_PROVIDER_${id.toUpperCase().replace(/-/g, '_')}`;
@@ -103,6 +119,21 @@ function sleep(ms: number, signal?: AbortSignal) {
     };
     signal?.addEventListener('abort', onAbort, { once: true });
   });
+}
+
+function safeStepId(value: string | undefined, index: number) {
+  const normalized = (value ?? '').toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 48);
+  return normalized || `work-${index + 1}`;
+}
+
+function safeTargetPath(value: unknown): value is string {
+  if (typeof value !== 'string') return false;
+  const normalized = value.replace(/\\/g, '/').trim();
+  return Boolean(normalized) && !normalized.startsWith('/') && !normalized.includes('../') && normalized.length <= 240;
+}
+
+function normalizeSpecialist(value: unknown): SpecialistRole {
+  return typeof value === 'string' && specialistRoles.has(value as SpecialistRole) ? value as SpecialistRole : 'generalist';
 }
 
 /**
@@ -222,6 +253,98 @@ export class MultiProviderPlanner {
       JSON.stringify({ project: { name: project.name, technology: project.technology }, objective: mission.objective, files }),
       signal,
     )).trim();
+  }
+
+  async decomposeMission(project: Project, mission: Mission, files: RepositoryFile[], signal?: AbortSignal): Promise<OrchestrationPlan> {
+    const raw = await this.completeJson<{ summary?: string; steps?: OrchestrationStepDraft[] }>(
+      mission,
+      [
+        'You are Taso Mission Orchestrator. Break the coding mission into a small executable work graph.',
+        'Return only JSON: {"summary":"...","steps":[{"id":"...","title":"...","objective":"...","specialist":"frontend|backend|database|security|qa|devops|generalist","dependsOn":["step-id"],"targetPaths":["path"]}]}.',
+        'Use 1-6 implementation steps. Assign the narrowest appropriate specialist. Dependencies may only point to earlier steps. Prefer disjoint targetPaths so workers can execute independently. Existing paths may be used and new safe repository paths may be proposed. Do not create deployment/CI steps; Taso adds those deterministic gates itself.',
+      ].join(' '),
+      JSON.stringify({
+        project: { name: project.name, repository: project.repository, technology: project.technology },
+        objective: mission.objective,
+        riskLevel: mission.riskLevel,
+        files: files.map((file) => ({ path: file.path, preview: file.content.slice(0, 4000) })),
+      }),
+      signal,
+    );
+
+    const drafts = Array.isArray(raw.steps) ? raw.steps.slice(0, 6) : [];
+    const steps: MissionStep[] = [];
+    const knownIds = new Set<string>();
+    const ownedPaths = new Set<string>();
+    for (let index = 0; index < drafts.length; index += 1) {
+      const draft = drafts[index] ?? {};
+      let id = safeStepId(draft.id, index);
+      while (knownIds.has(id)) id = `${id}-${index + 1}`;
+      const requestedPaths = [...new Set((draft.targetPaths ?? []).filter(safeTargetPath).map((path) => path.replace(/\\/g, '/').trim()))].slice(0, 12);
+      const targetPaths = requestedPaths.filter((path) => !ownedPaths.has(path));
+      for (const path of targetPaths) ownedPaths.add(path);
+      const dependsOn = [...new Set((draft.dependsOn ?? []).filter((dependency) => knownIds.has(dependency)))];
+      const title = (draft.title ?? '').trim().slice(0, 100) || `Implementation step ${index + 1}`;
+      const objective = (draft.objective ?? '').trim().slice(0, 1000) || mission.objective;
+      const specialist = normalizeSpecialist(draft.specialist);
+      steps.push({ id, title, objective, specialist, status: 'queued', dependsOn, targetPaths, progress: 0 });
+      knownIds.add(id);
+    }
+
+    if (!steps.length) {
+      steps.push({
+        id: 'work-1',
+        title: 'Implement mission',
+        objective: mission.objective,
+        specialist: 'generalist',
+        status: 'queued',
+        dependsOn: [],
+        targetPaths: files.map((file) => file.path).slice(0, 12),
+        progress: 0,
+      });
+    }
+
+    return {
+      summary: (raw.summary ?? '').trim().slice(0, 1200) || `Mission decomposed into ${steps.length} executable work item${steps.length === 1 ? '' : 's'}.`,
+      steps,
+    };
+  }
+
+  async planStepChanges(
+    project: Project,
+    mission: Mission,
+    files: RepositoryFile[],
+    step: MissionStep,
+    handoffContext: string[],
+    signal?: AbortSignal,
+  ): Promise<ChangePlan> {
+    const result = await this.completeJson<ChangePlan>(
+      mission,
+      [
+        `You are Taso's ${step.specialist} specialist worker executing one scoped work item.`,
+        'Return only JSON {"summary":"...","commitMessage":"...","files":[{"path":"...","content":"..."}]}.',
+        'Produce complete replacement file contents, not patches. Work only on the assigned objective and target paths. Preserve existing architecture and contracts. Never emit secrets, .env files, credentials, generated/vendor files, lockfile rewrites or destructive database operations. If a new target path is assigned, you may create it. Keep changes production quality and compatible with handed-off work.',
+      ].join(' '),
+      JSON.stringify({
+        project: { name: project.name, repository: project.repository, defaultBranch: project.defaultBranch, technology: project.technology },
+        missionObjective: mission.objective,
+        workItem: { id: step.id, title: step.title, objective: step.objective, specialist: step.specialist, targetPaths: step.targetPaths },
+        handoffs: handoffContext,
+        files,
+      }),
+      signal,
+    );
+    if (!result.summary?.trim() || !result.commitMessage?.trim() || !Array.isArray(result.files)) throw new Error(`AI specialist ${step.specialist} returned an invalid change plan.`);
+    const allowed = new Set(step.targetPaths);
+    const scopedFiles = result.files
+      .filter((file) => typeof file?.path === 'string' && typeof file?.content === 'string')
+      .filter((file) => !allowed.size || allowed.has(file.path))
+      .slice(0, 20);
+    return {
+      summary: result.summary.trim(),
+      commitMessage: result.commitMessage.trim().slice(0, 120),
+      files: scopedFiles,
+    };
   }
 
   async planChanges(project: Project, mission: Mission, files: RepositoryFile[], signal?: AbortSignal): Promise<ChangePlan> {
