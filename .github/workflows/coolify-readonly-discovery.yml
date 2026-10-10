@@ -35,7 +35,14 @@ jobs:
 
           servers="$(api_get servers)"
           projects="$(api_get projects)"
+          applications="$(api_get applications)"
           services="$(api_get services)"
+          project_uuid="$(jq -r 'if type=="array" then .[] | select(.name=="Tasarlayalim Infra") | .uuid end' <<< "$projects" | head -n 1)"
+          if [ -z "$project_uuid" ]; then
+            echo "::error::Tasarlayalim Infra Coolify project not found"
+            exit 1
+          fi
+          environments="$(api_get "projects/$project_uuid/environments")"
 
           {
             echo "## Coolify resource discovery (read-only)"
@@ -43,6 +50,10 @@ jobs:
             jq -r 'if type=="array" then .[] | "- " + (.name // "unnamed") + " — UUID: " + (.uuid // "n/a") + " — " + (.ip // "IP hidden") else "Unexpected response shape" end' <<< "$servers"
             echo "### Projects"
             jq -r 'if type=="array" then .[] | "- " + (.name // "unnamed") + " — UUID: " + (.uuid // "n/a") else "Unexpected response shape" end' <<< "$projects"
+            echo "### Applications"
+            jq -r 'if type=="array" then .[] | "- " + (.name // "unnamed") + " — UUID: " + (.uuid // "n/a") + " — status: " + (.status // "unknown") + " — branch: " + (.git_branch // "n/a") + " — domain: " + (.fqdn // "none") else "Unexpected response shape" end' <<< "$applications"
+            echo "### Tasarlayalim Infra environments"
+            jq -r 'if type=="array" then .[] | "- " + (.name // "unnamed") + " — UUID: " + (.uuid // "n/a") else "Unexpected response shape" end' <<< "$environments"
             echo "### Existing services"
             jq -r 'if type=="array" then .[] | "- " + (.name // "unnamed") + " — UUID: " + (.uuid // "n/a") + " — status: " + (.status // "unknown") else "Unexpected response shape" end' <<< "$services"
             echo "Read-only Coolify API checks completed. No resources were created or changed."
