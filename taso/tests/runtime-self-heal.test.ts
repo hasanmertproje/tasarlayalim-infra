@@ -98,85 +98,141 @@ function runtimeFailure() {
   });
 }
 
-test('runtime failure is repaired on the same PR, rechecked by CI, and redeployed until healthy', async () => {
-  const { projects, tasks, mission } = setupMission();
-  const checked: string[] = [];
-  const commits: Array<{ branch: string; paths: string[] }> = [];
-  let deployCount = 0;
-  const github = {
-    readiness: () => ({ configured: true }),
-    waitForChecks: async (_repository: string, sha: string) => {
-      checked.push(sha);
-      return 'success' as const;
-    },
-    readFiles: async (_repository: string, branch: string, paths: string[]) => {
-      assert.equal(branch, mission.execution?.branch);
-      assert.deepEqual(paths, ['src/server.ts']);
-      return [{ path: 'src/server.ts', content: '// runtime broken' }];
-    },
-    commitChanges: async (_repository: string, branch: string, changes: Array<{ path: string; content: string }>) => {
-      commits.push({ branch, paths: changes.map((change) => change.path) });
-      return 'runtimefixed001';
+function installFunctionalVerifierMock() {
+  const originalFetch = globalThis.fetch;
+  const previous = {
+    baseUrl: process.env.TASO_PROVIDER_PRIVATE_TEST_BASE_URL,
+    apiKey: process.env.TASO_PROVIDER_PRIVATE_TEST_API_KEY,
+    model: process.env.TASO_PROVIDER_PRIVATE_TEST_MODEL,
+    data: process.env.TASO_PROVIDER_PRIVATE_TEST_DATA,
+  };
+  process.env.TASO_PROVIDER_PRIVATE_TEST_BASE_URL = 'https://ai.example.test';
+  process.env.TASO_PROVIDER_PRIVATE_TEST_API_KEY = 'test-key';
+  process.env.TASO_PROVIDER_PRIVATE_TEST_MODEL = 'test-model';
+  process.env.TASO_PROVIDER_PRIVATE_TEST_DATA = 'private_code';
+  const requests: Array<{ url: string; method: string }> = [];
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+    const method = init?.method ?? 'GET';
+    requests.push({ url, method });
+    if (url === 'https://ai.example.test/chat/completions') {
+      return new Response(JSON.stringify({
+        choices: [{ message: { content: JSON.stringify({
+          checks: [{
+            id: 'root-working',
+            title: 'Preview renders working application',
+            method: 'GET',
+            path: '/',
+            expectedStatuses: [200],
+            mustContain: ['Runtime ready'],
+            mustNotContain: ['Internal Server Error'],
+          }],
+        }) } }],
+      }), { status: 200, headers: { 'content-type': 'application/json' } });
+    }
+    if (url === 'https://preview.example.test/') return new Response('Runtime ready', { status: 200 });
+    throw new Error(`Unexpected fetch: ${method} ${url}`);
+  }) as typeof fetch;
+  return {
+    requests,
+    restore() {
+      globalThis.fetch = originalFetch;
+      if (previous.baseUrl === undefined) delete process.env.TASO_PROVIDER_PRIVATE_TEST_BASE_URL; else process.env.TASO_PROVIDER_PRIVATE_TEST_BASE_URL = previous.baseUrl;
+      if (previous.apiKey === undefined) delete process.env.TASO_PROVIDER_PRIVATE_TEST_API_KEY; else process.env.TASO_PROVIDER_PRIVATE_TEST_API_KEY = previous.apiKey;
+      if (previous.model === undefined) delete process.env.TASO_PROVIDER_PRIVATE_TEST_MODEL; else process.env.TASO_PROVIDER_PRIVATE_TEST_MODEL = previous.model;
+      if (previous.data === undefined) delete process.env.TASO_PROVIDER_PRIVATE_TEST_DATA; else process.env.TASO_PROVIDER_PRIVATE_TEST_DATA = previous.data;
     },
   };
-  const planner = {
-    readiness: () => ({ configured: true, providers: [], legacy: false }),
-    planRuntimeRepair: async (_project: unknown, _mission: Mission, files: Array<{ path: string; content: string }>, diagnostics: { status?: number; bodyPreview?: string }, allowedPaths: string[]) => {
-      assert.equal(diagnostics.status, 500);
-      assert.match(diagnostics.bodyPreview ?? '', /src\/server\.ts/);
-      assert.deepEqual(allowedPaths, ['src/server.ts']);
-      assert.equal(files[0]?.content, '// runtime broken');
-      return {
-        summary: 'Fix runtime boot failure',
-        commitMessage: 'fix: repair preview runtime',
-        files: [{ path: 'src/server.ts', content: '// runtime fixed' }],
-      };
-    },
-  };
-  const coolify = {
-    readiness: () => ({ configured: true }),
-    hasProject: () => true,
-    deploy: async () => {
-      deployCount += 1;
-      if (deployCount === 1) throw runtimeFailure();
-      return {
-        deploymentUuid: 'deploy-healthy',
-        status: 'completed',
-        url: 'https://preview.example.test',
-        runtimeProbe: {
-          healthy: true,
+}
+
+test('runtime failure is repaired on the same PR, rechecked by CI, redeployed, and functionally verified', async () => {
+  const functional = installFunctionalVerifierMock();
+  try {
+    const { projects, tasks, mission } = setupMission();
+    const checked: string[] = [];
+    const commits: Array<{ branch: string; paths: string[] }> = [];
+    let deployCount = 0;
+    const github = {
+      readiness: () => ({ configured: true }),
+      waitForChecks: async (_repository: string, sha: string) => {
+        checked.push(sha);
+        return 'success' as const;
+      },
+      readFiles: async (_repository: string, branch: string, paths: string[]) => {
+        assert.equal(branch, mission.execution?.branch);
+        assert.deepEqual(paths, ['src/server.ts']);
+        return [{ path: 'src/server.ts', content: '// runtime broken' }];
+      },
+      commitChanges: async (_repository: string, branch: string, changes: Array<{ path: string; content: string }>) => {
+        commits.push({ branch, paths: changes.map((change) => change.path) });
+        return 'runtimefixed001';
+      },
+    };
+    const planner = {
+      readiness: () => ({ configured: true, providers: [], legacy: false }),
+      planRuntimeRepair: async (_project: unknown, _mission: Mission, files: Array<{ path: string; content: string }>, diagnostics: { status?: number; bodyPreview?: string }, allowedPaths: string[]) => {
+        assert.equal(diagnostics.status, 500);
+        assert.match(diagnostics.bodyPreview ?? '', /src\/server\.ts/);
+        assert.deepEqual(allowedPaths, ['src/server.ts']);
+        assert.equal(files[0]?.content, '// runtime broken');
+        return {
+          summary: 'Fix runtime boot failure',
+          commitMessage: 'fix: repair preview runtime',
+          files: [{ path: 'src/server.ts', content: '// runtime fixed' }],
+        };
+      },
+    };
+    const coolify = {
+      readiness: () => ({ configured: true }),
+      hasProject: () => true,
+      deploy: async () => {
+        deployCount += 1;
+        if (deployCount === 1) throw runtimeFailure();
+        return {
+          deploymentUuid: 'deploy-healthy',
+          status: 'completed',
           url: 'https://preview.example.test',
-          status: 200,
-          latencyMs: 20,
-          summary: 'Preview responded with HTTP 200.',
-        },
-      };
-    },
-  };
+          runtimeProbe: {
+            healthy: true,
+            url: 'https://preview.example.test',
+            status: 200,
+            latencyMs: 20,
+            summary: 'Preview responded with HTTP 200.',
+          },
+        };
+      },
+    };
 
-  const executor = new RuntimeSelfHealingExecutor(
-    tasks,
-    projects,
-    planner as any,
-    github as any,
-    coolify as any,
-    { runtimeRepairMaxAttempts: 1, ciRepairMaxAttempts: 0 },
-  );
-  const completed = await executor.execute(mission.id);
+    const executor = new RuntimeSelfHealingExecutor(
+      tasks,
+      projects,
+      planner as any,
+      github as any,
+      coolify as any,
+      { runtimeRepairMaxAttempts: 1, ciRepairMaxAttempts: 0 },
+    );
+    const completed = await executor.execute(mission.id);
 
-  assert.equal(completed.status, 'preview_ready');
-  assert.deepEqual(checked, ['runtimebroken001', 'runtimefixed001']);
-  assert.equal(deployCount, 2);
-  assert.equal(commits.length, 1);
-  assert.equal(commits[0]?.branch, mission.execution?.branch);
-  assert.deepEqual(commits[0]?.paths, ['src/server.ts']);
-  assert.equal(completed.execution?.commitSha, 'runtimefixed001');
-  assert.equal(completed.execution?.runtimeRepairAttempts, 1);
-  assert.equal(completed.execution?.maxRuntimeRepairAttempts, 1);
-  assert.equal(completed.execution?.workspaceCheckpoint?.files[0]?.content, '// runtime fixed');
-  assert.equal(completed.execution?.previewDeploymentUuid, 'deploy-healthy');
-  assert.ok((completed.execution?.artifacts ?? []).some((artifact) => artifact.type === 'runtime-diagnostic'));
-  assert.ok((completed.execution?.artifacts ?? []).some((artifact) => artifact.type === 'runtime-repair-commit'));
+    assert.equal(completed.status, 'preview_ready');
+    assert.deepEqual(checked, ['runtimebroken001', 'runtimefixed001']);
+    assert.equal(deployCount, 2);
+    assert.equal(commits.length, 1);
+    assert.equal(commits[0]?.branch, mission.execution?.branch);
+    assert.deepEqual(commits[0]?.paths, ['src/server.ts']);
+    assert.equal(completed.execution?.commitSha, 'runtimefixed001');
+    assert.equal(completed.execution?.runtimeRepairAttempts, 1);
+    assert.equal(completed.execution?.maxRuntimeRepairAttempts, 1);
+    assert.equal(completed.execution?.workspaceCheckpoint?.files[0]?.content, '// runtime fixed');
+    assert.equal(completed.execution?.previewDeploymentUuid, 'deploy-healthy');
+    assert.equal(completed.execution?.functionalChecksPlanned, 1);
+    assert.equal(completed.execution?.functionalChecksPassed, 1);
+    assert.ok((completed.execution?.artifacts ?? []).some((artifact) => artifact.type === 'runtime-diagnostic'));
+    assert.ok((completed.execution?.artifacts ?? []).some((artifact) => artifact.type === 'runtime-repair-commit'));
+    assert.ok((completed.execution?.artifacts ?? []).some((artifact) => artifact.type === 'functional-verification'));
+    assert.deepEqual(functional.requests.map((request) => request.method), ['POST', 'GET']);
+  } finally {
+    functional.restore();
+  }
 });
 
 test('runtime self-heal fails closed without changing code when repair budget is zero', async () => {

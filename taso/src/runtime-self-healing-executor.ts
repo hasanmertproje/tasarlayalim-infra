@@ -1,6 +1,7 @@
 import type { ChangePlan } from './agent-planner.js';
 import { CoolifyTools, PreviewRuntimeError, type PreviewRuntimeProbe } from './coolify-tools.js';
 import { createId, nowIso, type Mission, type MissionArtifact, type Project } from './domain.js';
+import { FunctionalVerifier, type FunctionalVerificationReport } from './functional-verifier.js';
 import { GitHubTools } from './github-tools.js';
 import { MissionExecutor, type MissionExecutorOptions } from './mission-executor.js';
 import { MultiProviderPlanner } from './multi-provider-planner.js';
@@ -64,6 +65,7 @@ export class RuntimeSelfHealingExecutor extends MissionExecutor {
     return {
       ...super.readiness(),
       maxRuntimeRepairAttempts: this.maxRuntimeRepairAttempts,
+      functionalVerification: true,
     };
   }
 
@@ -123,9 +125,10 @@ export class RuntimeSelfHealingExecutor extends MissionExecutor {
     progress: number,
     work: (runId: string) => Promise<T>,
   ): Promise<T> {
-    const run = this.runtimeTasks.startAgent(mission.id, 'builder', action, progress);
+    const role = label === 'Functional Verification Agent' ? 'verifier' : 'builder';
+    const run = this.runtimeTasks.startAgent(mission.id, role, action, progress);
     run.label = label;
-    run.specialist = label === 'Runtime Repair Engineer' ? 'qa' : 'repository-publisher';
+    run.specialist = label === 'Runtime Repair Publisher' ? 'repository-publisher' : 'qa';
     this.runtimeTasks.noteMission(mission.id, `${label} assigned.`, { agentRunId: run.id, specialist: run.specialist });
     try {
       const result = await work(run.id);
@@ -249,14 +252,125 @@ export class RuntimeSelfHealingExecutor extends MissionExecutor {
       blockedReason: 'Runtime repair staged for verification retry.',
       lastFailure: diagnostics.summary,
     });
-    const queued = this.runtimeTasks.retryMission(mission.id);
-    return queued;
+    return this.runtimeTasks.retryMission(mission.id);
+  }
+
+  private reopenForFunctionalVerification(mission: Mission) {
+    mission.status = 'testing';
+    mission.updatedAt = nowIso();
+    mission.execution = {
+      ...(mission.execution ?? {}),
+      progressPercent: 96,
+      currentAction: 'Preview is healthy. Functional Verification Agent is validating mission acceptance criteria.',
+      activeAgentRole: 'verifier',
+      blockedReason: undefined,
+    };
+    this.runtimeTasks.noteMission(mission.id, 'Healthy preview entered functional acceptance verification.', {
+      previewUrl: mission.execution.previewUrl,
+      commitSha: mission.execution.commitSha,
+    });
+  }
+
+  private functionalFailureProbe(report: FunctionalVerificationReport, previewUrl: string): PreviewRuntimeProbe {
+    const failed = report.checks.find((result) => !result.passed);
+    return {
+      healthy: false,
+      url: failed?.url ?? previewUrl,
+      status: failed?.status,
+      latencyMs: failed?.latencyMs ?? 0,
+      summary: `Functional acceptance failure: ${report.summary}`.slice(0, 1200),
+      bodyPreview: failed?.bodyPreview,
+    };
+  }
+
+  private async verifyFunctionalPreview(project: Project, mission: Mission): Promise<Mission> {
+    const previewUrl = mission.execution?.previewUrl;
+    if (!previewUrl) return mission;
+    this.reopenForFunctionalVerification(mission);
+    const verifier = FunctionalVerifier.fromMission(mission);
+    if (!verifier) {
+      const reason = 'Functional verification requires an eligible configured AI provider; preview readiness was not accepted without mission-level acceptance checks.';
+      return this.runtimeTasks.transitionMission(mission.id, 'failed', reason, undefined, {
+        blockedReason: reason,
+        lastFailure: reason,
+        lastFunctionalFailureSummary: reason,
+      });
+    }
+
+    const report = await this.runRuntimeAgent(
+      mission,
+      'Functional Verification Agent',
+      'Deriving and executing read-only acceptance checks against the isolated preview.',
+      96,
+      async (runId) => {
+        const next = await verifier.verify(project, mission, previewUrl);
+        this.runtimeTasks.updateAgent(
+          mission.id,
+          runId,
+          `Functional acceptance: ${next.passedCount}/${next.planned} check(s) passed.`,
+          99,
+          next.summary,
+        );
+        return next;
+      },
+    );
+
+    this.patchRuntimeExecution(mission, {
+      ...(mission.execution ?? {}),
+      functionalChecksPlanned: report.planned,
+      functionalChecksPassed: report.passedCount,
+      lastFunctionalFailureSummary: report.passed ? undefined : report.summary,
+    });
+    this.addRuntimeArtifact(mission, {
+      type: report.passed ? 'functional-verification' : 'functional-diagnostic',
+      label: report.passed ? 'Functional acceptance verified' : 'Functional acceptance failed',
+      url: previewUrl,
+      summary: report.summary,
+    });
+
+    for (const result of report.checks) {
+      this.runtimeTasks.noteMission(mission.id, result.summary, {
+        functionalCheckId: result.check.id,
+        method: result.check.method,
+        path: result.check.path,
+        passed: result.passed,
+        status: result.status,
+        latencyMs: result.latencyMs,
+      });
+    }
+
+    if (!report.passed) {
+      throw new PreviewRuntimeError({
+        deploymentUuid: mission.execution?.previewDeploymentUuid ?? 'functional-verification',
+        deploymentAttempts: 1,
+        probe: this.functionalFailureProbe(report, previewUrl),
+      });
+    }
+
+    return this.runtimeTasks.transitionMission(
+      mission.id,
+      'preview_ready',
+      `Preview runtime is healthy and ${report.passedCount}/${report.planned} functional acceptance check(s) passed.`,
+      { functionalChecksPassed: report.passedCount, functionalChecksPlanned: report.planned },
+      {
+        progressPercent: 100,
+        activeAgentRole: undefined,
+        currentAction: 'Mission acceptance criteria verified on the isolated preview.',
+        functionalChecksPlanned: report.planned,
+        functionalChecksPassed: report.passedCount,
+        lastFunctionalFailureSummary: undefined,
+      },
+    );
   }
 
   override async execute(id: string): Promise<Mission> {
     while (true) {
       try {
-        return await super.execute(id);
+        const result = await super.execute(id);
+        if (result.status !== 'preview_ready') return result;
+        const project = this.runtimeProjects.get(result.projectId);
+        if (!project) return result;
+        return await this.verifyFunctionalPreview(project, result);
       } catch (error) {
         if (!(error instanceof PreviewRuntimeError)) throw error;
         const mission = this.runtimeTasks.getMission(id);
