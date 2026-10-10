@@ -1,5 +1,6 @@
 import http from 'node:http';
 import { chromium } from 'playwright';
+import { validateTarget } from './security.mjs';
 
 const port = Number(process.env.PORT || 3100);
 const secret = process.env.TASO_BROWSER_WORKER_SECRET || '';
@@ -15,15 +16,6 @@ function json(res, code, body) {
 function authorized(req) {
   if (!secret) return false;
   return req.headers.authorization === `Bearer ${secret}`;
-}
-
-function parseTarget(raw) {
-  const url = new URL(raw);
-  if (!['http:', 'https:'].includes(url.protocol)) throw new Error('Only http/https targets are allowed.');
-  if (url.username || url.password) throw new Error('URL credentials are not allowed.');
-  const host = url.hostname.toLowerCase();
-  if (!allowHosts.has(host)) throw new Error(`Host is not allowlisted: ${host}`);
-  return url;
 }
 
 async function readBody(req) {
@@ -50,8 +42,17 @@ async function runOne(browser, target, viewportName, theme, actions = []) {
     deviceScaleFactor: viewport.deviceScaleFactor,
     colorScheme: theme === 'light' ? 'light' : 'dark',
     ignoreHTTPSErrors: false,
+    serviceWorkers: 'block',
   });
   const page = await context.newPage();
+  await page.route('**/*', async (route) => {
+    try {
+      await validateTarget(route.request().url(), allowHosts);
+      await route.continue();
+    } catch {
+      await route.abort('blockedbyclient');
+    }
+  });
   const consoleEntries = [];
   const requestFailures = [];
   const pageErrors = [];
@@ -150,7 +151,7 @@ async function runOne(browser, target, viewportName, theme, actions = []) {
 }
 
 async function execute(body) {
-  const target = parseTarget(String(body?.url || ''));
+  const target = await validateTarget(String(body?.url || ''), allowHosts);
   const requestedViewports = Array.isArray(body?.viewports) ? body.viewports.filter((v) => ['desktop', 'mobile'].includes(v)) : ['desktop', 'mobile'];
   const requestedThemes = Array.isArray(body?.themes) ? body.themes.filter((v) => ['dark', 'light'].includes(v)) : ['dark', 'light'];
   const actions = Array.isArray(body?.actions) ? body.actions : [];
