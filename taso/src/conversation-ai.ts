@@ -6,12 +6,14 @@ import { tasoCharacterInstructions } from './taso-character.js';
 import { fetchPublic, researchStatus, searchWeb } from './web-research.js';
 
 export type ConversationTurn = { role:'user'|'assistant'; content:string };
+export type ConversationEvidence = { mode:'ai'|'system'|'unavailable'; sources:Array<{title:string;url:string}> };
 export type ConversationRuntimeContext = {
   activeMission?:{id:string;objective:string;status:string};
   recentMissions?:Array<{objective:string;status:string}>;
   userId?:string;
   userName?:string;
   userEmail?:string;
+  webSearch?:boolean;
 };
 type RuntimeConversationProvider = { id:string;baseUrl:string;apiKey:string;model:string };
 function envPrefix(id:string){return `TASO_PROVIDER_${id.toUpperCase().replace(/-/g,'_')}`}
@@ -19,7 +21,7 @@ function runtimeProvider(id:string):RuntimeConversationProvider|undefined{const 
 function normalized(input:string){return input.trim().toLocaleLowerCase('tr-TR')}
 function isRuntimeStatusQuestion(input:string){return /\b(sistem durumu|sistem ne durumda|sistem nasıl|core durumu|core ne durumda|durum ne|son durum|hangi aşama|ne yapıyorsun|status|health|agent durumu|agentlar|servisler)\b/i.test(normalized(input))}
 function isWebCapabilityQuestion(input:string){return /(web|internet).*(eriş|ara|okuy|bağlan)|internete.*(eriş|bağlan)|web erişimin/i.test(normalized(input))}
-function wantsWebSearch(input:string){return /\b(webde ara|internette ara|internetten araştır|web araştır|araştır ve bul|güncel olarak araştır|güncel bilgiyi bul|güncel bilgi|son gelişmeler|bugün ne oldu|haberleri ara|internetten bak)\b/i.test(normalized(input))}
+export function wantsWebSearch(input:string){return /(?:^|[^\p{L}\p{N}_])(webde ara|internette ara|internetten araştır|web araştır|araştır ve bul|güncel|son gelişmeler|bugün|haberleri ara|internetten bak|şu an|hava durumu|döviz kuru|kaç tl)(?=$|[^\p{L}\p{N}_])/iu.test(normalized(input))}
 function isCreatorQuestion(input:string){return /\b(seni kim yaptı|seni kim geliştirdi|kim tarafından geliştirildin|yaratıcın kim)\b/i.test(normalized(input))}
 function isFounderQuestion(input:string){return /\b(tasarlayalım.*kurucu|tasarlayalim.*kurucu|kurucusu kim|tasarlayalım.*kim kurdu|tasarlayalim.*kim kurdu)\b/i.test(normalized(input))}
 function isSelfIdentityQuestion(input:string){return /\b(sen kimsin|sen nesin|kendinden bahset|taso kimsin|taso nedir)\b/i.test(normalized(input))}
@@ -27,12 +29,14 @@ function isUserIdentityQuestion(input:string){return /\b(ben kimim|beni tanıyor
 function extractUrls(input:string){return [...new Set(input.match(/https?:\/\/[^\s<>()"']+/gi)??[])].slice(0,4)}
 function deterministicStatus(project:Project,runtime:ConversationRuntimeContext){if(runtime.activeMission)return `Core çevrimiçi. ${project.name} için aktif mission ${runtime.activeMission.status} aşamasında: ${runtime.activeMission.objective}`;const recent=runtime.recentMissions?.[0];return recent?`Core çevrimiçi. Aktif mission yok. Son mission ${recent.status}: ${recent.objective}`:'Core çevrimiçi. Aktif mission yok. Sistem boşta ve seni dinliyorum.'}
 
-async function webContext(input:string){
+async function webContext(input:string,forceSearch=false){
   const sources:Array<{title:string;url:string;text:string}>=[];
   for(const url of extractUrls(input)){
-    try{const doc=await fetchPublic(url);sources.push({title:doc.title||new URL(doc.finalUrl).hostname,url:doc.finalUrl,text:doc.text.slice(0,12000)})}catch(error){sources.push({title:'Kaynak okunamadı',url,text:`Hata: ${(error as Error).message}`})}
+    const doc=await fetchPublic(url);
+    if(doc.status<200||doc.status>=300)throw new Error('Web kaynağı okunamadı.');
+    sources.push({title:doc.title||new URL(doc.finalUrl).hostname,url:doc.finalUrl,text:doc.text.slice(0,12000)});
   }
-  if(wantsWebSearch(input)&&researchStatus().searchReady){
+  if((forceSearch||wantsWebSearch(input))&&researchStatus().searchReady){
     const results=await searchWeb(input,6);
     for(const result of results.slice(0,6)) sources.push({title:result.title,url:result.url,text:result.snippet||''});
   }
@@ -44,7 +48,14 @@ export class ConversationAi{
   private select(dataClass:DataClass='private_code'){const eligible=this.router.route({dataClass,paidAi:false,preferFree:true});for(const provider of eligible){const runtime=runtimeProvider(provider.id);if(runtime)return runtime}return undefined}
   status(){const provider=this.select('private_code');return provider?{configured:true,provider:provider.id,model:provider.model,dataClass:'private_code' as const}:{configured:false,dataClass:'private_code' as const}}
 
-  async reply(project:Project,turns:ConversationTurn[],input:string,runtime:ConversationRuntimeContext={}):Promise<string>{
+  async reply(project:Project,turns:ConversationTurn[],input:string,runtime:ConversationRuntimeContext={}):Promise<string>{return (await this.replyDetailed(project,turns,input,runtime)).content}
+  async replyDetailed(project:Project,turns:ConversationTurn[],input:string,runtime:ConversationRuntimeContext={}){
+    const evidence:ConversationEvidence={mode:'system',sources:[]};
+    const content=await this.generate(project,turns,input,runtime,evidence);
+    return{content,...evidence};
+  }
+  private async generate(project:Project,turns:ConversationTurn[],input:string,runtime:ConversationRuntimeContext,evidence:ConversationEvidence):Promise<string>{
+    const unavailable=(message:string)=>{evidence.mode='unavailable';return message};
     const requestIdentity=currentRequestIdentity();
     const userId=runtime.userId||requestIdentity.userId||'user_owner';
     const userName=runtime.userName||requestIdentity.userName;
@@ -58,17 +69,19 @@ export class ConversationAi{
       const name=personal.user.preferredName||userName||userEmail;
       return name?`Evet. Seni ${name} olarak tanıyorum. Profil ve konuşma tercihlerini de bu kimlikle ilişkilendiriyorum.`:'Seni oturum kimliğin üzerinden ayırt edebiliyorum ama henüz bana kullanmamı istediğin bir isim vermedin.';
     }
-    if(isWebCapabilityQuestion(input)){
+    if(isWebCapabilityQuestion(input)&&!runtime.webSearch&&!wantsWebSearch(input)&&/erişim|erişimin|erişebiliyor|bağlanabiliyor|yapabiliyor/.test(normalized(input))){
       const status=researchStatus();
       return status.searchReady
         ? 'Evet. Public web sayfalarını okuyabiliyorum ve genel web araması da aktif. Araştırma yaptığımda kaynakları ayrı veri olarak değerlendiriyorum.'
         : 'Public web URL’lerini doğrudan okuyabiliyorum. Genel web araması için arama servisi henüz bağlı değil; URL okuma aktif, anahtar kelime araması ise hazır değil.';
     }
+    if((runtime.webSearch||wantsWebSearch(input))&&!researchStatus().searchReady)return unavailable('Bu soruyu web üzerinden doğrulamam gerekiyor; arama servisi henüz bağlı değil. Kaynak URL’si gönderirsen sayfayı okuyabilirim.');
     const provider=this.select('private_code');
     if(!provider)throw new Error('No policy-approved conversational AI provider is configured for private workspace context.');
     const runtimeSummary=JSON.stringify({activeMission:runtime.activeMission??null,recentMissions:runtime.recentMissions?.slice(0,5)??[]});
     let sources:Array<{title:string;url:string;text:string}>=[];
-    try{sources=await webContext(input)}catch{sources=[]}
+    try{sources=await webContext(input,runtime.webSearch)}catch{return unavailable('Web araması şu anda tamamlanamadı. Biraz sonra tekrar deneyebilir veya kaynak bağlantısını gönderebilirsin.')}
+    if((runtime.webSearch||wantsWebSearch(input))&&!sources.length)return unavailable('Web araması tamamlandı ancak bu sorgu için kaynak bulunamadı. Soruyu daha belirgin yazabilir veya bir kaynak bağlantısı gönderebilirsin.');
     const sourceContext=sources.length?JSON.stringify(sources):'[]';
     const searchState=researchStatus();
     const response=await fetch(`${provider.baseUrl}/chat/completions`,{
@@ -87,7 +100,9 @@ export class ConversationAi{
         sources.length?'Web araştırması kullandıysan cevabın sonunda kısa Kaynaklar satırında yalnız gerçekten kullanılan URL’leri belirt.':'Web kaynağı kullanılmadı.',
         `Aktif proje: ${project.name}`,`Repository: ${project.repository}`,`Runtime bağlamı: ${runtimeSummary}`,`Web araştırma bağlamı: ${sourceContext}`,
       ].join('\n')},...turns.slice(-16),{role:'user',content:input}]}),signal:AbortSignal.timeout(60_000)});
-    if(!response.ok)throw new Error(`Conversation provider failed with HTTP ${response.status}: ${(await response.text()).slice(0,300)}`);
-    const payload=await response.json() as {choices?:Array<{message?:{content?:string}}>};const content=payload.choices?.[0]?.message?.content?.trim();if(!content)throw new Error('Conversation provider returned an empty response.');return content;
+    if(!response.ok)throw new Error(`Conversation provider failed with HTTP ${response.status}.`);
+    const payload=await response.json() as {choices?:Array<{message?:{content?:string}}>};const content=payload.choices?.[0]?.message?.content?.trim();if(!content)throw new Error('Conversation provider returned an empty response.');
+    evidence.mode='ai';evidence.sources=sources.map(({title,url})=>({title,url}));return content;
   }
 }
+

@@ -39,11 +39,15 @@ test('casual conversation does not create a mission', async () => {
       url: '/v1/conversations/messages',
       payload: { projectId, text: 'Hey emo şu anda nasılsın' },
     });
-    assert.equal(response.statusCode, 201);
+    assert.equal(response.statusCode, 503);
     const payload = response.json();
     assert.equal(payload.decision.intent, 'CHAT');
     assert.equal(payload.decision.executionRequested, false);
     assert.equal(payload.suggestedMission, undefined);
+    assert.equal(payload.assistantMessage.replyMode, 'unavailable');
+    assert.match(payload.error, /yapılandırılmamış/);
+    const history = await app.inject({method:'GET',url:`/v1/conversations?projectId=${projectId}`});
+    assert.equal(history.json().messages.at(-1).replyMode, 'unavailable');
 
     const afterResponse = await app.inject({ method: 'GET', url: '/v1/missions' });
     assert.equal(afterResponse.json().missions.length, beforeCount);
@@ -114,3 +118,4 @@ test('execution language returns a proposal without creating a mission', async (
     restore();
   }
 });
+

@@ -1,6 +1,6 @@
 import Fastify from 'fastify';
 import { bootstrapProjects } from './bootstrap-projects.js';
-import { ConversationAi } from './conversation-ai.js';
+import { ConversationAi, type ConversationEvidence } from './conversation-ai.js';
 import { classifyConversationIntent, ConversationStore } from './conversation.js';
 import type { DataClass, RiskLevel } from './domain.js';
 import { MissionEventStore } from './mission-events.js';
@@ -40,6 +40,7 @@ interface CreateMissionBody {
 }
 
 interface ConversationBody {
+  webSearch?: boolean;
   projectId?: string;
   text?: string;
 }
@@ -130,9 +131,10 @@ export function buildServer() {
   }));
 
   app.post<{ Body: ConversationBody }>('/v1/conversations/messages', async (request, reply) => {
-    const projectId = request.body?.projectId?.trim();
-    const text = request.body?.text?.trim();
+    const projectId = typeof request.body?.projectId==='string'?request.body.projectId.trim():'';
+    const text = typeof request.body?.text==='string'?request.body.text.trim():'';
     if (!projectId || !text) return reply.code(400).send({ error: 'projectId and text are required.' });
+    if(text.length>16000)return reply.code(400).send({error:'Mesaj en fazla 16000 karakter olabilir.'});
     const project = projects.get(projectId);
     if (!project) return reply.code(404).send({ error: 'Project not found.' });
 
@@ -147,22 +149,27 @@ export function buildServer() {
     const active = projectMissions.find((mission) => !['completed', 'failed', 'cancelled'].includes(mission.status));
 
     let content: string;
+    let evidence: ConversationEvidence = {mode:'system',sources:[]};
     try {
-      content = await conversationAi.reply(project, previousTurns, text, {
+      const result = await conversationAi.replyDetailed(project, previousTurns, text, {
+        webSearch: request.body.webSearch === true,
         activeMission: active ? { id: active.id, objective: active.objective, status: active.status } : undefined,
         recentMissions: projectMissions.slice(0, 5).map((mission) => ({ objective: mission.objective, status: mission.status })),
       });
+      content = result.content;
+      evidence = result;
     } catch (error) {
       if (decision.intent === 'STATUS') {
         content = active
           ? `${project.name} için aktif görev ${active.status} aşamasında: ${active.objective}`
           : `${project.name} için şu anda aktif görev yok.`;
-      } else if (decision.intent === 'CHAT') {
-        content = `Buradayım. ${project.name} workspace'i açık. Sohbet edebiliriz; bir işlem yapmamı istersen önce sana ayrı bir mission önerisi göstereceğim.`;
       } else if (decision.executionRequested) {
         content = `Bu istek yürütme gerektiriyor. ${decision.suggestedRisk ?? 'READ'} sınırıyla bir mission önerebilirim; sen ayrıca onaylamadan hiçbir repository işlemi başlamaz.`;
       } else {
-        content = `Mesajını aldım ancak conversational AI şu anda yanıt üretemedi: ${(error as Error).message}`;
+        evidence.mode = 'unavailable';
+        content = conversationAi.status().configured
+          ? 'AI hizmetinden yanıt alınamadı. Biraz sonra tekrar deneyebilirsin. Mesajın sohbet geçmişine kaydedildi.'
+          : 'AI sohbet hizmeti yapılandırılmamış. Yönetici bir AI sağlayıcısını bağlamalı. Mesajın sohbet geçmişine kaydedildi.';
       }
     }
 
@@ -171,9 +178,12 @@ export function buildServer() {
       role: 'assistant',
       content,
       intent: decision.intent,
+      replyMode: evidence.mode,
+      sources: evidence.sources,
     });
 
-    return reply.code(201).send({
+    return reply.code(evidence.mode==='unavailable'?503:201).send({
+      error: evidence.mode==='unavailable'?content:undefined,
       decision,
       userMessage,
       assistantMessage,
@@ -346,3 +356,4 @@ export function buildServer() {
 
   return app;
 }
+
