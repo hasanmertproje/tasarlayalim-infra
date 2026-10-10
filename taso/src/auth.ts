@@ -1,8 +1,10 @@
 import { createHash, createHmac, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { AuthSecurityStore } from './auth-security.js';
+import { IdentityStore, type TasoUser } from './identity-store.js';
 
 type SessionRecord = {
+  userId: string;
   email: string;
   createdAt: number;
   expiresAt: number;
@@ -20,6 +22,7 @@ type LoginAttempt = {
 type TwoFactorChallenge = {
   id: string;
   kind: 'setup' | 'verify';
+  userId: string;
   email: string;
   createdAt: number;
   expiresAt: number;
@@ -30,10 +33,12 @@ type TwoFactorChallenge = {
 export type AuthStatus = {
   configured: boolean;
   authenticated: boolean;
+  userId?: string;
   email?: string;
   expiresAt?: string;
   twoFactorEnabled?: boolean;
   trustedDevice?: boolean;
+  passwordChangeRequired?: boolean;
 };
 
 const SESSION_COOKIE = 'taso_session';
@@ -86,7 +91,7 @@ function parseScryptHash(value: string) {
   }
 }
 
-function verifyPassword(password: string, configuredHash: string | undefined) {
+function verifyOwnerPassword(password: string, configuredHash: string | undefined) {
   const parsed = configuredHash ? parseScryptHash(configuredHash) : null;
   if (parsed) {
     const candidate = scryptSync(password, parsed.salt, parsed.hash.length);
@@ -192,34 +197,47 @@ export class AuthService {
   private readonly sessions = new Map<string, SessionRecord>();
   private readonly attempts = new Map<string, LoginAttempt>();
   private readonly challenges = new Map<string, TwoFactorChallenge>();
-  private readonly email = normalizeEmail(process.env.TASO_OWNER_EMAIL);
-  private readonly passwordHash = process.env.TASO_OWNER_PASSWORD_HASH?.trim();
+  private readonly ownerEmail = normalizeEmail(process.env.TASO_OWNER_EMAIL);
+  private readonly ownerPasswordHash = process.env.TASO_OWNER_PASSWORD_HASH?.trim();
   private readonly ttlMs = Math.max(5 * 60 * 1000, Number(process.env.TASO_SESSION_TTL_MS) || DEFAULT_TTL_MS);
-  readonly security = new AuthSecurityStore();
+  readonly security = new AuthSecurityStore('user_owner');
+
+  constructor(readonly identities = new IdentityStore(process.env.TASO_OWNER_EMAIL || '')) {}
 
   configured() {
-    const hasPassword = Boolean(this.passwordHash) || Boolean(process.env.TASO_OWNER_PASSWORD && (process.env.NODE_ENV !== 'production' || process.env.TASO_AUTH_ALLOW_INSECURE_BOOTSTRAP === '1'));
-    return Boolean(this.email && hasPassword);
+    const insecureBootstrapAllowed = process.env.NODE_ENV !== 'production' || process.env.TASO_AUTH_ALLOW_INSECURE_BOOTSTRAP === '1';
+    const ownerConfigured = Boolean(this.ownerEmail && (this.ownerPasswordHash || (insecureBootstrapAllowed && process.env.TASO_OWNER_PASSWORD)));
+    const userConfigured = this.identities.listUsers().some((user) => !user.owner && user.active && user.passwordConfigured);
+    return ownerConfigured || userConfigured;
   }
 
   status(request: FastifyRequest): AuthStatus {
     if (!this.configured()) return { configured: false, authenticated: false };
     const session = this.getSession(request);
-    const trusted = this.getTrustedDevice(request);
-    if (!session) return {
-      configured: true,
-      authenticated: false,
-      twoFactorEnabled: this.security.hasTotp(),
-      trustedDevice: Boolean(trusted),
-    };
+    if (!session) return { configured: true, authenticated: false };
+    const user = this.identities.getUserById(session.userId);
+    if (!user || !user.active) {
+      this.revokeUserSessions(session.userId);
+      return { configured: true, authenticated: false };
+    }
+    const trusted = this.getTrustedDevice(request, user.id);
     return {
       configured: true,
       authenticated: true,
-      email: session.email,
+      userId: user.id,
+      email: user.email,
       expiresAt: new Date(session.expiresAt).toISOString(),
-      twoFactorEnabled: this.security.hasTotp(),
+      twoFactorEnabled: this.security.hasTotp(user.id),
       trustedDevice: Boolean(trusted),
+      passwordChangeRequired: user.passwordChangeRequired,
     };
+  }
+
+  currentUser(request: FastifyRequest) {
+    const session = this.getSession(request);
+    if (!session) return undefined;
+    const user = this.identities.getUserById(session.userId);
+    return user?.active ? user : undefined;
   }
 
   login(request: FastifyRequest, reply: FastifyReply, emailRaw: string | undefined, password: string | undefined) {
@@ -236,9 +254,15 @@ export class AuthService {
     }
     if (attempt && now - attempt.firstFailureAt > ATTEMPT_WINDOW_MS) this.attempts.delete(key);
 
-    const passwordOk = typeof password === 'string' && verifyPassword(password, this.passwordHash);
-    const valid = email === this.email && passwordOk;
-    if (!valid) {
+    const user = this.identities.getUserByEmail(email);
+    const suppliedPassword = typeof password === 'string' ? password : '';
+    const passwordOk = Boolean(user && user.active && suppliedPassword && (
+      user.owner
+        ? email === this.ownerEmail && verifyOwnerPassword(suppliedPassword, this.ownerPasswordHash)
+        : this.identities.verifyCredential(user.id, suppliedPassword)
+    ));
+
+    if (!user || !user.active || !passwordOk) {
       const current = this.attempts.get(key);
       const next: LoginAttempt = current && now - current.firstFailureAt <= ATTEMPT_WINDOW_MS
         ? { ...current, failures: current.failures + 1 }
@@ -252,23 +276,23 @@ export class AuthService {
     this.attempts.delete(key);
     this.cleanupChallenges();
 
-    const trusted = this.getTrustedDevice(request);
-    if (this.security.hasTotp() && trusted) {
-      request.log.info({ event: 'auth.trusted_device_used', deviceId: trusted.id, email: this.email }, 'Trusted device skipped TOTP');
-      return this.issueSession(request, reply);
+    const trusted = this.getTrustedDevice(request, user.id);
+    if (this.security.hasTotp(user.id) && trusted) {
+      request.log.info({ event: 'auth.trusted_device_used', userId: user.id, deviceId: trusted.id, email: user.email }, 'Trusted device skipped TOTP');
+      return this.issueSession(user, request, reply).send();
     }
 
     if (!this.security.encryptionReady()) {
       return reply.code(503).send({ error: 'Taso 2FA encryption key is not configured.' });
     }
 
-    if (!this.security.hasTotp()) {
+    if (!this.security.hasTotp(user.id)) {
       const secret = base32Encode(randomBytes(20));
-      const challenge = this.createChallenge('setup', secret);
+      const challenge = this.createChallenge(user, 'setup', secret);
       const issuer = encodeURIComponent('Taso');
-      const account = encodeURIComponent(this.email);
+      const account = encodeURIComponent(user.email);
       const otpauthUri = `otpauth://totp/${issuer}:${account}?secret=${secret}&issuer=${issuer}&algorithm=SHA1&digits=6&period=30`;
-      request.log.info({ event: 'auth.totp_enrollment_required', email: this.email }, 'TOTP enrollment required');
+      request.log.info({ event: 'auth.totp_enrollment_required', userId: user.id, email: user.email }, 'TOTP enrollment required');
       return reply.send({
         authenticated: false,
         requiresTwoFactorSetup: true,
@@ -278,7 +302,7 @@ export class AuthService {
       });
     }
 
-    const challenge = this.createChallenge('verify');
+    const challenge = this.createChallenge(user, 'verify');
     return reply.send({ authenticated: false, requiresTwoFactor: true, challengeId: challenge.id });
   }
 
@@ -287,6 +311,8 @@ export class AuthService {
     if (!challenge || challenge.kind !== 'setup' || !challenge.setupSecret || challenge.expiresAt <= Date.now()) {
       return reply.code(401).send({ error: '2FA setup challenge expired. Please sign in again.' });
     }
+    const user = this.identities.getUserById(challenge.userId);
+    if (!user || !user.active) return reply.code(403).send({ error: 'Account is disabled or no longer exists.' });
     challenge.attempts += 1;
     if (challenge.attempts > 5) {
       this.challenges.delete(challenge.id);
@@ -296,17 +322,14 @@ export class AuthService {
       return reply.code(401).send({ error: 'Authenticator kodu doğrulanamadı.' });
     }
 
-    this.security.setTotpSecret(challenge.setupSecret);
+    this.security.setTotpSecret(user.id, challenge.setupSecret);
     const recoveryCodes = createRecoveryCodes();
-    this.security.setRecoveryCodes(recoveryCodes);
+    this.security.setRecoveryCodes(user.id, recoveryCodes);
     this.challenges.delete(challenge.id);
-    const trusted = this.issueTrustedDevice(request, reply, input.deviceName);
-    const session = this.issueSession(request, reply, [trusted.cookie]);
-    request.log.info({ event: 'auth.totp_enabled', email: this.email, deviceId: trusted.record.id }, 'TOTP enabled and device trusted');
+    const trusted = this.issueTrustedDevice(user, request, input.deviceName);
+    const session = this.issueSession(user, request, reply, [trusted.cookie]);
+    request.log.info({ event: 'auth.totp_enabled', userId: user.id, email: user.email, deviceId: trusted.record.id }, 'TOTP enabled and device trusted');
     return session.send({
-      authenticated: true,
-      email: this.email,
-      expiresAt: session.expiresAt,
       recoveryCodes,
       trustedDevice: true,
     });
@@ -317,59 +340,100 @@ export class AuthService {
     if (!challenge || challenge.kind !== 'verify' || challenge.expiresAt <= Date.now()) {
       return reply.code(401).send({ error: '2FA challenge expired. Please sign in again.' });
     }
+    const user = this.identities.getUserById(challenge.userId);
+    if (!user || !user.active) return reply.code(403).send({ error: 'Account is disabled or no longer exists.' });
     challenge.attempts += 1;
     if (challenge.attempts > 5) {
       this.challenges.delete(challenge.id);
       return reply.code(429).send({ error: 'Too many invalid Authenticator codes.' });
     }
     const code = input.code?.trim() || '';
-    const secret = this.security.getTotpSecret();
+    const secret = this.security.getTotpSecret(user.id);
     const totpOk = Boolean(secret && verifyTotp(secret, code));
-    const recoveryOk = !totpOk && code.length >= 10 && this.security.consumeRecoveryCode(code);
+    const recoveryOk = !totpOk && code.length >= 10 && this.security.consumeRecoveryCode(user.id, code);
     if (!totpOk && !recoveryOk) return reply.code(401).send({ error: 'Authenticator veya kurtarma kodu doğrulanamadı.' });
 
     this.challenges.delete(challenge.id);
-    const trusted = this.issueTrustedDevice(request, reply, input.deviceName);
-    const session = this.issueSession(request, reply, [trusted.cookie]);
-    request.log.info({ event: recoveryOk ? 'auth.recovery_code_used' : 'auth.totp_verified', email: this.email, deviceId: trusted.record.id }, 'Second factor verified');
-    return session.send({ authenticated: true, email: this.email, expiresAt: session.expiresAt, trustedDevice: true, recoveryCodeUsed: recoveryOk });
+    const trusted = this.issueTrustedDevice(user, request, input.deviceName);
+    const session = this.issueSession(user, request, reply, [trusted.cookie]);
+    request.log.info({ event: recoveryOk ? 'auth.recovery_code_used' : 'auth.totp_verified', userId: user.id, email: user.email, deviceId: trusted.record.id }, 'Second factor verified');
+    return session.send({ trustedDevice: true, recoveryCodeUsed: recoveryOk });
+  }
+
+  changePassword(request: FastifyRequest, reply: FastifyReply, currentPassword: string | undefined, newPassword: string | undefined) {
+    const user = this.currentUser(request);
+    if (!user) return reply.code(401).send({ error: 'Authentication required.' });
+    if (user.owner) return reply.code(409).send({ error: 'Owner password is managed by environment configuration.' });
+    if (!currentPassword || !this.identities.verifyCredential(user.id, currentPassword)) return reply.code(401).send({ error: 'Current password is incorrect.' });
+    if (!newPassword) return reply.code(400).send({ error: 'New password is required.' });
+    try {
+      this.identities.setPassword(user.id, newPassword, false);
+      this.security.revokeAllTrustedDevices(user.id);
+      this.revokeUserSessions(user.id);
+      reply.header('Set-Cookie', [clearCookieHeader(SESSION_COOKIE), clearCookieHeader(TRUSTED_COOKIE)]);
+      request.log.info({ event: 'auth.password_changed', userId: user.id, email: user.email }, 'User password changed and sessions revoked');
+      return reply.send({ changed: true, authenticated: false, reauthenticationRequired: true });
+    } catch (error) {
+      return reply.code(400).send({ error: (error as Error).message });
+    }
   }
 
   logout(request: FastifyRequest, reply: FastifyReply, forgetDevice = false) {
     const cookies = parseCookies(request.headers.cookie);
     const token = cookies.get(SESSION_COOKIE);
+    const session = token ? this.sessions.get(tokenHash(token)) : undefined;
     if (token) this.sessions.delete(tokenHash(token));
     const headers = [clearCookieHeader(SESSION_COOKIE)];
-    if (forgetDevice) {
+    if (forgetDevice && session) {
       const trustedToken = cookies.get(TRUSTED_COOKIE);
       if (trustedToken) {
-        const trusted = this.security.validateTrustedDevice(trustedToken);
-        if (trusted) this.security.revokeTrustedDevice(trusted.id);
+        const trusted = this.security.validateTrustedDevice(session.userId, trustedToken);
+        if (trusted) this.security.revokeTrustedDevice(session.userId, trusted.id);
       }
       headers.push(clearCookieHeader(TRUSTED_COOKIE));
     }
     reply.header('Set-Cookie', headers);
     reply.header('Cache-Control', 'no-store');
-    request.log.info({ event: 'auth.logout', forgetDevice, ip: request.ip }, 'Taso session logged out');
+    request.log.info({ event: 'auth.logout', userId: session?.userId, forgetDevice, ip: request.ip }, 'Taso session logged out');
     return reply.send({ authenticated: false, trustedDeviceForgotten: forgetDevice });
   }
 
-  requireSession(request: FastifyRequest, reply: FastifyReply) {
+  requireSession(request: FastifyRequest, reply: FastifyReply, options: { allowPasswordChangeRequired?: boolean } = {}) {
     if (!this.configured()) return reply.code(503).send({ error: 'Taso application authentication is not configured.' });
     const session = this.getSession(request);
     if (!session) {
       reply.header('Set-Cookie', clearCookieHeader(SESSION_COOKIE));
       return reply.code(401).send({ error: 'Authentication required.' });
     }
+    const user = this.identities.getUserById(session.userId);
+    if (!user || !user.active) {
+      this.revokeUserSessions(session.userId);
+      reply.header('Set-Cookie', clearCookieHeader(SESSION_COOKIE));
+      return reply.code(403).send({ error: 'Account is disabled or no longer exists.' });
+    }
+    if (user.passwordChangeRequired && !options.allowPasswordChangeRequired) {
+      return reply.code(403).send({ error: 'Password change required before accessing Taso.', code: 'PASSWORD_CHANGE_REQUIRED' });
+    }
     return undefined;
   }
 
-  private createChallenge(kind: TwoFactorChallenge['kind'], setupSecret?: string) {
+  revokeUserSessions(userId: string) {
+    let count = 0;
+    for (const [digest, session] of this.sessions) {
+      if (session.userId !== userId) continue;
+      this.sessions.delete(digest);
+      count += 1;
+    }
+    return count;
+  }
+
+  private createChallenge(user: TasoUser, kind: TwoFactorChallenge['kind'], setupSecret?: string) {
     const now = Date.now();
     const challenge: TwoFactorChallenge = {
       id: randomBytes(24).toString('base64url'),
       kind,
-      email: this.email,
+      userId: user.id,
+      email: user.email,
       createdAt: now,
       expiresAt: now + CHALLENGE_TTL_MS,
       attempts: 0,
@@ -384,37 +448,46 @@ export class AuthService {
     for (const [id, challenge] of this.challenges) if (challenge.expiresAt <= now) this.challenges.delete(id);
   }
 
-  private issueSession(request: FastifyRequest, reply: FastifyReply, additionalCookies: string[] = []) {
+  private issueSession(user: TasoUser, request: FastifyRequest, reply: FastifyReply, additionalCookies: string[] = []) {
     const now = Date.now();
     const token = randomBytes(32).toString('base64url');
     const expiresAt = now + this.ttlMs;
     this.sessions.set(tokenHash(token), {
-      email: this.email,
+      userId: user.id,
+      email: user.email,
       createdAt: now,
       expiresAt,
       lastSeenAt: now,
       userAgent: request.headers['user-agent'],
       ip: request.ip,
     });
+    this.identities.markLogin(user.email);
     reply.header('Set-Cookie', [cookieHeader(SESSION_COOKIE, token, this.ttlMs), ...additionalCookies]);
     reply.header('Cache-Control', 'no-store');
-    request.log.info({ event: 'auth.login_success', email: this.email, ip: request.ip }, 'Taso login succeeded');
+    request.log.info({ event: 'auth.login_success', userId: user.id, email: user.email, ip: request.ip }, 'Taso login succeeded');
     return {
       expiresAt: new Date(expiresAt).toISOString(),
-      send: (body?: Record<string, unknown>) => reply.send(body ?? { authenticated: true, email: this.email, expiresAt: new Date(expiresAt).toISOString() }),
+      send: (body: Record<string, unknown> = {}) => reply.send({
+        authenticated: true,
+        userId: user.id,
+        email: user.email,
+        expiresAt: new Date(expiresAt).toISOString(),
+        passwordChangeRequired: user.passwordChangeRequired,
+        ...body,
+      }),
     };
   }
 
-  private issueTrustedDevice(request: FastifyRequest, _reply: FastifyReply, requestedName?: string) {
+  private issueTrustedDevice(user: TasoUser, request: FastifyRequest, requestedName?: string) {
     const token = randomBytes(32).toString('base64url');
-    const days = this.security.trustedDeviceDays();
-    const record = this.security.createTrustedDevice({ token, label: deviceLabel(request, requestedName), userAgent: request.headers['user-agent'] });
+    const days = this.security.trustedDeviceDays(user.id);
+    const record = this.security.createTrustedDevice(user.id, { token, label: deviceLabel(request, requestedName), userAgent: request.headers['user-agent'] });
     return { record, cookie: cookieHeader(TRUSTED_COOKIE, token, days * 24 * 60 * 60 * 1000) };
   }
 
-  private getTrustedDevice(request: FastifyRequest) {
+  private getTrustedDevice(request: FastifyRequest, userId: string) {
     const token = parseCookies(request.headers.cookie).get(TRUSTED_COOKIE);
-    return token ? this.security.validateTrustedDevice(token) : undefined;
+    return token ? this.security.validateTrustedDevice(userId, token) : undefined;
   }
 
   private getSession(request: FastifyRequest) {
@@ -452,30 +525,39 @@ export function registerAuthRoutes(app: FastifyInstance, auth: AuthService) {
     return auth.verifyTwoFactor(request, reply, request.body ?? {});
   });
 
+  app.post<{ Body: { currentPassword?: string; newPassword?: string } }>('/auth/password/change', async (request, reply) => {
+    const denied = auth.requireSession(request, reply, { allowPasswordChangeRequired: true });
+    if (denied) return denied;
+    return auth.changePassword(request, reply, request.body?.currentPassword, request.body?.newPassword);
+  });
+
   app.post<{ Body: { forgetDevice?: boolean } }>('/auth/logout', async (request, reply) => auth.logout(request, reply, Boolean(request.body?.forgetDevice)));
 
   app.get('/auth/security', async (request, reply) => {
     const denied = auth.requireSession(request, reply);
     if (denied) return denied;
+    const user = auth.currentUser(request)!;
     return {
-      twoFactorEnabled: auth.security.hasTotp(),
-      trustedDeviceDays: auth.security.trustedDeviceDays(),
-      trustedDevices: auth.security.listTrustedDevices(),
+      twoFactorEnabled: auth.security.hasTotp(user.id),
+      trustedDeviceDays: auth.security.trustedDeviceDays(user.id),
+      trustedDevices: auth.security.listTrustedDevices(user.id),
     };
   });
 
   app.patch<{ Body: { trustedDeviceDays?: number } }>('/auth/security/policy', async (request, reply) => {
     const denied = auth.requireSession(request, reply);
     if (denied) return denied;
+    const user = auth.currentUser(request)!;
     const days = Number(request.body?.trustedDeviceDays);
     if (!Number.isFinite(days) || days < 1 || days > 365) return reply.code(400).send({ error: 'trustedDeviceDays must be between 1 and 365.' });
-    return { trustedDeviceDays: auth.security.setTrustedDeviceDays(days) };
+    return { trustedDeviceDays: auth.security.setTrustedDeviceDays(user.id, days) };
   });
 
   app.delete<{ Params: { id: string } }>('/auth/trusted-devices/:id', async (request, reply) => {
     const denied = auth.requireSession(request, reply);
     if (denied) return denied;
-    const revoked = auth.security.revokeTrustedDevice(request.params.id);
+    const user = auth.currentUser(request)!;
+    const revoked = auth.security.revokeTrustedDevice(user.id, request.params.id);
     if (!revoked) return reply.code(404).send({ error: 'Trusted device not found.' });
     return { revoked: true };
   });
@@ -483,7 +565,8 @@ export function registerAuthRoutes(app: FastifyInstance, auth: AuthService) {
   app.post('/auth/trusted-devices/revoke-all', async (request, reply) => {
     const denied = auth.requireSession(request, reply);
     if (denied) return denied;
-    return { revoked: auth.security.revokeAllTrustedDevices() };
+    const user = auth.currentUser(request)!;
+    return { revoked: auth.security.revokeAllTrustedDevices(user.id) };
   });
 
   app.get('/auth/verify', async (request, reply) => {
