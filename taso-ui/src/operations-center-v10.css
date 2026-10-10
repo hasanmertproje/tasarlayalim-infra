@@ -4,6 +4,8 @@
 .oc10-shell {
   position: fixed;
   inset: 0 0 0 var(--cc8-sidebar, 224px);
+  width: auto !important;
+  right: 0;
   z-index: 18;
   overflow: auto;
   padding: 26px 28px 42px;
@@ -98,7 +100,7 @@
 }
 
 @media (max-width: 760px) {
-  .oc10-shell { inset:0; padding:18px 14px 92px; }
+  .oc10-shell { inset:0; width:auto !important; padding:18px 14px 92px; }
   .oc10-shell::before { inset:0; }
   .oc10-header { align-items:flex-end; }
   .oc10-header h1 { font-size:34px; }
