@@ -104,6 +104,8 @@ jobs:
       - name: Build Taso UI container
         run: docker build -t tasarlayalim-taso-ui ./taso-ui
 
+      - name: Build Taso search image
+        run: docker build -t tasarlayalim-taso-search ./docker/taso-search
       - name: Build Taso local voice container
         run: docker build -t tasarlayalim-taso-voice ./docker/taso-voice
 
