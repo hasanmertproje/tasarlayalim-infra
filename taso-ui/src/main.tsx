@@ -58,6 +58,8 @@ import './premium-reset-v16.css';
 import './auth-v17.css';
 /* Command Center V21 is the final owner of the dashboard surface. */
 import './command-center-v21.css';
+/* Voice Experience V22 is the final owner of cinematic live voice presentation. */
+import './voice-experience-v22.css';
 
 const rootElement = document.getElementById('root')!;
 const requestedScreen = new URLSearchParams(window.location.search).get('screen');
