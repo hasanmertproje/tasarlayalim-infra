@@ -5,7 +5,7 @@ import { ProviderRouter } from '../src/provider-router.js';
 import type { Project } from '../src/domain.js';
 
 test('Turkish current questions are researched without matching unrelated substrings',()=>{
- for(const text of ['Bugün hava durumu nasıl?','Güncel haberler neler?','İnternetten araştır','Şu an dolar kaç TL?'])assert.equal(wantsWebSearch(text),true,text);
+ for(const text of ['Bugün hava durumu nasıl?','Güncel haberler neler?','İnternetten araştır','Şu an dolar kaç TL?','Bursa hava nasıl?','Şurada şu anda ne olmuş?','İstanbul son dakika haberler','Dün gece ne olmuş araştır'])assert.equal(wantsWebSearch(text),true,text);
  for(const text of ['Güncelleme yap','Bu kodu anlat','Merhaba'])assert.equal(wantsWebSearch(text),false,text);
 });
 test('explicit research reports an unconfigured search service even without an AI provider',async()=>{
