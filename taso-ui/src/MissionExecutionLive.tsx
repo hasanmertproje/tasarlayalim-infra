@@ -51,6 +51,13 @@ type AgentRun = {
   progress: number;
 };
 
+type WorkspaceCheckpoint = {
+  version: number;
+  files: Array<{ path: string; producedByStepId: string; updatedAt: string }>;
+  completedStepIds: string[];
+  updatedAt: string;
+};
+
 type Mission = {
   id: string;
   objective: string;
@@ -67,6 +74,8 @@ type Mission = {
     agentRuns?: AgentRun[];
     pullRequestUrl?: string;
     previewUrl?: string;
+    workspaceCheckpoint?: WorkspaceCheckpoint;
+    resumeAfterRestart?: boolean;
   };
 };
 
@@ -129,6 +138,7 @@ export default function MissionExecutionLive({ expanded = false }: Props) {
   const steps = execution?.workPlan ?? [];
   const artifacts = execution?.artifacts ?? [];
   const handoffs = execution?.handoffs ?? [];
+  const checkpoint = execution?.workspaceCheckpoint;
   const activeRuns = (execution?.agentRuns ?? []).filter((run) => run.status === 'running');
   const progress = Math.max(0, Math.min(100, execution?.progressPercent ?? 0));
 
@@ -136,7 +146,7 @@ export default function MissionExecutionLive({ expanded = false }: Props) {
     <section className={`mission-execution-live ${expanded ? 'expanded' : ''}`} aria-label="Canlı mission orchestration">
       <div className="mission-execution-head">
         <div>
-          <span className="mission-execution-kicker">MISSION ORCHESTRATOR V3 · LIVE 2s</span>
+          <span className="mission-execution-kicker">MISSION ORCHESTRATOR V4 · LIVE 2s</span>
           <strong>{mission?.objective ?? 'Mission execution unavailable'}</strong>
           <small>{execution?.currentAction ?? (error ? `Core error: ${error}` : 'Waiting for execution state…')}</small>
         </div>
@@ -160,6 +170,7 @@ export default function MissionExecutionLive({ expanded = false }: Props) {
             <div className="mission-live-progress"><i style={{ width: `${progress}%` }} /></div>
             <b>%{progress}</b>
             <span>{activeRuns.length ? `${activeRuns.length} worker active` : mission.status.toUpperCase()}</span>
+            {execution?.resumeAfterRestart && <span>RESTART RESUME ARMED</span>}
           </div>
 
           {execution?.orchestrationSummary && <p className="mission-orchestration-summary">{execution.orchestrationSummary}</p>}
@@ -169,12 +180,13 @@ export default function MissionExecutionLive({ expanded = false }: Props) {
               const stepArtifacts = artifacts.filter((artifact) => artifact.stepId === step.id);
               const incoming = handoffs.filter((handoff) => handoff.toStepId === step.id);
               const liveRun = activeRuns.find((run) => run.stepId === step.id);
+              const checkpointed = checkpoint?.completedStepIds.includes(step.id) ?? false;
               return (
                 <article className={`mission-work-step step-${step.status}`} key={step.id}>
                   <div className="mission-work-step-top">
                     <span>{String(index + 1).padStart(2, '0')}</span>
                     <b>{specialistLabel(step.specialist)} Worker</b>
-                    <em>{step.status.toUpperCase()}</em>
+                    <em>{checkpointed ? 'CHECKPOINTED' : step.status.toUpperCase()}</em>
                   </div>
                   <strong>{step.title}</strong>
                   <p>{liveRun?.action ?? step.objective}</p>
@@ -193,7 +205,7 @@ export default function MissionExecutionLive({ expanded = false }: Props) {
             })}
           </div>
 
-          {(artifacts.length > 0 || handoffs.length > 0) && (
+          {(artifacts.length > 0 || handoffs.length > 0 || checkpoint) && (
             <div className="mission-output-grid">
               <div>
                 <span>ARTIFACTS</span>
@@ -209,6 +221,11 @@ export default function MissionExecutionLive({ expanded = false }: Props) {
                 <span>ACTIVE AGENTS</span>
                 <strong>{activeRuns.length}</strong>
                 <small>{activeRuns.map((run) => run.label).join(' · ') || 'Idle'}</small>
+              </div>
+              <div>
+                <span>DURABLE CHECKPOINT</span>
+                <strong>{checkpoint ? `${checkpoint.completedStepIds.length}/${steps.length}` : '—'}</strong>
+                <small>{checkpoint ? `${checkpoint.files.length} file · ${new Date(checkpoint.updatedAt).toLocaleTimeString('tr-TR')}` : 'Not checkpointed yet'}</small>
               </div>
             </div>
           )}
