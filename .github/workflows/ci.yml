@@ -115,6 +115,9 @@ jobs:
             --network taso-ci \
             --network-alias taso-core \
             -e TASO_GATEWAY_SECRET=ci-gateway-secret \
+            -e TASO_OWNER_EMAIL=owner@ci.local \
+            -e TASO_OWNER_PASSWORD=ci-password \
+            -e TASO_AUTH_ALLOW_INSECURE_BOOTSTRAP=1 \
             tasarlayalim-taso-core
           docker run -d --rm \
             --name tasarlayalim-taso-ui \
@@ -148,7 +151,7 @@ jobs:
           docker logs tasarlayalim-taso-ui || true
           exit 1
 
-      - name: Smoke test Taso Core gateway
+      - name: Smoke test Taso auth and Core gateway
         run: |
           READY=0
           for i in $(seq 1 20); do
@@ -164,13 +167,28 @@ jobs:
             docker logs taso-core || true
             exit 1
           fi
-          curl -fsS http://127.0.0.1:4173/api/v1/projects | grep -q '"projects"'
-          curl -fsS http://127.0.0.1:4173/api/v1/providers | grep -q '"providers"'
-          curl -fsS http://127.0.0.1:4173/api/v1/operations | grep -q '"agents"'
-          curl -fsS http://127.0.0.1:4173/api/v1/voice/realtime | grep -q '"fallback":"browser-stt-tts"'
-          curl -fsS http://127.0.0.1:4173/api/v1/voice/realtime | grep -q '"ready":false'
-          curl -fsS http://127.0.0.1:4173/api/v1/voice/local | grep -q '"configured":false'
-          curl -fsS http://127.0.0.1:4173/api/v1/voice/local | grep -q '"ready":false'
+
+          curl -fsS http://127.0.0.1:4173/api/auth/session | grep -q '"configured":true'
+          curl -fsS http://127.0.0.1:4173/api/auth/session | grep -q '"authenticated":false'
+          test "$(curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:4173/api/v1/projects)" = "401"
+
+          COOKIE_JAR="$(mktemp)"
+          trap 'rm -f "$COOKIE_JAR"' EXIT
+          curl -fsS -c "$COOKIE_JAR" \
+            -H 'Content-Type: application/json' \
+            -d '{"email":"owner@ci.local","password":"ci-password"}' \
+            http://127.0.0.1:4173/api/auth/login | grep -q '"authenticated":true'
+
+          curl -fsS -b "$COOKIE_JAR" http://127.0.0.1:4173/api/v1/projects | grep -q '"projects"'
+          curl -fsS -b "$COOKIE_JAR" http://127.0.0.1:4173/api/v1/providers | grep -q '"providers"'
+          curl -fsS -b "$COOKIE_JAR" http://127.0.0.1:4173/api/v1/operations | grep -q '"agents"'
+          curl -fsS -b "$COOKIE_JAR" http://127.0.0.1:4173/api/v1/voice/realtime | grep -q '"fallback":"browser-stt-tts"'
+          curl -fsS -b "$COOKIE_JAR" http://127.0.0.1:4173/api/v1/voice/realtime | grep -q '"ready":false'
+          curl -fsS -b "$COOKIE_JAR" http://127.0.0.1:4173/api/v1/voice/local | grep -q '"configured":false'
+          curl -fsS -b "$COOKIE_JAR" http://127.0.0.1:4173/api/v1/voice/local | grep -q '"ready":false'
+
+          curl -fsS -b "$COOKIE_JAR" -X POST http://127.0.0.1:4173/api/auth/logout | grep -q '"authenticated":false'
+          test "$(curl -sS -b "$COOKIE_JAR" -o /dev/null -w '%{http_code}' http://127.0.0.1:4173/api/v1/projects)" = "401"
 
       - name: Verify Core rejects direct unauthenticated API
         run: |
