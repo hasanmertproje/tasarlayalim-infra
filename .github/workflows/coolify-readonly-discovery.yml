@@ -51,7 +51,7 @@ jobs:
             echo "### Projects"
             jq -r 'if type=="array" then .[] | "- " + (.name // "unnamed") + " — UUID: " + (.uuid // "n/a") else "Unexpected response shape" end' <<< "$projects"
             echo "### Applications"
-            jq -r 'if type=="array" then .[] | "- " + (.name // "unnamed") + " — UUID: " + (.uuid // "n/a") + " — status: " + (.status // "unknown") + " — branch: " + (.git_branch // "n/a") + " — domain: " + (.fqdn // "none") else "Unexpected response shape" end' <<< "$applications"
+            jq -r 'if type=="array" then .[] | "- " + (.name // "unnamed") + " — UUID: " + (.uuid // "n/a") + " — status: " + (.status // "unknown") + " — branch: " + (.git_branch // "n/a") + " — domain: " + (.fqdn // "none") + " — server id: " + ((.server_id // "n/a")|tostring) + " — environment id: " + ((.environment_id // "n/a")|tostring) + " — port: " + (.ports_exposes // "n/a") + " — predefined network: " + ((.settings.connect_to_docker_network // false)|tostring) else "Unexpected response shape" end' <<< "$applications"
             echo "### Tasarlayalim Infra environments"
             jq -r 'if type=="array" then .[] | "- " + (.name // "unnamed") + " — UUID: " + (.uuid // "n/a") else "Unexpected response shape" end' <<< "$environments"
             echo "### Existing services"
