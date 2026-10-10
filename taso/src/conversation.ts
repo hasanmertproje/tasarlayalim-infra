@@ -24,6 +24,8 @@ export interface ConversationMessage {
   intent?: ConversationIntent;
   createdAt: string;
   missionId?: string;
+  replyMode?: 'ai' | 'system' | 'unavailable';
+  sources?: Array<{title:string;url:string}>;
 }
 
 export interface ConversationDecision {
