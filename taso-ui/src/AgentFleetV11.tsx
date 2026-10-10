@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import AgentArtifactsV14 from './AgentArtifactsV14';
 
 const API_URL = ((import.meta.env.VITE_TASO_API_URL as string | undefined) || '/api').replace(/\/$/, '');
 
@@ -19,6 +20,9 @@ type AgentRun = {
   detail?: string;
   error?: string;
 };
+type MissionArtifact = { id: string; missionId: string; stepId?: string; type: string; label: string; path?: string; url?: string; summary?: string; createdAt: string };
+type AgentHandoff = { id: string; missionId: string; fromStepId: string; toStepId: string; summary: string; artifactIds: string[]; createdAt: string };
+type WorkspaceCheckpoint = { version: 1; files: Array<{ path: string; content: string; producedByStepId: string; updatedAt: string }>; completedStepIds: string[]; updatedAt: string };
 type Mission = {
   id: string;
   projectId: string;
@@ -32,6 +36,9 @@ type Mission = {
     retryCount?: number;
     workPlan?: MissionStep[];
     agentRuns?: AgentRun[];
+    artifacts?: MissionArtifact[];
+    handoffs?: AgentHandoff[];
+    workspaceCheckpoint?: WorkspaceCheckpoint;
     branch?: string;
     commitSha?: string;
     checkState?: string;
@@ -164,6 +171,7 @@ export default function AgentFleetV11() {
   const completed = fleet.filter((item) => item.status === 'completed');
   const selected = fleet.find((item) => item.id === selectedRunId) ?? running[0] ?? fleet[0];
   const systemAgents = operations.agents.filter((agent) => !agent.id.startsWith('worker:'));
+  const missionActivity = selected ? operations.activity.filter((item) => item.missionId === selected.mission.id) : operations.activity;
 
   useEffect(() => {
     if (!selectedRunId && (running[0] ?? fleet[0])) setSelectedRunId((running[0] ?? fleet[0]).id);
@@ -176,7 +184,7 @@ export default function AgentFleetV11() {
         <div>
           <span>AI OPERATIONS / AGENT FLEET</span>
           <h1>Agent operasyon merkezi</h1>
-          <p>Mission → agent → step → dosya zincirini gerçek execution state üzerinden canlı izle.</p>
+          <p>Mission → agent → step → dosya → artifact → handoff zincirini gerçek execution state üzerinden canlı izle.</p>
         </div>
         <div className="af11-live"><i className={error ? 'bad' : 'ok'} /><div><strong>{error ? 'Core erişilemiyor' : 'Live fleet'}</strong><small>2.5 sn state refresh</small></div></div>
       </header>
@@ -242,6 +250,13 @@ export default function AgentFleetV11() {
                 {!selected.mission.execution?.workPlan?.length && <div className="af11-empty compact">Work graph henüz yok.</div>}
               </div>
             </section>
+
+            <AgentArtifactsV14
+              artifacts={selected.mission.execution?.artifacts}
+              handoffs={selected.mission.execution?.handoffs}
+              checkpoint={selected.mission.execution?.workspaceCheckpoint}
+              steps={selected.mission.execution?.workPlan}
+            />
           </>}
         </main>
 
@@ -254,10 +269,10 @@ export default function AgentFleetV11() {
           </section>
 
           <section>
-            <div className="af11-section-title"><span>LIVE ACTIVITY</span><b>{operations.activity.length}</b></div>
+            <div className="af11-section-title"><span>MISSION ACTIVITY</span><b>{missionActivity.length}</b></div>
             <div className="af11-activity">
-              {operations.activity.slice(0, 24).map((item) => <article key={item.id}><time>{rel(item.createdAt)}</time><div><strong>{item.projectName}</strong><p>{item.message}</p><small>{item.type} · {item.missionStatus}</small></div></article>)}
-              {!operations.activity.length && <div className="af11-empty compact">Activity yok.</div>}
+              {missionActivity.slice(0, 24).map((item) => <article key={item.id}><time>{rel(item.createdAt)}</time><div><strong>{item.projectName}</strong><p>{item.message}</p><small>{item.type} · {item.missionStatus}</small></div></article>)}
+              {!missionActivity.length && <div className="af11-empty compact">Bu mission için activity yok.</div>}
             </div>
           </section>
         </aside>
