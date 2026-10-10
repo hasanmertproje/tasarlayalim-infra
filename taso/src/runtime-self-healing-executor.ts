@@ -4,6 +4,7 @@ import { createId, nowIso, type Mission, type MissionArtifact, type Project } fr
 import { FunctionalVerifier, type FunctionalVerificationReport } from './functional-verifier.js';
 import { GitHubTools } from './github-tools.js';
 import { MissionExecutor, type MissionExecutorOptions } from './mission-executor.js';
+import { deriveMissionIntentProfile } from './mission-intelligence.js';
 import { MultiProviderPlanner } from './multi-provider-planner.js';
 import type { ProjectRegistry } from './project-registry.js';
 import { defaultProviders } from './provider-router.js';
@@ -364,6 +365,23 @@ export class RuntimeSelfHealingExecutor extends MissionExecutor {
   }
 
   override async execute(id: string): Promise<Mission> {
+    const pendingMission = this.runtimeTasks.getMission(id);
+    if (pendingMission && !pendingMission.execution?.intentProfile) {
+      const project = this.runtimeProjects.get(pendingMission.projectId);
+      if (project) {
+        const profile = deriveMissionIntentProfile(project, pendingMission.objective);
+        this.patchRuntimeExecution(pendingMission, {
+          ...(pendingMission.execution ?? {}),
+          intentProfile: profile,
+        }, 'Mission intent profile derived before autonomous execution.', {
+          mode: profile.mode,
+          requiredSpecialists: profile.requiredSpecialists,
+          skillHints: profile.skillHints,
+          acceptanceHints: profile.acceptanceHints,
+        });
+      }
+    }
+
     while (true) {
       try {
         const result = await super.execute(id);
