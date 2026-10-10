@@ -1,6 +1,10 @@
 name: Coolify Read-Only Discovery
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/coolify-readonly-discovery.yml
   workflow_dispatch:
 
 permissions:
@@ -33,11 +37,13 @@ jobs:
           projects="$(api_get projects)"
           services="$(api_get services)"
 
-          echo "## Coolify resource discovery (read-only)" >> "$GITHUB_STEP_SUMMARY"
-          echo "### Servers" >> "$GITHUB_STEP_SUMMARY"
-          jq -r 'if type=="array" then .[] | "- " + (.name // "unnamed") + " — UUID: " + (.uuid // "n/a") + " — " + (.ip // "IP hidden") else "Unexpected response shape" end' <<< "$servers" >> "$GITHUB_STEP_SUMMARY"
-          echo "### Projects" >> "$GITHUB_STEP_SUMMARY"
-          jq -r 'if type=="array" then .[] | "- " + (.name // "unnamed") + " — UUID: " + (.uuid // "n/a") else "Unexpected response shape" end' <<< "$projects" >> "$GITHUB_STEP_SUMMARY"
-          echo "### Existing services" >> "$GITHUB_STEP_SUMMARY"
-          jq -r 'if type=="array" then .[] | "- " + (.name // "unnamed") + " — UUID: " + (.uuid // "n/a") + " — status: " + (.status // "unknown") else "Unexpected response shape" end' <<< "$services" >> "$GITHUB_STEP_SUMMARY"
-          echo "Read-only Coolify API checks completed. No resources were created or changed."
+          {
+            echo "## Coolify resource discovery (read-only)"
+            echo "### Servers"
+            jq -r 'if type=="array" then .[] | "- " + (.name // "unnamed") + " — UUID: " + (.uuid // "n/a") + " — " + (.ip // "IP hidden") else "Unexpected response shape" end' <<< "$servers"
+            echo "### Projects"
+            jq -r 'if type=="array" then .[] | "- " + (.name // "unnamed") + " — UUID: " + (.uuid // "n/a") else "Unexpected response shape" end' <<< "$projects"
+            echo "### Existing services"
+            jq -r 'if type=="array" then .[] | "- " + (.name // "unnamed") + " — UUID: " + (.uuid // "n/a") + " — status: " + (.status // "unknown") else "Unexpected response shape" end' <<< "$services"
+            echo "Read-only Coolify API checks completed. No resources were created or changed."
+          } | tee -a "$GITHUB_STEP_SUMMARY"
