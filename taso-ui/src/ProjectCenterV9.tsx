@@ -66,7 +66,29 @@ type Milestone = {
   weight?: number;
 };
 
-type MilestonePayload = { milestones: Milestone[]; progress: number | null };
+type MilestoneProgress = {
+  configured: boolean;
+  percent: number | null;
+  total: number;
+  completed: number;
+  blocked: number;
+  active: number;
+  cancelled: number;
+  totalWeight: number;
+};
+
+type MilestonePayload = { milestones: Milestone[]; progress: MilestoneProgress };
+
+const EMPTY_MILESTONE_PROGRESS: MilestoneProgress = {
+  configured: false,
+  percent: null,
+  total: 0,
+  completed: 0,
+  blocked: 0,
+  active: 0,
+  cancelled: 0,
+  totalWeight: 0,
+};
 
 const API_URL = ((import.meta.env.VITE_TASO_API_URL as string | undefined) || '/api').replace(/\/$/, '');
 const activeStates = new Set(['queued', 'planning', 'running', 'testing', 'waiting_approval']);
@@ -114,7 +136,7 @@ export default function ProjectCenterV9() {
   const [selectedId, setSelectedId] = useState('');
   const [manifest, setManifest] = useState<Manifest | null>(null);
   const [knowledge, setKnowledge] = useState<KnowledgeRecord[]>([]);
-  const [milestones, setMilestones] = useState<MilestonePayload>({ milestones: [], progress: null });
+  const [milestones, setMilestones] = useState<MilestonePayload>({ milestones: [], progress: EMPTY_MILESTONE_PROGRESS });
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
@@ -147,7 +169,9 @@ export default function ProjectCenterV9() {
     ]);
     setManifest(manifestResult.status === 'fulfilled' ? manifestResult.value.manifest : null);
     setKnowledge(knowledgeResult.status === 'fulfilled' ? knowledgeResult.value.knowledge ?? [] : []);
-    setMilestones(milestoneResult.status === 'fulfilled' ? milestoneResult.value : { milestones: [], progress: null });
+    setMilestones(milestoneResult.status === 'fulfilled'
+      ? milestoneResult.value
+      : { milestones: [], progress: EMPTY_MILESTONE_PROGRESS });
   }
 
   useEffect(() => {
@@ -244,7 +268,7 @@ export default function ProjectCenterV9() {
                 <div><span>AKTİF MISSION</span><strong>{activeMission ? stateLabel(activeMission.status) : 'Yok'}</strong></div>
                 <div><span>MISSION SAYISI</span><strong>{projectMissions.length}</strong></div>
                 <div><span>KNOWLEDGE</span><strong>{knowledge.length}</strong></div>
-                <div><span>MILESTONE</span><strong>{milestones.progress === null ? 'Yapılandırılmadı' : `%${milestones.progress}`}</strong></div>
+                <div><span>MILESTONE</span><strong>{!milestones.progress.configured || milestones.progress.percent === null ? 'Yapılandırılmadı' : `%${milestones.progress.percent}`}</strong></div>
                 <div><span>MANIFEST</span><strong>{manifest ? `%${Math.round(manifest.confidence * 100)} güven` : 'Yok'}</strong></div>
               </div>
             </section>
