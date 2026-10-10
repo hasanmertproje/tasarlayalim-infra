@@ -2,6 +2,7 @@ import React, { useEffect } from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
 import AgentOpsDock from './AgentOpsDock';
+import ApprovalCenterV9 from './ApprovalCenterV9';
 import CommandCenterV8 from './CommandCenterV8';
 import IntegrationsCenter from './IntegrationsCenter';
 import KnowledgeCenter from './KnowledgeCenter';
@@ -9,6 +10,7 @@ import MissionControlV8 from './MissionControlV8';
 import MissionExecutionLive from './MissionExecutionLive';
 import MobileNavigationHub from './MobileNavigationHub';
 import MobileVoiceRouter from './MobileVoiceRouter';
+import ProjectCenterV9 from './ProjectCenterV9';
 import SelfImprovementLane from './SelfImprovementLane';
 import TruthSurfaces from './TruthSurfaces';
 import VoiceIdentitySettings from './VoiceIdentitySettings';
@@ -39,6 +41,7 @@ import './mission-execution-live.css';
 import './command-center-v8.css';
 import './mission-control-v8.css';
 import './mission-intelligence-v8.css';
+import './operations-v9.css';
 
 const rootElement = document.getElementById('root')!;
 const requestedScreen = new URLSearchParams(window.location.search).get('screen');
@@ -61,11 +64,18 @@ function OperationsSurfaceBridge() {
     return () => window.removeEventListener('taso:open-mission', handleMissionOpen);
   }, [navigate]);
 
+  const hasDedicatedSurface = activeScreen === 'Command Center'
+    || activeScreen === 'Projects'
+    || activeScreen === 'Tasks'
+    || activeScreen === 'Approvals';
+
   return (
     <>
       {activeScreen === 'Command Center' && <CommandCenterV8 />}
+      {activeScreen === 'Projects' && <ProjectCenterV9 />}
       {activeScreen === 'Tasks' && <MissionControlV8 />}
-      {activeScreen !== 'Command Center' && activeScreen !== 'Tasks' && <AgentOpsDock mode={activeScreen === 'AI Agents' ? 'page' : 'dock'} />}
+      {activeScreen === 'Approvals' && <ApprovalCenterV9 />}
+      {!hasDedicatedSurface && <AgentOpsDock mode={activeScreen === 'AI Agents' ? 'page' : 'dock'} />}
       {activeScreen === 'AI Agents' && <MissionExecutionLive expanded />}
       {activeScreen === 'Integrations' && <IntegrationsCenter />}
       {activeScreen === 'Knowledge' && <KnowledgeCenter />}
