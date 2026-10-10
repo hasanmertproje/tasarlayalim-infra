@@ -148,3 +148,41 @@ test('self-improvement list is deterministic and does not classify unrelated mis
   assert.equal(snapshot.selfImprovement.missions[0]?.blockedReason, 'Planner timeout');
   assert.equal(snapshot.agents.find((agent) => agent.id === 'watchdog')?.status, 'degraded');
 });
+
+test('running mission agent is exposed as a real live worker with progress', () => {
+  const active = mission('mission_active', 'running', 'Build a production feature');
+  active.execution = {
+    progressPercent: 46,
+    currentAction: 'Applying changes.',
+    activeAgentRole: 'builder',
+    agentRuns: [
+      {
+        id: 'agent_1',
+        missionId: active.id,
+        role: 'builder',
+        label: 'Implementation Agent',
+        status: 'running',
+        action: 'Applying scoped file changes.',
+        progress: 46,
+        startedAt: '2026-10-08T10:08:00.000Z',
+        updatedAt: '2026-10-08T10:08:05.000Z',
+      },
+    ],
+  };
+
+  const snapshot = buildOperationsSnapshot({
+    projects: [project],
+    milestones: [],
+    missions: [active],
+    events: [],
+    readiness: { readyForRead: true, readyForWrite: true, ai: { configured: true }, github: { configured: true } },
+    watchdogRunning: true,
+  });
+
+  const worker = snapshot.agents.find((agent) => agent.id === 'worker:agent_1');
+  assert.equal(worker?.status, 'busy');
+  assert.equal(worker?.label, 'Implementation Agent');
+  assert.equal(worker?.missionId, active.id);
+  assert.equal(worker?.progress, 46);
+  assert.match(worker?.detail ?? '', /Applying scoped file changes/);
+});
