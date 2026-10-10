@@ -56,7 +56,7 @@ jobs:
           exit 1
       - name: Install Playwright
         run: |
-          npm install --no-save playwright@1.51.1
+          npm install --no-save playwright@1.63.0
           npx playwright install --with-deps chromium
       - name: Capture and assert visual acceptance
         run: node scripts/taso-visual-acceptance.mjs
