@@ -49,6 +49,7 @@ import './operations-center-v10.css';
 import './agent-fleet-v11.css';
 import './command-center-foundation-v11.css';
 import './notifications-center-v12.css';
+import './settings-command-center-v12.css';
 
 const rootElement = document.getElementById('root')!;
 const requestedScreen = new URLSearchParams(window.location.search).get('screen');
