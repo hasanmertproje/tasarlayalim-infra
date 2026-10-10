@@ -150,6 +150,39 @@ test('executor state records artifacts and failed missions can retry safely', ()
   assert.equal(engine.listEvents(mission.id).at(-1)?.type, 'mission.status_changed');
 });
 
+test('mission agent lifecycle records real progress and current action', () => {
+  const projects = new ProjectRegistry();
+  const project = projects.create({
+    slug: 'agent-runtime',
+    name: 'Agent Runtime',
+    repository: 'example/agent-runtime',
+    isExisting: true,
+  });
+  const engine = new TaskEngine(projects, new ProviderRouter(providers));
+  const mission = engine.createMission({
+    projectId: project.id,
+    objective: 'Implement a feature',
+    riskLevel: 'WRITE',
+    dataClass: 'private_code',
+  });
+
+  const run = engine.startAgent(mission.id, 'builder', 'Applying repository changes.', 45);
+  assert.equal(engine.getMission(mission.id)?.execution?.activeAgentRole, 'builder');
+  assert.equal(engine.getMission(mission.id)?.execution?.progressPercent, 45);
+  assert.equal(engine.getMission(mission.id)?.execution?.agentRuns?.[0]?.status, 'running');
+
+  engine.updateAgent(mission.id, run.id, 'Opening pull request.', 60, '3 files changed');
+  assert.equal(engine.getMission(mission.id)?.execution?.currentAction, 'Opening pull request.');
+  assert.equal(engine.getMission(mission.id)?.execution?.progressPercent, 60);
+
+  engine.completeAgent(mission.id, run.id, 'Pull request opened.', 66);
+  assert.equal(engine.getMission(mission.id)?.execution?.activeAgentRole, undefined);
+  assert.equal(engine.getMission(mission.id)?.execution?.agentRuns?.[0]?.status, 'completed');
+  assert.deepEqual(
+    engine.listEvents(mission.id).slice(-3).map((event) => event.type),
+    ['agent.started', 'agent.progress', 'agent.completed'],
+  );
+});
 
 test('scoped provider credentials enable routing without legacy provider keys', () => {
   const previousKey = process.env.TASO_PROVIDER_NVIDIA_API_KEY;
