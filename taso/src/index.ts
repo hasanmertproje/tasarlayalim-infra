@@ -1,5 +1,7 @@
 import { registerAuthRoutes } from './auth.js';
 import { AuthServiceV18 } from './auth-v18.js';
+import { IdentityStore } from './identity-store.js';
+import { registerRbacRoutes } from './rbac-routes.js';
 import { buildServer } from './server.js';
 import { registerLocalVoiceRoutes } from './voice-local-routes.js';
 import { registerVoiceRealtimeRoutes } from './voice-realtime-routes.js';
@@ -9,7 +11,9 @@ const host = process.env.HOST || '0.0.0.0';
 
 const app = buildServer();
 const auth = new AuthServiceV18();
+const identities = new IdentityStore(process.env.TASO_OWNER_EMAIL || '');
 registerAuthRoutes(app, auth);
+registerRbacRoutes(app, auth, identities);
 registerVoiceRealtimeRoutes(app);
 registerLocalVoiceRoutes(app);
 
