@@ -160,6 +160,15 @@ export function deriveMissionIntentProfile(project: Project, objective: string, 
   const groundedContext = buildProjectContext(objective, context);
   constraints.push(...groundedContext.constraints);
 
+  const technologyContext = [
+    `Technology policy: stack=${project.technology.stackMode}; architecture=${project.technology.architecture}`,
+    project.technology.preferred?.length ? `Preferred technology: ${project.technology.preferred.slice(0, 10).map(redactContext).join(', ')}` : '',
+    project.technology.forbidden?.length ? `Forbidden technology: ${project.technology.forbidden.slice(0, 10).map(redactContext).join(', ')}` : '',
+  ].filter(Boolean);
+  if (project.technology.forbidden?.length) {
+    constraints.push(`Do not introduce forbidden project technology: ${project.technology.forbidden.slice(0, 10).map(redactContext).join(', ')}.`);
+  }
+
   if (!acceptanceHints.length) {
     acceptanceHints.push('The requested behavior must be implemented and verified by repository checks.');
     acceptanceHints.push('Existing behavior outside the mission scope must remain intact.');
@@ -179,7 +188,7 @@ export function deriveMissionIntentProfile(project: Project, objective: string, 
     skillHints: unique(skillHints),
     acceptanceHints: unique(acceptanceHints).slice(0, 10),
     constraints: unique(constraints).slice(0, 12),
-    projectContext: groundedContext.lines,
+    projectContext: unique([...technologyContext, ...groundedContext.lines]).slice(0, 12),
     contextSources: {
       manifest: groundedContext.manifest,
       knowledgeRecords: groundedContext.knowledgeRecords,
