@@ -1,4 +1,4 @@
-import type { Mission, Project } from './domain.js';
+import type { AgentRun, Mission, Project } from './domain.js';
 import type { MissionEvent } from './mission-events.js';
 import { summarizeMilestones, type ProjectMilestone, type ProjectMilestoneProgress } from './project-milestones.js';
 
@@ -50,11 +50,16 @@ export type OperationsActivityItem = {
 };
 
 export type AgentOperationsItem = {
-  id: 'planner' | 'executor' | 'watchdog' | 'github' | 'coolify';
+  id: string;
   label: string;
   status: 'ready' | 'busy' | 'degraded' | 'unconfigured';
   detail: string;
   activeMissions?: number;
+  missionId?: string;
+  projectId?: string;
+  role?: AgentRun['role'];
+  progress?: number;
+  startedAt?: string;
 };
 
 export type SelfImprovementItem = {
@@ -118,6 +123,26 @@ function summarizeProject(project: Project, missions: Mission[], milestones: Pro
   };
 }
 
+function liveWorkerAgents(missions: Mission[], projects: Project[]): AgentOperationsItem[] {
+  const projectById = new Map(projects.map((project) => [project.id, project]));
+  return missions.flatMap((mission) => {
+    const runs = mission.execution?.agentRuns ?? [];
+    const activeRuns = runs.filter((run) => run.status === 'running');
+    return activeRuns.map((run) => ({
+      id: `worker:${run.id}`,
+      label: run.label,
+      status: 'busy' as const,
+      detail: `${projectById.get(mission.projectId)?.name ?? mission.projectId} · ${run.action}`,
+      activeMissions: 1,
+      missionId: mission.id,
+      projectId: mission.projectId,
+      role: run.role,
+      progress: run.progress,
+      startedAt: run.startedAt,
+    }));
+  });
+}
+
 export function buildOperationsSnapshot(input: {
   projects: Project[];
   milestones: ProjectMilestone[];
@@ -174,10 +199,12 @@ export function buildOperationsSnapshot(input: {
   const githubReady = Boolean(input.readiness.github?.configured);
   const coolifyReady = Boolean(input.readiness.coolify?.configured);
   const executorReady = Boolean(input.readiness.readyForRead && input.readiness.readyForWrite);
+  const workers = liveWorkerAgents(input.missions, input.projects);
 
   return {
     generatedAt: new Date().toISOString(),
     agents: [
+      ...workers,
       {
         id: 'planner',
         label: 'AI Planner',

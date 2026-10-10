@@ -3,6 +3,8 @@ import {
   createId,
   defaultAutonomousPolicy,
   nowIso,
+  type AgentRole,
+  type AgentRun,
   type AutonomousPolicy,
   type Mission,
   type MissionExecution,
@@ -20,6 +22,18 @@ export type AutomaticRetryResult = {
   retryCount: number;
   maxRetries: number;
 };
+
+const agentLabels: Record<AgentRole, string> = {
+  scout: 'Repository Scout',
+  architect: 'Solution Architect',
+  builder: 'Implementation Agent',
+  verifier: 'Verification Agent',
+  release: 'Release Agent',
+};
+
+function boundedProgress(value: number) {
+  return Math.max(0, Math.min(100, Math.trunc(value)));
+}
 
 export class TaskEngine {
   private readonly missions = new Map<string, Mission>();
@@ -62,6 +76,7 @@ export class TaskEngine {
       providerChain,
       autonomous,
       approvalRequired: decision.approvalRequired,
+      execution: { progressPercent: 0, currentAction: decision.approvalRequired ? 'Waiting for human approval.' : 'Queued for autonomous execution.', agentRuns: [] },
       createdAt: timestamp,
       updatedAt: timestamp,
     };
@@ -100,6 +115,7 @@ export class TaskEngine {
     mission.approvedAt = nowIso();
     mission.status = 'queued';
     mission.updatedAt = mission.approvedAt;
+    mission.execution = { ...(mission.execution ?? {}), currentAction: 'Approval received. Queued for autonomous execution.' };
     this.missions.set(id, mission);
     this.events.append(id, 'mission.approved', 'Mission approved by user.');
     this.onChange();
@@ -111,7 +127,8 @@ export class TaskEngine {
     if (!mission) throw new Error('Mission not found.');
     mission.status = 'cancelled';
     mission.updatedAt = nowIso();
-    mission.execution = mission.execution ? { ...mission.execution, nextRetryAt: undefined } : undefined;
+    const runs = (mission.execution?.agentRuns ?? []).map((run) => run.status === 'running' ? { ...run, status: 'cancelled' as const, updatedAt: mission.updatedAt, completedAt: mission.updatedAt } : run);
+    mission.execution = { ...(mission.execution ?? {}), nextRetryAt: undefined, currentAction: 'Mission cancelled.', activeAgentRole: undefined, agentRuns: runs };
     this.missions.set(id, mission);
     this.events.append(id, 'mission.cancelled', 'Mission cancelled.');
     this.onChange();
@@ -129,14 +146,18 @@ export class TaskEngine {
 
     mission.status = mission.approvalRequired && !mission.approvedAt ? 'waiting_approval' : 'queued';
     mission.updatedAt = nowIso();
-    mission.execution = mission.execution ? {
-      ...mission.execution,
+    mission.execution = {
+      ...(mission.execution ?? {}),
       blockedReason: undefined,
       planningStartedAt: undefined,
       retryCount: 0,
       lastFailure: undefined,
       nextRetryAt: undefined,
-    } : { retryCount: 0 };
+      progressPercent: 0,
+      currentAction: requiresFreshApproval ? 'Waiting for fresh approval.' : 'Queued for retry.',
+      activeAgentRole: undefined,
+      agentRuns: [],
+    };
     this.missions.set(id, mission);
     this.events.append(id, 'mission.status_changed', requiresFreshApproval
       ? 'Self-improvement retry returned to explicit approval.'
@@ -167,6 +188,8 @@ export class TaskEngine {
         lastFailure: safeReason,
         blockedReason: safeReason,
         nextRetryAt: undefined,
+        currentAction: 'Automatic retry budget exhausted.',
+        activeAgentRole: undefined,
       };
       this.missions.set(id, mission);
       this.events.append(id, 'mission.status_changed', `Planning failed and the automatic retry budget is exhausted: ${safeReason}`, {
@@ -191,6 +214,8 @@ export class TaskEngine {
       lastFailure: safeReason,
       blockedReason: undefined,
       nextRetryAt,
+      currentAction: `Automatic retry ${nextRetryCount}/${maxRetries} scheduled.`,
+      activeAgentRole: undefined,
     };
     this.missions.set(id, mission);
     this.events.append(id, 'mission.retry_scheduled', `Planning failed: ${safeReason} Automatic retry ${nextRetryCount}/${maxRetries} scheduled.`, {
@@ -212,11 +237,15 @@ export class TaskEngine {
       const reason = 'Taso Core restarted while this mission was executing. Review and retry it explicitly.';
       mission.status = 'failed';
       mission.updatedAt = nowIso();
+      const runs = (mission.execution?.agentRuns ?? []).map((run) => run.status === 'running' ? { ...run, status: 'failed' as const, updatedAt: mission.updatedAt, completedAt: mission.updatedAt, error: reason } : run);
       mission.execution = {
         ...(mission.execution ?? {}),
         blockedReason: reason,
         lastFailure: reason,
         nextRetryAt: undefined,
+        currentAction: 'Execution interrupted by Core restart.',
+        activeAgentRole: undefined,
+        agentRuns: runs,
       };
       this.events.append(mission.id, 'mission.status_changed', 'Interrupted mission marked failed after Taso Core restart.', {
         status: 'failed',
@@ -246,8 +275,8 @@ export class TaskEngine {
     const lifecycleExecution: Partial<MissionExecution> = status === 'planning'
       ? { planningStartedAt: timestamp, nextRetryAt: undefined, blockedReason: undefined }
       : status === 'failed' || status === 'completed' || status === 'preview_ready'
-        ? { nextRetryAt: undefined }
-        : {};
+        ? { nextRetryAt: undefined, activeAgentRole: undefined, currentAction: message, progressPercent: status === 'failed' ? mission.execution?.progressPercent : 100 }
+        : { currentAction: message };
     if (execution || Object.keys(lifecycleExecution).length) {
       mission.execution = { ...(mission.execution ?? {}), ...lifecycleExecution, ...(execution ?? {}) };
     }
@@ -257,6 +286,7 @@ export class TaskEngine {
       ...(metadata ?? {}),
       ...(execution?.blockedReason ? { blockedReason: execution.blockedReason } : {}),
       ...(mission.execution?.retryCount !== undefined ? { retryCount: mission.execution.retryCount } : {}),
+      ...(mission.execution?.progressPercent !== undefined ? { progressPercent: mission.execution.progressPercent } : {}),
     });
     this.onChange();
     return mission;
@@ -268,5 +298,88 @@ export class TaskEngine {
     this.events.append(id, 'mission.note', message, metadata);
     this.onChange();
     return mission;
+  }
+
+  startAgent(id: string, role: AgentRole, action: string, progress: number): AgentRun {
+    const mission = this.missions.get(id);
+    if (!mission) throw new Error('Mission not found.');
+    const timestamp = nowIso();
+    const run: AgentRun = {
+      id: createId('agent'),
+      missionId: id,
+      role,
+      label: agentLabels[role],
+      status: 'running',
+      action,
+      progress: boundedProgress(progress),
+      startedAt: timestamp,
+      updatedAt: timestamp,
+    };
+    mission.updatedAt = timestamp;
+    mission.execution = {
+      ...(mission.execution ?? {}),
+      progressPercent: run.progress,
+      currentAction: action,
+      activeAgentRole: role,
+      agentRuns: [...(mission.execution?.agentRuns ?? []), run],
+    };
+    this.missions.set(id, mission);
+    this.events.append(id, 'agent.started', `${run.label}: ${action}`, { agentRunId: run.id, role, progressPercent: run.progress });
+    this.onChange();
+    return run;
+  }
+
+  updateAgent(id: string, runId: string, action: string, progress: number, detail?: string): AgentRun {
+    const mission = this.missions.get(id);
+    if (!mission) throw new Error('Mission not found.');
+    const runs = [...(mission.execution?.agentRuns ?? [])];
+    const index = runs.findIndex((run) => run.id === runId);
+    const current = index >= 0 ? runs[index] : undefined;
+    if (!current) throw new Error('Agent run not found.');
+    const timestamp = nowIso();
+    const run: AgentRun = { ...current, action, progress: boundedProgress(progress), detail, updatedAt: timestamp };
+    runs[index] = run;
+    mission.updatedAt = timestamp;
+    mission.execution = { ...(mission.execution ?? {}), progressPercent: run.progress, currentAction: action, activeAgentRole: run.role, agentRuns: runs };
+    this.missions.set(id, mission);
+    this.events.append(id, 'agent.progress', `${run.label}: ${action}`, { agentRunId: run.id, role: run.role, progressPercent: run.progress, ...(detail ? { detail } : {}) });
+    this.onChange();
+    return run;
+  }
+
+  completeAgent(id: string, runId: string, action: string, progress: number, detail?: string): AgentRun {
+    const mission = this.missions.get(id);
+    if (!mission) throw new Error('Mission not found.');
+    const runs = [...(mission.execution?.agentRuns ?? [])];
+    const index = runs.findIndex((run) => run.id === runId);
+    const current = index >= 0 ? runs[index] : undefined;
+    if (!current) throw new Error('Agent run not found.');
+    const timestamp = nowIso();
+    const run: AgentRun = { ...current, status: 'completed', action, progress: boundedProgress(progress), detail, updatedAt: timestamp, completedAt: timestamp };
+    runs[index] = run;
+    mission.updatedAt = timestamp;
+    mission.execution = { ...(mission.execution ?? {}), progressPercent: run.progress, currentAction: action, activeAgentRole: undefined, agentRuns: runs };
+    this.missions.set(id, mission);
+    this.events.append(id, 'agent.completed', `${run.label}: ${action}`, { agentRunId: run.id, role: run.role, progressPercent: run.progress, ...(detail ? { detail } : {}) });
+    this.onChange();
+    return run;
+  }
+
+  failAgent(id: string, runId: string, error: string): AgentRun {
+    const mission = this.missions.get(id);
+    if (!mission) throw new Error('Mission not found.');
+    const runs = [...(mission.execution?.agentRuns ?? [])];
+    const index = runs.findIndex((run) => run.id === runId);
+    const current = index >= 0 ? runs[index] : undefined;
+    if (!current) throw new Error('Agent run not found.');
+    const timestamp = nowIso();
+    const run: AgentRun = { ...current, status: 'failed', updatedAt: timestamp, completedAt: timestamp, error };
+    runs[index] = run;
+    mission.updatedAt = timestamp;
+    mission.execution = { ...(mission.execution ?? {}), currentAction: `${run.label} failed.`, activeAgentRole: undefined, agentRuns: runs };
+    this.missions.set(id, mission);
+    this.events.append(id, 'agent.failed', `${run.label} failed: ${error}`, { agentRunId: run.id, role: run.role, progressPercent: run.progress });
+    this.onChange();
+    return run;
   }
 }

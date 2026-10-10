@@ -1,4 +1,4 @@
-import type { Mission, Project } from './domain.js';
+import type { AgentRole, Mission, Project } from './domain.js';
 import type { ProjectRegistry } from './project-registry.js';
 import type { TaskEngine } from './task-engine.js';
 import { MultiProviderPlanner } from './multi-provider-planner.js';
@@ -161,6 +161,26 @@ export class MissionExecutor {
     }
   }
 
+  private async runAgent<T>(
+    mission: Mission,
+    role: AgentRole,
+    action: string,
+    startProgress: number,
+    completedProgress: number,
+    work: (runId: string) => Promise<T>,
+    completedAction?: string,
+  ): Promise<T> {
+    const run = this.tasks.startAgent(mission.id, role, action, startProgress);
+    try {
+      const result = await work(run.id);
+      this.tasks.completeAgent(mission.id, run.id, completedAction ?? `${action} completed.`, completedProgress);
+      return result;
+    } catch (error) {
+      this.tasks.failAgent(mission.id, run.id, safeErrorMessage(error));
+      throw error;
+    }
+  }
+
   private handleExecutionFailure(id: string, error: unknown) {
     const mission = this.tasks.getMission(id);
     if (!mission || ['cancelled', 'failed', 'completed', 'preview_ready'].includes(mission.status)) return;
@@ -199,7 +219,7 @@ export class MissionExecutor {
     if (!this.github) throw new Error('GitHub tool broker is not configured.');
     assertRepository(project.repository);
 
-    this.tasks.transitionMission(mission.id, 'planning', 'Taso is inspecting the repository and selecting relevant files.');
+    this.tasks.transitionMission(mission.id, 'planning', 'Taso agent team is inspecting the repository.', undefined, { progressPercent: 2, currentAction: 'Starting repository reconnaissance.' });
     const deadline = Date.now() + this.planningTimeoutMs;
     const controller = new AbortController();
     this.planningControllers.set(mission.id, controller);
@@ -227,59 +247,75 @@ export class MissionExecutor {
       }
     };
 
-    this.tasks.noteMission(mission.id, 'Planning deadline started.', {
+    this.tasks.noteMission(mission.id, 'Autonomous execution deadline started.', {
       timeoutMs: this.planningTimeoutMs,
       retryCount: mission.execution?.retryCount ?? 0,
       maxRetries: mission.autonomous.maxRetries,
     });
 
     try {
-      const paths = await withinDeadline('repository listing', () => this.github!.listFiles(project.repository, project.defaultBranch));
-      if (!paths.length) throw new Error('Repository has no readable source files.');
-      const selected = await withinDeadline('file selection', (signal) => this.planner!.chooseFiles(project, mission, paths, signal));
-      const fallback = ['README.md', 'package.json', 'composer.json'].filter((path) => paths.includes(path));
-      const selectedPaths = selected.length ? selected : fallback;
-      const files = await withinDeadline('file reading', () => this.github!.readFiles(project.repository, project.defaultBranch, selectedPaths));
+      const reconnaissance = await this.runAgent(mission, 'scout', 'Scanning repository and locating relevant source files.', 5, 22, async (runId) => {
+        const paths = await withinDeadline('repository listing', () => this.github!.listFiles(project.repository, project.defaultBranch));
+        if (!paths.length) throw new Error('Repository has no readable source files.');
+        this.tasks.updateAgent(mission.id, runId, `Repository indexed: ${paths.length} paths. Selecting mission-relevant files.`, 10);
+        const selected = await withinDeadline('file selection', (signal) => this.planner!.chooseFiles(project, mission, paths, signal));
+        const fallback = ['README.md', 'package.json', 'composer.json'].filter((path) => paths.includes(path));
+        const selectedPaths = selected.length ? selected : fallback;
+        this.tasks.updateAgent(mission.id, runId, `Reading ${selectedPaths.length} selected files.`, 16, selectedPaths.slice(0, 12).join(', '));
+        const files = await withinDeadline('file reading', () => this.github!.readFiles(project.repository, project.defaultBranch, selectedPaths));
+        return { files, selectedPaths };
+      }, 'Repository context collected.');
 
       if (mission.riskLevel === 'READ') {
-        const summary = await withinDeadline('read-only analysis', (signal) => this.planner!.analyze(project, mission, files, signal));
-        return this.tasks.transitionMission(mission.id, 'completed', 'Read-only analysis completed.', undefined, { summary, checkState: 'success' });
+        const summary = await this.runAgent(mission, 'architect', 'Analyzing repository context and producing a grounded answer.', 30, 100, () =>
+          withinDeadline('read-only analysis', (signal) => this.planner!.analyze(project, mission, reconnaissance.files, signal)),
+          'Read-only analysis completed.');
+        return this.tasks.transitionMission(mission.id, 'completed', 'Read-only mission completed.', undefined, { summary, checkState: 'success', progressPercent: 100 });
       }
 
-      const plan = await withinDeadline('change planning', (signal) => this.planner!.planChanges(project, mission, files, signal));
-      if (!plan.files.length) throw new Error('AI planner produced no file changes.');
-      const manifest = this.projects.getManifest(project.id);
-      assertSafeChanges(mission, plan.files.map((file) => file.path), manifest?.protectedPaths ?? []);
+      const plan = await this.runAgent(mission, 'architect', 'Designing the implementation against the actual repository.', 28, 42, async (runId) => {
+        const nextPlan = await withinDeadline('change planning', (signal) => this.planner!.planChanges(project, mission, reconnaissance.files, signal));
+        if (!nextPlan.files.length) throw new Error('AI planner produced no file changes.');
+        const manifest = this.projects.getManifest(project.id);
+        assertSafeChanges(mission, nextPlan.files.map((file) => file.path), manifest?.protectedPaths ?? []);
+        this.tasks.updateAgent(mission.id, runId, `Implementation plan ready for ${nextPlan.files.length} files.`, 38, nextPlan.summary);
+        return nextPlan;
+      }, 'Implementation design completed.');
 
       const branch = safeBranch(project, mission);
-      this.tasks.transitionMission(mission.id, 'running', 'Taso is creating a scoped branch and applying the planned changes.', { files: plan.files.map((file) => file.path) }, { summary: plan.summary, branch });
-      const result = await this.github.createPullRequestWithChanges({
-        repository: project.repository,
-        base: project.defaultBranch,
-        branch,
-        changes: plan.files,
-        commitMessage: plan.commitMessage,
-        title: `Taso: ${mission.objective}`.slice(0, 120),
-        body: [
-          '## Taso mission',
-          '',
-          plan.summary,
-          '',
-          `Mission: \`${mission.id}\``,
-          `Risk: \`${mission.riskLevel}\``,
-          '',
-          'This pull request was created by Taso. CI and preview gates must pass before merge.',
-        ].join('\n'),
-      });
+      this.tasks.transitionMission(mission.id, 'running', 'Implementation Agent is applying repository changes.', { files: plan.files.map((file) => file.path) }, { summary: plan.summary, branch, progressPercent: 45 });
+      const result = await this.runAgent(mission, 'builder', `Applying ${plan.files.length} scoped file changes and opening a pull request.`, 46, 66, () =>
+        this.github!.createPullRequestWithChanges({
+          repository: project.repository,
+          base: project.defaultBranch,
+          branch,
+          changes: plan.files,
+          commitMessage: plan.commitMessage,
+          title: `Taso: ${mission.objective}`.slice(0, 120),
+          body: [
+            '## Taso mission',
+            '',
+            plan.summary,
+            '',
+            `Mission: \`${mission.id}\``,
+            `Risk: \`${mission.riskLevel}\``,
+            '',
+            'Generated by Taso autonomous agent runtime. CI and preview gates must pass before merge.',
+          ].join('\n'),
+        }),
+        'Changes committed and pull request opened.');
 
-      this.tasks.transitionMission(mission.id, 'testing', 'Pull request created. Taso is waiting for CI checks.', { pullRequest: result.url }, {
+      this.tasks.transitionMission(mission.id, 'testing', 'Verification Agent is checking the generated change.', { pullRequest: result.url }, {
         branch: result.branch,
         commitSha: result.commitSha,
         pullRequestNumber: result.number,
         pullRequestUrl: result.url,
+        progressPercent: 68,
       });
 
-      const checkState = await this.github.waitForChecks(project.repository, result.commitSha);
+      const checkState = await this.runAgent(mission, 'verifier', 'Waiting for repository checks and verifying the generated commit.', 70, 84, () =>
+        this.github!.waitForChecks(project.repository, result.commitSha),
+        'Repository checks finished.');
       if (checkState !== 'success') {
         const reason = checkState === 'failed' ? 'CI checks failed.' : checkState === 'missing' ? 'No CI checks were detected for the generated commit.' : 'CI checks did not complete before timeout.';
         return this.tasks.transitionMission(mission.id, 'failed', reason, { checkState }, { checkState, blockedReason: reason, lastFailure: reason });
@@ -290,16 +326,18 @@ export class MissionExecutor {
           const reason = 'CI passed, but a Coolify resource is not configured for this project, so preview could not be verified.';
           return this.tasks.transitionMission(mission.id, 'failed', reason, { checkState }, { checkState, blockedReason: reason, lastFailure: reason });
         }
-        this.tasks.noteMission(mission.id, 'CI passed. Creating isolated Coolify preview.', { pullRequestNumber: result.number });
-        const preview = await this.coolify.deploy(project, result.number);
+        const preview = await this.runAgent(mission, 'release', 'Creating and verifying the isolated preview deployment.', 86, 100, () =>
+          this.coolify!.deploy(project, result.number),
+          'Preview deployment completed and verified.');
         return this.tasks.transitionMission(mission.id, 'preview_ready', 'CI passed and Coolify preview deployment completed.', { deploymentUuid: preview.deploymentUuid }, {
           checkState,
           previewDeploymentUuid: preview.deploymentUuid,
           previewUrl: preview.url,
+          progressPercent: 100,
         });
       }
 
-      return this.tasks.transitionMission(mission.id, 'completed', 'CI passed. Mission completed without a preview requirement.', undefined, { checkState });
+      return this.tasks.transitionMission(mission.id, 'completed', 'CI passed. Mission completed without a preview requirement.', undefined, { checkState, progressPercent: 100 });
     } finally {
       this.planningControllers.delete(mission.id);
       if (!controller.signal.aborted && this.tasks.getMission(mission.id)?.status !== 'planning') {
@@ -311,11 +349,14 @@ export class MissionExecutor {
   private async executeProductionDeploy(project: Project, mission: Mission): Promise<Mission> {
     if (!this.coolify || !this.coolify.hasProject(project)) throw new Error('Coolify production deployment is not configured for this project.');
     if (!mission.approvedAt) throw new Error('Production deployment requires explicit human approval.');
-    this.tasks.transitionMission(mission.id, 'running', 'Approved production deployment is being sent to Coolify.');
-    const deployment = await this.coolify.deploy(project);
+    this.tasks.transitionMission(mission.id, 'running', 'Release Agent is starting the approved production deployment.', undefined, { progressPercent: 70 });
+    const deployment = await this.runAgent(mission, 'release', 'Sending the approved production release to Coolify and waiting for verification.', 72, 100, () =>
+      this.coolify!.deploy(project),
+      'Production deployment completed and verified.');
     return this.tasks.transitionMission(mission.id, 'completed', 'Production deployment completed and was verified through Coolify.', { deploymentUuid: deployment.deploymentUuid }, {
       productionDeploymentUuid: deployment.deploymentUuid,
       productionUrl: deployment.url,
+      progressPercent: 100,
     });
   }
 }
