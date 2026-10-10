@@ -1,10 +1,11 @@
 .mission-execution-live {
   position: fixed;
   right: 18px;
-  bottom: 18px;
-  z-index: 80;
+  top: 86px;
+  bottom: auto;
+  z-index: 78;
   width: min(760px, calc(100vw - 36px));
-  max-height: min(74vh, 760px);
+  max-height: min(72vh, 760px);
   overflow: auto;
   border: 1px solid color-mix(in srgb, var(--border, #334155) 78%, transparent);
   border-radius: 22px;
@@ -259,10 +260,12 @@
 
 @media (max-width: 720px) {
   .mission-execution-live {
+    left: 10px;
     right: 10px;
-    bottom: 82px;
-    width: calc(100vw - 20px);
-    max-height: 58vh;
+    top: calc(72px + env(safe-area-inset-top));
+    bottom: auto;
+    width: auto;
+    max-height: 52vh;
     padding: 12px;
     border-radius: 18px;
   }
