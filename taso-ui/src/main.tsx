@@ -2,7 +2,7 @@ import React, { useEffect } from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
 import AgentOpsDock from './AgentOpsDock';
-import ConversationBridgeV2 from './ConversationBridgeV2';
+import CommandCenterV8 from './CommandCenterV8';
 import IntegrationsCenter from './IntegrationsCenter';
 import KnowledgeCenter from './KnowledgeCenter';
 import MissionExecutionLive from './MissionExecutionLive';
@@ -35,6 +35,7 @@ import './command-center-v10.css';
 import './truth-surfaces.css';
 import './voice-identity-v2.css';
 import './mission-execution-live.css';
+import './command-center-v8.css';
 
 const rootElement = document.getElementById('root')!;
 const requestedScreen = new URLSearchParams(window.location.search).get('screen');
@@ -71,12 +72,12 @@ function OperationsSurfaceBridge() {
     return () => window.removeEventListener('taso:open-mission', handleMissionOpen);
   }, [navigate]);
 
-  const showExecution = activeScreen === 'Command Center' || activeScreen === 'Tasks' || activeScreen === 'AI Agents';
+  const showExecution = activeScreen === 'Tasks' || activeScreen === 'AI Agents';
 
   return (
     <>
-      {activeScreen === 'Command Center' && <ConversationBridgeV2 />}
-      <AgentOpsDock mode={activeScreen === 'AI Agents' ? 'page' : 'dock'} />
+      {activeScreen === 'Command Center' && <CommandCenterV8 />}
+      {activeScreen !== 'Command Center' && <AgentOpsDock mode={activeScreen === 'AI Agents' ? 'page' : 'dock'} />}
       {showExecution && <MissionExecutionLive expanded={activeScreen === 'AI Agents'} />}
       {activeScreen === 'Integrations' && <IntegrationsCenter />}
       {activeScreen === 'Knowledge' && <KnowledgeCenter />}
