@@ -1,59 +1,28 @@
+import { createHmac, timingSafeEqual } from 'node:crypto';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { AuthService } from './auth.js';
-import { ControlPlaneStore, TASO_ANIMATION_PRESETS, type TasoAnimationPreset } from './control-plane-store.js';
+import { ControlPlaneStore, TASO_ANIMATION_PRESETS, TASO_ENVIRONMENTS, type TasoAnimationPreset } from './control-plane-store.js';
 import { IdentityStore, type TasoPermission } from './identity-store.js';
 
-function requirePermission(
-  request: FastifyRequest,
-  reply: FastifyReply,
-  auth: AuthService,
-  identities: IdentityStore,
-  permission: TasoPermission,
-) {
-  const status = auth.status(request);
-  if (!status.authenticated || !status.email) {
-    reply.code(401).send({ error: 'Authentication required.' });
-    return undefined;
-  }
-  const user = identities.getUserByEmail(status.email);
-  if (!user || !user.active) {
-    reply.code(403).send({ error: 'Account is disabled or not registered.' });
-    return undefined;
-  }
-  if (!identities.can(user, permission)) {
-    reply.code(403).send({ error: 'Insufficient permission.', permission });
-    return undefined;
-  }
-  return user;
-}
+const STEP_UP_TTL_MS=5*60_000;
+const stepUps=new Map<string,number>();
+const BASE32='ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+function base32Decode(input:string){const normalized=input.toUpperCase().replace(/[^A-Z2-7]/g,'');let bits=0,value=0;const output:number[]=[];for(const c of normalized){const index=BASE32.indexOf(c);if(index<0)continue;value=(value<<5)|index;bits+=5;if(bits>=8){output.push((value>>>(bits-8))&255);bits-=8}}return Buffer.from(output)}
+function totp(secret:string,timeMs:number){const counter=BigInt(Math.floor(timeMs/30000));const message=Buffer.alloc(8);message.writeBigUInt64BE(counter);const digest=createHmac('sha1',base32Decode(secret)).update(message).digest();const offset=digest[digest.length-1]!&15;const binary=((digest[offset]!&127)<<24)|((digest[offset+1]!&255)<<16)|((digest[offset+2]!&255)<<8)|(digest[offset+3]!&255);return String(binary%1_000_000).padStart(6,'0')}
+function validTotp(secret:string,code:string){const supplied=Buffer.from(code.replace(/\s/g,''));if(supplied.length!==6)return false;for(const offset of[-30000,0,30000]){const expected=Buffer.from(totp(secret,Date.now()+offset));if(expected.length===supplied.length&&timingSafeEqual(expected,supplied))return true}return false}
+function requirePermission(request:FastifyRequest,reply:FastifyReply,auth:AuthService,identities:IdentityStore,permission:TasoPermission){const status=auth.status(request);if(!status.authenticated||!status.userId){reply.code(401).send({error:'Authentication required.'});return undefined}const user=identities.getUserById(status.userId);if(!user||!user.active){reply.code(403).send({error:'Account is disabled or not registered.'});return undefined}if(!identities.can(user,permission)){reply.code(403).send({error:'Insufficient permission.',permission});return undefined}return user}
+function requireStepUp(request:FastifyRequest,reply:FastifyReply,userId:string){const until=stepUps.get(userId)??0;if(until<=Date.now()){reply.code(428).send({error:'High-impact reauthentication required.',code:'STEP_UP_REQUIRED'});return false}return true}
 
-export function registerControlPlaneRoutes(
-  app: FastifyInstance,
-  auth: AuthService,
-  identities: IdentityStore,
-  store = new ControlPlaneStore(),
-) {
-  app.get('/control-plane/branding', async (request, reply) => {
-    const user = requirePermission(request, reply, auth, identities, 'settings.read');
-    if (!user) return;
-    return { branding: store.getSnapshot().branding, animationPresets: TASO_ANIMATION_PRESETS };
-  });
-
-  app.patch<{ Body: {
-    assistantName?: string;
-    assistantSubtitle?: string;
-    iconDataUrl?: string;
-    lightIconDataUrl?: string;
-    animationPreset?: TasoAnimationPreset;
-  } }>('/control-plane/branding', async (request, reply) => {
-    const user = requirePermission(request, reply, auth, identities, 'settings.write');
-    if (!user) return;
-    try {
-      const branding = store.updateBranding(request.body ?? {});
-      request.log.info({ event: 'control_plane.branding_updated', userId: user.id }, 'Taso branding updated');
-      return { branding, animationPresets: TASO_ANIMATION_PRESETS };
-    } catch (error) {
-      return reply.code(400).send({ error: (error as Error).message });
-    }
-  });
+export function registerControlPlaneRoutes(app:FastifyInstance,auth:AuthService,identities:IdentityStore,store=new ControlPlaneStore()){
+ app.get('/control-plane/snapshot',async(request,reply)=>{const user=requirePermission(request,reply,auth,identities,'settings.read');if(!user)return;const snapshot=store.getSnapshot();return{branding:snapshot.branding,navigation:snapshot.navigation,policies:snapshot.policies,emergency:snapshot.emergency,projectAccess:snapshot.projectAccess,environments:TASO_ENVIRONMENTS,animationPresets:TASO_ANIMATION_PRESETS,backup:{stateFile:process.env.TASO_STATE_FILE?.trim()||'/data/taso-state.json',backupConfigured:Boolean(process.env.TASO_BACKUP_DIR?.trim()||process.env.NODE_ENV==='production'),restoreGuard:'--apply + TASO_RESTORE_APPROVED=YES required',restoreExecutionAvailable:false},session:{userId:user.id,email:user.email,stepUpUntil:stepUps.get(user.id)?new Date(stepUps.get(user.id)!).toISOString():undefined}}});
+ app.get('/control-plane/branding',async(request,reply)=>{const user=requirePermission(request,reply,auth,identities,'settings.read');if(!user)return;return{branding:store.getSnapshot().branding,animationPresets:TASO_ANIMATION_PRESETS}});
+ app.patch<{Body:{assistantName?:string;assistantSubtitle?:string;iconDataUrl?:string;lightIconDataUrl?:string;faviconDataUrl?:string;animationPreset?:TasoAnimationPreset}}>('/control-plane/branding',async(request,reply)=>{const user=requirePermission(request,reply,auth,identities,'settings.write');if(!user)return;try{const branding=store.updateBranding(request.body??{});store.appendAudit({actorId:user.id,type:'branding.updated',scope:'control-plane'});return{branding,animationPresets:TASO_ANIMATION_PRESETS}}catch(error){return reply.code(400).send({error:(error as Error).message})}});
+ app.patch('/control-plane/navigation',async(request,reply)=>{const user=requirePermission(request,reply,auth,identities,'settings.write');if(!user)return;try{const navigation=store.updateNavigation((request.body??{}) as never);store.appendAudit({actorId:user.id,type:'navigation.updated',scope:'control-plane'});return{navigation}}catch(error){return reply.code(400).send({error:(error as Error).message})}});
+ app.patch('/control-plane/policies',async(request,reply)=>{const user=requirePermission(request,reply,auth,identities,'settings.write');if(!user)return;try{const policies=store.updatePolicies((request.body??{}) as never);store.appendAudit({actorId:user.id,type:'policies.updated',scope:'control-plane',detail:{browserMaxRepairCycles:policies.browserMaxRepairCycles,agentMaxRetries:policies.agentMaxRetries}});return{policies}}catch(error){return reply.code(400).send({error:(error as Error).message})}});
+ app.put<{Body:{userId?:string;projectId?:string;environments?:string[];read?:boolean;write?:boolean;approve?:boolean;deploy?:boolean}}>('/control-plane/project-access',async(request,reply)=>{const actor=requirePermission(request,reply,auth,identities,'users.write');if(!actor)return;const b=request.body??{};if(!b.userId||!b.projectId)return reply.code(400).send({error:'userId and projectId are required.'});if(b.deploy||b.environments?.includes('prod')){if(!requireStepUp(request,reply,actor.id))return}try{const access=store.setProjectAccess({userId:b.userId,projectId:b.projectId,environments:b.environments,read:b.read,write:b.write,approve:b.approve,deploy:b.deploy});store.appendAudit({actorId:actor.id,type:'project_access.updated',scope:b.projectId,highImpact:Boolean(b.deploy||b.environments?.includes('prod')),detail:{targetUserId:b.userId,environments:access.environments,read:access.read,write:access.write,approve:access.approve,deploy:access.deploy}});return{access}}catch(error){return reply.code(400).send({error:(error as Error).message})}});
+ app.delete<{Querystring:{userId?:string;projectId?:string}}>('/control-plane/project-access',async(request,reply)=>{const actor=requirePermission(request,reply,auth,identities,'users.write');if(!actor)return;const{userId,projectId}=request.query;if(!userId||!projectId)return reply.code(400).send({error:'userId and projectId are required.'});if(!requireStepUp(request,reply,actor.id))return;const removed=store.removeProjectAccess(userId,projectId);store.appendAudit({actorId:actor.id,type:'project_access.removed',scope:projectId,highImpact:true,detail:{targetUserId:userId}});return{removed}});
+ app.post<{Body:{code?:string}}>('/control-plane/step-up',async(request,reply)=>{const user=requirePermission(request,reply,auth,identities,'security.write');if(!user)return;const secret=auth.security.getTotpSecret(user.id);const code=request.body?.code?.trim()??'';if(!secret||!validTotp(secret,code)){store.appendAudit({actorId:user.id,type:'security.step_up_failed',scope:'control-plane',highImpact:true});return reply.code(401).send({error:'Authenticator code is invalid.'})}const until=Date.now()+STEP_UP_TTL_MS;stepUps.set(user.id,until);store.appendAudit({actorId:user.id,type:'security.step_up_succeeded',scope:'control-plane',highImpact:true});return{verified:true,expiresAt:new Date(until).toISOString()}});
+ app.patch('/control-plane/emergency',async(request,reply)=>{const user=requirePermission(request,reply,auth,identities,'security.write');if(!user)return;if(!requireStepUp(request,reply,user.id))return;const emergency=store.updateEmergency((request.body??{}) as never,user.id);store.appendAudit({actorId:user.id,type:'emergency.updated',scope:'runtime',highImpact:true,detail:emergency as unknown as Record<string,unknown>});return{emergency}});
+ app.get<{Querystring:{limit?:string}}>('/control-plane/audit',async(request,reply)=>{const user=requirePermission(request,reply,auth,identities,'audit.read');if(!user)return;const limit=Math.max(1,Math.min(500,Number(request.query.limit)||100));return{events:store.getSnapshot().audit.slice(0,limit)}});
+ app.get('/control-plane/sessions',async(request,reply)=>{const user=requirePermission(request,reply,auth,identities,'security.read');if(!user)return;const status=auth.status(request);return{sessions:[{userId:status.userId,email:status.email,expiresAt:status.expiresAt,current:true}],note:'Current authenticated session is authoritative; account disable/password reset revokes server sessions for the affected user.'}});
 }
