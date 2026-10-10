@@ -56,6 +56,12 @@ function boundedEnvMs(name: string, fallback: number, min: number, max: number) 
   return Math.max(min, Math.min(max, Math.trunc(parsed)));
 }
 
+function boundedEnvInt(name: string, fallback: number, min: number, max: number) {
+  const parsed = Number(process.env[name]);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(min, Math.min(max, Math.trunc(parsed)));
+}
+
 function safeErrorMessage(error: unknown) {
   const value = error instanceof Error ? error.message : String(error);
   return value.replace(/Bearer\s+\S+/gi, 'Bearer [redacted]').slice(0, 1200);
@@ -74,6 +80,15 @@ function specialistLabel(role: SpecialistRole) {
   return labels[role];
 }
 
+function dependsTransitively(stepId: string, ancestorId: string, steps: MissionStep[], seen = new Set<string>()): boolean {
+  if (stepId === ancestorId) return true;
+  if (seen.has(stepId)) return false;
+  seen.add(stepId);
+  const step = steps.find((item) => item.id === stepId);
+  if (!step) return false;
+  return step.dependsOn.some((dependency) => dependency === ancestorId || dependsTransitively(dependency, ancestorId, steps, seen));
+}
+
 class RetryablePlanningError extends Error {
   constructor(readonly operation: string, cause: unknown) {
     super(`Planning ${operation} failed: ${safeErrorMessage(cause)}`);
@@ -85,6 +100,7 @@ export type MissionExecutorOptions = {
   planningTimeoutMs?: number;
   retryBaseDelayMs?: number;
   watchdogGraceMs?: number;
+  stepMaxAttempts?: number;
 };
 
 export class MissionExecutor {
@@ -95,6 +111,7 @@ export class MissionExecutor {
   private readonly planningTimeoutMs: number;
   private readonly retryBaseDelayMs: number;
   private readonly watchdogGraceMs: number;
+  private readonly stepMaxAttempts: number;
 
   constructor(
     private readonly tasks: TaskEngine,
@@ -110,6 +127,8 @@ export class MissionExecutor {
       ?? boundedEnvMs('TASO_PLANNING_RETRY_BASE_MS', 2_000, 250, 30_000);
     this.watchdogGraceMs = options.watchdogGraceMs
       ?? boundedEnvMs('TASO_PLANNING_WATCHDOG_GRACE_MS', 15_000, 0, 120_000);
+    this.stepMaxAttempts = options.stepMaxAttempts
+      ?? boundedEnvInt('TASO_STEP_MAX_ATTEMPTS', 2, 1, 3);
   }
 
   readiness() {
@@ -122,6 +141,7 @@ export class MissionExecutor {
       coolify: this.coolify?.readiness() ?? { configured: false },
       activeMissionIds: [...this.active],
       planningTimeoutMs: this.planningTimeoutMs,
+      stepMaxAttempts: this.stepMaxAttempts,
     };
   }
 
@@ -298,15 +318,19 @@ export class MissionExecutor {
 
   private mergeWorkerPlans(mission: Mission, plans: Array<{ step: MissionStep; plan: ChangePlan }>): ChangePlan {
     const files = new Map<string, string>();
+    const producerByPath = new Map<string, string>();
     const summaries: string[] = [];
+    const allSteps = mission.execution?.workPlan ?? plans.map(({ step }) => step);
     for (const { step, plan } of plans) {
       summaries.push(`${specialistLabel(step.specialist)} — ${plan.summary}`);
       for (const file of plan.files) {
         const existing = files.get(file.path);
-        if (existing !== undefined && existing !== file.content) {
-          throw new Error(`Specialist worker conflict on ${file.path}. Taso stopped instead of silently overwriting another agent's output.`);
+        const producer = producerByPath.get(file.path);
+        if (existing !== undefined && existing !== file.content && producer && !dependsTransitively(step.id, producer, allSteps)) {
+          throw new Error(`Independent specialist worker conflict on ${file.path}. Taso stopped instead of silently overwriting another agent's output.`);
         }
         files.set(file.path, file.content);
+        producerByPath.set(file.path, step.id);
       }
     }
     return {
@@ -314,6 +338,12 @@ export class MissionExecutor {
       commitMessage: `Taso: ${mission.objective}`.slice(0, 120),
       files: [...files.entries()].map(([path, content]) => ({ path, content })),
     };
+  }
+
+  private effectiveTargetPaths(step: MissionStep, steps: MissionStep[]): string[] {
+    if (step.targetPaths.length) return step.targetPaths;
+    if (!step.dependsOn.length) return [];
+    return [...new Set(step.dependsOn.flatMap((dependency) => steps.find((item) => item.id === dependency)?.targetPaths ?? []))];
   }
 
   private async executeWorkGraph(
@@ -327,6 +357,7 @@ export class MissionExecutor {
     const pending = new Set(steps.map((step) => step.id));
     const completed = new Set<string>();
     const plans: Array<{ step: MissionStep; plan: ChangePlan }> = [];
+    const workingFiles = new Map(files.map((file) => [file.path, file.content]));
     const total = steps.length;
 
     while (pending.size) {
@@ -339,48 +370,85 @@ export class MissionExecutor {
           const source = (mission.execution?.workPlan ?? []).find((item) => item.id === dependency);
           this.addHandoff(mission, dependency, step.id, source?.outputSummary ?? `Artifacts from ${dependency} are available to ${step.id}.`);
         }
-        const startedAt = nowIso();
-        this.updateStep(mission, step.id, { status: 'running', startedAt, progress: 10 }, `${specialistLabel(step.specialist)} started ${step.title}.`);
+
+        const effectivePaths = this.effectiveTargetPaths(step, currentPlan);
+        if (effectivePaths.length && effectivePaths.some((path) => !step.targetPaths.includes(path))) {
+          this.updateStep(mission, step.id, { targetPaths: effectivePaths }, `Inherited ${effectivePaths.length} dependency path(s) for ${step.title}.`);
+        }
+        const effectiveStep: MissionStep = { ...step, targetPaths: effectivePaths };
         const ordinal = Math.max(0, steps.findIndex((item) => item.id === step.id));
         const startProgress = 34 + Math.trunc((ordinal / Math.max(1, total)) * 24);
         const endProgress = Math.min(60, startProgress + Math.max(4, Math.trunc(24 / Math.max(1, total))));
-        const scopedFiles = step.targetPaths.length
-          ? files.filter((file) => step.targetPaths.includes(file.path))
-          : files;
+        const contextFiles = effectivePaths.length
+          ? effectivePaths.flatMap((path) => workingFiles.has(path) ? [{ path, content: workingFiles.get(path)! }] : [])
+          : [...workingFiles.entries()].map(([path, content]) => ({ path, content }));
         const handoffContext = (mission.execution?.handoffs ?? [])
           .filter((handoff) => handoff.toStepId === step.id)
           .map((handoff) => handoff.summary);
 
-        try {
-          const plan = await this.runAgent(
+        let lastError: unknown;
+        for (let attempt = 1; attempt <= this.stepMaxAttempts; attempt += 1) {
+          const startedAt = attempt === 1 ? nowIso() : (mission.execution?.workPlan?.find((item) => item.id === step.id)?.startedAt ?? nowIso());
+          const lastAttemptAt = nowIso();
+          this.updateStep(
             mission,
-            'builder',
-            `${step.title}: ${step.objective}`,
-            startProgress,
-            endProgress,
-            (runId) => withinDeadline(`specialist ${step.id}`, async (signal) => {
-              const nextPlan = await this.planner!.planStepChanges(project, mission, scopedFiles.length ? scopedFiles : files, step, handoffContext, signal);
-              this.tasks.updateAgent(mission.id, runId, `${step.title}: specialist output produced ${nextPlan.files.length} file change(s).`, endProgress - 1, nextPlan.summary);
-              return nextPlan;
-            }),
-            `${step.title} completed.`,
-            { label: `${specialistLabel(step.specialist)} Worker`, specialist: step.specialist, stepId: step.id },
+            step.id,
+            { status: 'running', startedAt, lastAttemptAt, attempts: attempt, maxAttempts: this.stepMaxAttempts, progress: 10, error: undefined },
+            `${specialistLabel(step.specialist)} started ${step.title}${attempt > 1 ? ` retry ${attempt}/${this.stepMaxAttempts}` : ''}.`,
           );
-          const manifest = this.projects.getManifest(project.id);
-          assertSafeChanges(mission, plan.files.map((file) => file.path), manifest?.protectedPaths ?? []);
-          for (const file of plan.files) {
-            this.addArtifact(mission, { stepId: step.id, type: 'file-change', label: file.path, path: file.path, summary: plan.summary });
+          try {
+            const plan = await this.runAgent(
+              mission,
+              'builder',
+              `${step.title}: ${step.objective}`,
+              startProgress,
+              endProgress,
+              (runId) => withinDeadline(`specialist ${step.id} attempt ${attempt}`, async (signal) => {
+                const nextPlan = await this.planner!.planStepChanges(project, mission, contextFiles.length ? contextFiles : files, effectiveStep, handoffContext, signal);
+                this.tasks.updateAgent(mission.id, runId, `${step.title}: specialist output produced ${nextPlan.files.length} file change(s).`, endProgress - 1, nextPlan.summary);
+                return nextPlan;
+              }),
+              `${step.title} completed.`,
+              { label: `${specialistLabel(step.specialist)} Worker`, specialist: step.specialist, stepId: step.id },
+            );
+            const manifest = this.projects.getManifest(project.id);
+            assertSafeChanges(mission, plan.files.map((file) => file.path), manifest?.protectedPaths ?? []);
+            for (const file of plan.files) {
+              this.addArtifact(mission, { stepId: step.id, type: 'file-change', label: file.path, path: file.path, summary: plan.summary });
+            }
+            this.updateStep(
+              mission,
+              step.id,
+              { status: 'completed', completedAt: nowIso(), progress: 100, attempts: attempt, maxAttempts: this.stepMaxAttempts, outputSummary: plan.summary, error: undefined },
+              `${specialistLabel(step.specialist)} completed ${step.title}.`,
+            );
+            return { step: { ...effectiveStep, attempts: attempt, maxAttempts: this.stepMaxAttempts }, plan };
+          } catch (error) {
+            lastError = error;
+            const reason = safeErrorMessage(error);
+            if (attempt < this.stepMaxAttempts) {
+              this.updateStep(
+                mission,
+                step.id,
+                { status: 'queued', attempts: attempt, maxAttempts: this.stepMaxAttempts, error: reason, progress: 10 },
+                `${specialistLabel(step.specialist)} will retry ${step.title} after attempt ${attempt}/${this.stepMaxAttempts}.`,
+              );
+              continue;
+            }
+            this.updateStep(
+              mission,
+              step.id,
+              { status: 'failed', completedAt: nowIso(), attempts: attempt, maxAttempts: this.stepMaxAttempts, error: reason },
+              `${specialistLabel(step.specialist)} failed ${step.title} after ${attempt} attempt(s).`,
+            );
           }
-          this.updateStep(mission, step.id, { status: 'completed', completedAt: nowIso(), progress: 100, outputSummary: plan.summary }, `${specialistLabel(step.specialist)} completed ${step.title}.`);
-          return { step, plan };
-        } catch (error) {
-          this.updateStep(mission, step.id, { status: 'failed', completedAt: nowIso(), error: safeErrorMessage(error) }, `${specialistLabel(step.specialist)} failed ${step.title}.`);
-          throw error;
         }
+        throw lastError ?? new Error(`${step.title} failed without an error detail.`);
       }));
 
       for (const result of batch) {
         plans.push(result);
+        for (const file of result.plan.files) workingFiles.set(file.path, file.content);
         pending.delete(result.step.id);
         completed.add(result.step.id);
       }
@@ -432,6 +500,7 @@ export class MissionExecutor {
       timeoutMs: this.planningTimeoutMs,
       retryCount: mission.execution?.retryCount ?? 0,
       maxRetries: mission.autonomous.maxRetries,
+      stepMaxAttempts: this.stepMaxAttempts,
     });
 
     try {
@@ -463,6 +532,9 @@ export class MissionExecutor {
           dependsOn: [],
           targetPaths: reconnaissance.selectedPaths,
           progress: 10,
+          attempts: 1,
+          maxAttempts: 1,
+          lastAttemptAt: nowIso(),
           startedAt: nowIso(),
         };
         this.patchExecution(mission, { orchestrationSummary: 'Read-only mission routed to one grounded analysis worker.', workPlan: [readStep] }, 'Read-only work graph created.');
@@ -494,11 +566,12 @@ export class MissionExecutor {
         }),
         'Mission work graph created.',
       );
+      const normalizedSteps = orchestration.steps.map((step) => ({ ...step, attempts: 0, maxAttempts: this.stepMaxAttempts }));
       this.patchExecution(
         mission,
-        { orchestrationSummary: orchestration.summary, workPlan: orchestration.steps, artifacts: mission.execution?.artifacts ?? [], handoffs: [] },
-        `Mission decomposed into ${orchestration.steps.length} specialist work item(s).`,
-        { steps: orchestration.steps.map((step) => ({ id: step.id, specialist: step.specialist, dependsOn: step.dependsOn, targetPaths: step.targetPaths })) },
+        { orchestrationSummary: orchestration.summary, workPlan: normalizedSteps, artifacts: mission.execution?.artifacts ?? [], handoffs: [] },
+        `Mission decomposed into ${normalizedSteps.length} specialist work item(s).`,
+        { steps: normalizedSteps.map((step) => ({ id: step.id, specialist: step.specialist, dependsOn: step.dependsOn, targetPaths: step.targetPaths, maxAttempts: step.maxAttempts })) },
       );
 
       this.tasks.transitionMission(mission.id, 'running', 'Specialist workers are executing the mission work graph.', undefined, { progressPercent: 34 });
@@ -508,11 +581,11 @@ export class MissionExecutor {
       assertSafeChanges(mission, plan.files.map((file) => file.path), manifest?.protectedPaths ?? []);
 
       const branch = safeBranch(project, mission);
-      this.patchExecution(mission, { summary: plan.summary, branch, progressPercent: 61, currentAction: 'Repository Publisher is preparing the unified change set.' }, 'Specialist outputs merged into one conflict-checked change set.');
+      this.patchExecution(mission, { summary: plan.summary, branch, progressPercent: 61, currentAction: 'Repository Publisher is preparing the unified change set.' }, 'Specialist outputs merged into one dependency-aware change set.');
       const result = await this.runAgent(
         mission,
         'builder',
-        `Publishing ${plan.files.length} conflict-checked file changes and opening a pull request.`,
+        `Publishing ${plan.files.length} dependency-aware file changes and opening a pull request.`,
         62,
         70,
         () => this.github!.createPullRequestWithChanges({
@@ -533,7 +606,7 @@ export class MissionExecutor {
             `Risk: \`${mission.riskLevel}\``,
             `Specialist workers: \`${orchestration.steps.map((step) => step.specialist).join(', ')}\``,
             '',
-            'Generated by Taso Mission Orchestrator V2. CI and preview gates must pass before merge.',
+            'Generated by Taso Mission Orchestrator V3 with incremental handoff context and step-scoped recovery. CI and preview gates must pass before merge.',
           ].join('\n'),
         }),
         'Unified changes committed and pull request opened.',
