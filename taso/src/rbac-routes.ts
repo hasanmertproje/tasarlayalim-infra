@@ -1,11 +1,20 @@
+import { randomBytes } from 'node:crypto';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { AuthService } from './auth.js';
 import { IdentityStore, type TasoPermission } from './identity-store.js';
+
+function temporaryPassword() {
+  return `${randomBytes(12).toString('base64url')}A9!`;
+}
 
 function authenticatedUser(request: FastifyRequest, reply: FastifyReply, auth: AuthService, identities: IdentityStore) {
   const status = auth.status(request);
   if (!status.authenticated || !status.email) {
     reply.code(401).send({ error: 'Authentication required.' });
+    return undefined;
+  }
+  if (status.passwordChangeRequired) {
+    reply.code(403).send({ error: 'Password change required before accessing Taso.', code: 'PASSWORD_CHANGE_REQUIRED' });
     return undefined;
   }
   const user = identities.getUserByEmail(status.email);
@@ -96,15 +105,25 @@ export function registerRbacRoutes(app: FastifyInstance, auth: AuthService, iden
     return { users: identities.listUsers() };
   });
 
-  app.post<{ Body: { email?: string; displayName?: string; roleIds?: string[] } }>('/auth/admin/users', async (request, reply) => {
+  app.post<{ Body: { email?: string; displayName?: string; roleIds?: string[]; password?: string } }>('/auth/admin/users', async (request, reply) => {
     const actor = requirePermission(request, reply, auth, identities, 'users.write');
     if (!actor) return;
     try {
-      return reply.code(201).send({ user: identities.createUser({
+      const supplied = request.body?.password?.trim();
+      const generated = supplied || temporaryPassword();
+      const user = identities.createUser({
         email: request.body?.email ?? '',
         displayName: request.body?.displayName,
         roleIds: request.body?.roleIds,
-      }) });
+        password: generated,
+        passwordChangeRequired: true,
+      });
+      request.log.info({ event: 'auth.user_created', actorId: actor.id, userId: user.id }, 'Taso user created with one-time credential');
+      return reply.code(201).send({
+        user,
+        temporaryPassword: supplied ? undefined : generated,
+        passwordChangeRequired: true,
+      });
     } catch (error) {
       return reply.code(400).send({ error: (error as Error).message });
     }
@@ -114,7 +133,38 @@ export function registerRbacRoutes(app: FastifyInstance, auth: AuthService, iden
     const actor = requirePermission(request, reply, auth, identities, 'users.write');
     if (!actor) return;
     try {
-      return { user: identities.updateUser(request.params.id, request.body ?? {}) };
+      const user = identities.updateUser(request.params.id, request.body ?? {});
+      if (request.body?.active === false) {
+        auth.revokeUserSessions(user.id);
+        auth.security.revokeAllTrustedDevices(user.id);
+      }
+      request.log.info({ event: 'auth.user_updated', actorId: actor.id, userId: user.id, active: user.active }, 'Taso user updated');
+      return { user };
+    } catch (error) {
+      return reply.code(400).send({ error: (error as Error).message });
+    }
+  });
+
+  app.post<{ Params: { id: string }; Body: { password?: string } }>('/auth/admin/users/:id/reset-password', async (request, reply) => {
+    const actor = requirePermission(request, reply, auth, identities, 'users.write');
+    if (!actor) return;
+    const target = identities.getUserById(request.params.id);
+    if (!target) return reply.code(404).send({ error: 'User not found.' });
+    if (target.owner) return reply.code(409).send({ error: 'Owner password is managed by environment configuration.' });
+    try {
+      const supplied = request.body?.password?.trim();
+      const generated = supplied || temporaryPassword();
+      const user = identities.setPassword(target.id, generated, true);
+      const revokedSessions = auth.revokeUserSessions(target.id);
+      const revokedDevices = auth.security.revokeAllTrustedDevices(target.id);
+      request.log.warn({ event: 'auth.password_reset', actorId: actor.id, userId: target.id, revokedSessions, revokedDevices }, 'Taso user password reset');
+      return {
+        user,
+        temporaryPassword: supplied ? undefined : generated,
+        passwordChangeRequired: true,
+        revokedSessions,
+        revokedDevices,
+      };
     } catch (error) {
       return reply.code(400).send({ error: (error as Error).message });
     }
