@@ -257,6 +257,16 @@
   color: var(--v23-faint) !important;
 }
 
+@media (min-width: 821px) {
+  .pc9-shell,
+  .mc8-shell,
+  .af11-shell,
+  .ac9-shell {
+    width: auto !important;
+    right: 0 !important;
+  }
+}
+
 @media (max-width: 1180px) {
   .pc9-layout,
   .mc8-grid,
