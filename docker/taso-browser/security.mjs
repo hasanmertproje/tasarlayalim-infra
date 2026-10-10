@@ -1,40 +1,11 @@
+import { isIP } from 'node:net';
 import { lookup } from 'node:dns/promises';
-import { BlockList, isIP } from 'node:net';
-
-const denied = new BlockList();
-for (const [subnet, prefix] of [
-  ['0.0.0.0', 8], ['10.0.0.0', 8], ['100.64.0.0', 10], ['127.0.0.0', 8],
-  ['169.254.0.0', 16], ['172.16.0.0', 12], ['192.0.0.0', 24],
-  ['192.0.2.0', 24], ['192.88.99.0', 24], ['192.168.0.0', 16],
-  ['198.18.0.0', 15], ['198.51.100.0', 24], ['203.0.113.0', 24],
-  ['224.0.0.0', 4], ['240.0.0.0', 4],
-]) denied.addSubnet(subnet, prefix, 'ipv4');
-for (const [subnet, prefix] of [
-  ['::', 128], ['::1', 128], ['fc00::', 7], ['fe80::', 10], ['ff00::', 8],
-  ['::ffff:0:0', 96], ['64:ff9b::', 96], ['2001:db8::', 32], ['2001::', 23], ['2002::', 16],
-]) denied.addSubnet(subnet, prefix, 'ipv6');
-
-export function assertPublicAddress(address) {
-  const family = isIP(address);
-  if (!family || denied.check(address, family === 4 ? 'ipv4' : 'ipv6')) {
-    throw new Error('Private, reserved, or invalid network address is not allowed.');
-  }
-}
-
-export function parseTarget(raw, allowHosts) {
-  const url = new URL(raw);
-  if (!['http:', 'https:'].includes(url.protocol)) throw new Error('Only http/https targets are allowed.');
-  if (url.username || url.password) throw new Error('URL credentials are not allowed.');
-  const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, '');
-  if (isIP(host)) throw new Error('IP address targets are not allowed.');
-  if (!allowHosts.has(host)) throw new Error('Host is not allowlisted.');
-  return url;
-}
-
-export async function validateTarget(raw, allowHosts) {
-  const url = parseTarget(raw, allowHosts);
-  const addresses = await lookup(url.hostname, { all: true, verbatim: true });
-  if (!addresses.length) throw new Error('Target hostname did not resolve.');
-  for (const record of addresses) assertPublicAddress(record.address);
-  return url;
-}
+const deniedIPv4=[['0.0.0.0',8],['10.0.0.0',8],['100.64.0.0',10],['127.0.0.0',8],['169.254.0.0',16],['172.16.0.0',12],['192.0.0.0',24],['192.0.2.0',24],['192.88.99.0',24],['192.168.0.0',16],['198.18.0.0',15],['198.51.100.0',24],['203.0.113.0',24],['224.0.0.0',4],['240.0.0.0',4]];
+const deniedIPv6=[['::',128],['::1',128],['fc00::',7],['fe80::',10],['ff00::',8],['2001:db8::',32],['2001::',23],['2002::',16]];
+function ipv4Number(address){return address.split('.').reduce((value,part)=>(value<<8n)|BigInt(part),0n)}
+function ipv6Number(address){let value=address.toLowerCase();if(value.includes('.')){const lastColon=value.lastIndexOf(':');const octets=value.slice(lastColon+1).split('.').map(Number);value=value.slice(0,lastColon+1)+((octets[0]<<8)|octets[1]).toString(16)+':'+((octets[2]<<8)|octets[3]).toString(16)}const halves=value.split('::');if(halves.length>2)throw new Error('Invalid IPv6 address.');const left=halves[0]?halves[0].split(':'):[];const right=halves.length===2&&halves[1]?halves[1].split(':'):[];const missing=8-left.length-right.length;if(halves.length===1&&missing!==0||halves.length===2&&missing<1)throw new Error('Invalid IPv6 address.');return[...left,...Array(missing).fill('0'),...right].reduce((result,part)=>(result<<16n)|BigInt('0x'+part),0n)}
+function containsSubnet(address,subnet,prefix,bits){const shift=BigInt(bits-prefix);return address>>shift===subnet>>shift}
+function isPublicAddress(address){const family=isIP(address);if(family===4){const value=ipv4Number(address);return !deniedIPv4.some(([network,prefix])=>containsSubnet(value,ipv4Number(network),prefix,32))}if(family===6){const value=ipv6Number(address);return value>>32n!==0xffffn&&value>>32n!==BigInt('0x64ff9b000000000000000000')&&!deniedIPv6.some(([network,prefix])=>containsSubnet(value,ipv6Number(network),prefix,128))}return false}
+export function assertPublicAddress(address){if(!isPublicAddress(address))throw new Error('Private, reserved, or invalid network address is not allowed.')}
+export function parseTarget(raw,allowHosts){const url=new URL(raw);if(!['http:','https:'].includes(url.protocol))throw new Error('Only http/https targets are allowed.');if(url.username||url.password)throw new Error('URL credentials are not allowed.');const lower=url.hostname.toLowerCase();const host=lower.startsWith('[')&&lower.endsWith(']')?lower.slice(1,-1):lower;if(isIP(host))throw new Error('IP address targets are not allowed.');if(!allowHosts.has(host))throw new Error('Host is not allowlisted.');return url}
+export async function validateTarget(raw,allowHosts){const url=parseTarget(raw,allowHosts);const addresses=await lookup(url.hostname,{all:true,verbatim:true});if(!addresses.length)throw new Error('Target hostname did not resolve.');for(const record of addresses)assertPublicAddress(record.address);return url}
