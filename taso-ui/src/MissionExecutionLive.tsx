@@ -79,6 +79,12 @@ type Mission = {
     ciRepairAttempts?: number;
     maxCiRepairAttempts?: number;
     lastCiFailureSummary?: string;
+    runtimeRepairAttempts?: number;
+    maxRuntimeRepairAttempts?: number;
+    lastRuntimeFailureSummary?: string;
+    functionalChecksPlanned?: number;
+    functionalChecksPassed?: number;
+    lastFunctionalFailureSummary?: string;
   };
 };
 
@@ -130,7 +136,9 @@ export default function MissionExecutionLive({ expanded = false }: Props) {
 
   useEffect(() => {
     void refresh();
-    const timer = window.setInterval(() => void refresh(), 2_000);
+    const timer = window.setInterval(() => {
+      if (!document.hidden) void refresh();
+    }, 2_000);
     return () => window.clearInterval(timer);
   }, []);
 
@@ -146,12 +154,16 @@ export default function MissionExecutionLive({ expanded = false }: Props) {
   const progress = Math.max(0, Math.min(100, execution?.progressPercent ?? 0));
   const ciRepairAttempts = execution?.ciRepairAttempts ?? 0;
   const maxCiRepairAttempts = execution?.maxCiRepairAttempts ?? 0;
+  const runtimeRepairAttempts = execution?.runtimeRepairAttempts ?? 0;
+  const maxRuntimeRepairAttempts = execution?.maxRuntimeRepairAttempts ?? 0;
+  const functionalChecksPlanned = execution?.functionalChecksPlanned ?? 0;
+  const functionalChecksPassed = execution?.functionalChecksPassed ?? 0;
 
   return (
     <section className={`mission-execution-live ${expanded ? 'expanded' : ''}`} aria-label="Canlı mission orchestration">
       <div className="mission-execution-head">
         <div>
-          <span className="mission-execution-kicker">MISSION ORCHESTRATOR V5 · LIVE 2s</span>
+          <span className="mission-execution-kicker">MISSION ORCHESTRATOR V7 · LIVE 2s</span>
           <strong>{mission?.objective ?? 'Mission execution unavailable'}</strong>
           <small>{execution?.currentAction ?? (error ? `Core error: ${error}` : 'Waiting for execution state…')}</small>
         </div>
@@ -177,6 +189,8 @@ export default function MissionExecutionLive({ expanded = false }: Props) {
             <span>{activeRuns.length ? `${activeRuns.length} worker active` : mission.status.toUpperCase()}</span>
             {execution?.resumeAfterRestart && <span>RESTART RESUME ARMED</span>}
             {ciRepairAttempts > 0 && <span>CI SELF-HEAL {ciRepairAttempts}/{maxCiRepairAttempts || '—'}</span>}
+            {runtimeRepairAttempts > 0 && <span>RUNTIME SELF-HEAL {runtimeRepairAttempts}/{maxRuntimeRepairAttempts || '—'}</span>}
+            {functionalChecksPlanned > 0 && <span>FUNCTIONAL {functionalChecksPassed}/{functionalChecksPlanned}</span>}
           </div>
 
           {execution?.orchestrationSummary && <p className="mission-orchestration-summary">{execution.orchestrationSummary}</p>}
@@ -203,6 +217,7 @@ export default function MissionExecutionLive({ expanded = false }: Props) {
                     <span>{incoming.length} handoff</span>
                     {step.maxAttempts !== undefined && <span>attempt {step.attempts ?? 0}/{step.maxAttempts}</span>}
                   </div>
+                  {step.targetPaths.length > 0 && <small>Scope: {step.targetPaths.slice(0, 3).join(' · ')}{step.targetPaths.length > 3 ? ` +${step.targetPaths.length - 3}` : ''}</small>}
                   {step.dependsOn.length > 0 && <small>Depends on: {step.dependsOn.join(' · ')}</small>}
                   {step.outputSummary && <small className="mission-step-output">{step.outputSummary}</small>}
                   {step.error && <small className="mission-step-error">{step.error}</small>}
@@ -211,7 +226,7 @@ export default function MissionExecutionLive({ expanded = false }: Props) {
             })}
           </div>
 
-          {(artifacts.length > 0 || handoffs.length > 0 || checkpoint || maxCiRepairAttempts > 0) && (
+          {(artifacts.length > 0 || handoffs.length > 0 || checkpoint || maxCiRepairAttempts > 0 || maxRuntimeRepairAttempts > 0 || functionalChecksPlanned > 0) && (
             <div className="mission-output-grid">
               <div>
                 <span>ARTIFACTS</span>
@@ -237,6 +252,16 @@ export default function MissionExecutionLive({ expanded = false }: Props) {
                 <span>CI SELF-HEAL</span>
                 <strong>{maxCiRepairAttempts > 0 ? `${ciRepairAttempts}/${maxCiRepairAttempts}` : 'OFF'}</strong>
                 <small>{execution?.lastCiFailureSummary ?? 'No CI repair needed yet'}</small>
+              </div>
+              <div>
+                <span>RUNTIME SELF-HEAL</span>
+                <strong>{maxRuntimeRepairAttempts > 0 ? `${runtimeRepairAttempts}/${maxRuntimeRepairAttempts}` : 'OFF'}</strong>
+                <small>{execution?.lastRuntimeFailureSummary ?? 'No runtime repair needed yet'}</small>
+              </div>
+              <div>
+                <span>FUNCTIONAL VERIFY</span>
+                <strong>{functionalChecksPlanned > 0 ? `${functionalChecksPassed}/${functionalChecksPlanned}` : '—'}</strong>
+                <small>{execution?.lastFunctionalFailureSummary ?? (functionalChecksPlanned > 0 ? 'Mission acceptance checks tracked.' : 'Not planned yet')}</small>
               </div>
             </div>
           )}
