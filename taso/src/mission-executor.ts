@@ -1,4 +1,16 @@
-import type { AgentRole, Mission, Project } from './domain.js';
+import {
+  createId,
+  nowIso,
+  type AgentHandoff,
+  type AgentRole,
+  type Mission,
+  type MissionArtifact,
+  type MissionExecution,
+  type MissionStep,
+  type Project,
+  type SpecialistRole,
+} from './domain.js';
+import type { ChangePlan, RepositoryFile } from './agent-planner.js';
 import type { ProjectRegistry } from './project-registry.js';
 import type { TaskEngine } from './task-engine.js';
 import { MultiProviderPlanner } from './multi-provider-planner.js';
@@ -47,6 +59,19 @@ function boundedEnvMs(name: string, fallback: number, min: number, max: number) 
 function safeErrorMessage(error: unknown) {
   const value = error instanceof Error ? error.message : String(error);
   return value.replace(/Bearer\s+\S+/gi, 'Bearer [redacted]').slice(0, 1200);
+}
+
+function specialistLabel(role: SpecialistRole) {
+  const labels: Record<SpecialistRole, string> = {
+    frontend: 'Frontend Engineer',
+    backend: 'Backend Engineer',
+    database: 'Database Engineer',
+    security: 'Security Engineer',
+    qa: 'QA Engineer',
+    devops: 'DevOps Engineer',
+    generalist: 'Generalist Engineer',
+  };
+  return labels[role];
 }
 
 class RetryablePlanningError extends Error {
@@ -161,6 +186,58 @@ export class MissionExecutor {
     }
   }
 
+  private patchExecution(mission: Mission, patch: Partial<MissionExecution>, note?: string, metadata?: Record<string, unknown>) {
+    mission.updatedAt = nowIso();
+    mission.execution = { ...(mission.execution ?? {}), ...patch };
+    if (note) this.tasks.noteMission(mission.id, note, metadata);
+    return mission;
+  }
+
+  private updateStep(mission: Mission, stepId: string, patch: Partial<MissionStep>, note?: string) {
+    const workPlan = (mission.execution?.workPlan ?? []).map((step) => step.id === stepId ? { ...step, ...patch } : step);
+    this.patchExecution(mission, { workPlan }, note, { stepId, ...patch });
+    return workPlan.find((step) => step.id === stepId);
+  }
+
+  private addArtifact(
+    mission: Mission,
+    input: Omit<MissionArtifact, 'id' | 'missionId' | 'createdAt'>,
+  ): MissionArtifact {
+    const artifact: MissionArtifact = {
+      id: createId('artifact'),
+      missionId: mission.id,
+      createdAt: nowIso(),
+      ...input,
+    };
+    this.patchExecution(
+      mission,
+      { artifacts: [...(mission.execution?.artifacts ?? []), artifact] },
+      `Artifact ready: ${artifact.label}`,
+      { artifactId: artifact.id, type: artifact.type, stepId: artifact.stepId, path: artifact.path, url: artifact.url },
+    );
+    return artifact;
+  }
+
+  private addHandoff(mission: Mission, fromStepId: string, toStepId: string, summary: string) {
+    const artifactIds = (mission.execution?.artifacts ?? []).filter((artifact) => artifact.stepId === fromStepId).map((artifact) => artifact.id);
+    const handoff: AgentHandoff = {
+      id: createId('handoff'),
+      missionId: mission.id,
+      fromStepId,
+      toStepId,
+      summary,
+      artifactIds,
+      createdAt: nowIso(),
+    };
+    this.patchExecution(
+      mission,
+      { handoffs: [...(mission.execution?.handoffs ?? []), handoff] },
+      `Agent handoff: ${fromStepId} → ${toStepId}`,
+      { handoffId: handoff.id, fromStepId, toStepId, artifactIds },
+    );
+    return handoff;
+  }
+
   private async runAgent<T>(
     mission: Mission,
     role: AgentRole,
@@ -169,8 +246,13 @@ export class MissionExecutor {
     completedProgress: number,
     work: (runId: string) => Promise<T>,
     completedAction?: string,
+    meta?: { label?: string; specialist?: SpecialistRole | 'repository-publisher'; stepId?: string },
   ): Promise<T> {
     const run = this.tasks.startAgent(mission.id, role, action, startProgress);
+    if (meta?.label) run.label = meta.label;
+    if (meta?.specialist) run.specialist = meta.specialist;
+    if (meta?.stepId) run.stepId = meta.stepId;
+    if (meta) this.tasks.noteMission(mission.id, `${run.label} assigned.`, { agentRunId: run.id, specialist: run.specialist, stepId: run.stepId });
     try {
       const result = await work(run.id);
       this.tasks.completeAgent(mission.id, run.id, completedAction ?? `${action} completed.`, completedProgress);
@@ -214,12 +296,111 @@ export class MissionExecutor {
     this.retryTimers.set(id, timer);
   }
 
+  private mergeWorkerPlans(mission: Mission, plans: Array<{ step: MissionStep; plan: ChangePlan }>): ChangePlan {
+    const files = new Map<string, string>();
+    const summaries: string[] = [];
+    for (const { step, plan } of plans) {
+      summaries.push(`${specialistLabel(step.specialist)} — ${plan.summary}`);
+      for (const file of plan.files) {
+        const existing = files.get(file.path);
+        if (existing !== undefined && existing !== file.content) {
+          throw new Error(`Specialist worker conflict on ${file.path}. Taso stopped instead of silently overwriting another agent's output.`);
+        }
+        files.set(file.path, file.content);
+      }
+    }
+    return {
+      summary: summaries.join('\n'),
+      commitMessage: `Taso: ${mission.objective}`.slice(0, 120),
+      files: [...files.entries()].map(([path, content]) => ({ path, content })),
+    };
+  }
+
+  private async executeWorkGraph(
+    project: Project,
+    mission: Mission,
+    files: RepositoryFile[],
+    withinDeadline: <T>(operation: string, work: (signal: AbortSignal) => Promise<T>) => Promise<T>,
+  ): Promise<ChangePlan> {
+    const steps = mission.execution?.workPlan ?? [];
+    if (!steps.length) throw new Error('Mission work graph is empty.');
+    const pending = new Set(steps.map((step) => step.id));
+    const completed = new Set<string>();
+    const plans: Array<{ step: MissionStep; plan: ChangePlan }> = [];
+    const total = steps.length;
+
+    while (pending.size) {
+      const currentPlan = mission.execution?.workPlan ?? [];
+      const ready = currentPlan.filter((step) => pending.has(step.id) && step.dependsOn.every((dependency) => completed.has(dependency)));
+      if (!ready.length) throw new Error('Mission work graph contains an unresolved dependency cycle.');
+
+      const batch = await Promise.all(ready.map(async (step) => {
+        for (const dependency of step.dependsOn) {
+          const source = (mission.execution?.workPlan ?? []).find((item) => item.id === dependency);
+          this.addHandoff(mission, dependency, step.id, source?.outputSummary ?? `Artifacts from ${dependency} are available to ${step.id}.`);
+        }
+        const startedAt = nowIso();
+        this.updateStep(mission, step.id, { status: 'running', startedAt, progress: 10 }, `${specialistLabel(step.specialist)} started ${step.title}.`);
+        const ordinal = Math.max(0, steps.findIndex((item) => item.id === step.id));
+        const startProgress = 34 + Math.trunc((ordinal / Math.max(1, total)) * 24);
+        const endProgress = Math.min(60, startProgress + Math.max(4, Math.trunc(24 / Math.max(1, total))));
+        const scopedFiles = step.targetPaths.length
+          ? files.filter((file) => step.targetPaths.includes(file.path))
+          : files;
+        const handoffContext = (mission.execution?.handoffs ?? [])
+          .filter((handoff) => handoff.toStepId === step.id)
+          .map((handoff) => handoff.summary);
+
+        try {
+          const plan = await this.runAgent(
+            mission,
+            'builder',
+            `${step.title}: ${step.objective}`,
+            startProgress,
+            endProgress,
+            (runId) => withinDeadline(`specialist ${step.id}`, async (signal) => {
+              const nextPlan = await this.planner!.planStepChanges(project, mission, scopedFiles.length ? scopedFiles : files, step, handoffContext, signal);
+              this.tasks.updateAgent(mission.id, runId, `${step.title}: specialist output produced ${nextPlan.files.length} file change(s).`, endProgress - 1, nextPlan.summary);
+              return nextPlan;
+            }),
+            `${step.title} completed.`,
+            { label: `${specialistLabel(step.specialist)} Worker`, specialist: step.specialist, stepId: step.id },
+          );
+          const manifest = this.projects.getManifest(project.id);
+          assertSafeChanges(mission, plan.files.map((file) => file.path), manifest?.protectedPaths ?? []);
+          for (const file of plan.files) {
+            this.addArtifact(mission, { stepId: step.id, type: 'file-change', label: file.path, path: file.path, summary: plan.summary });
+          }
+          this.updateStep(mission, step.id, { status: 'completed', completedAt: nowIso(), progress: 100, outputSummary: plan.summary }, `${specialistLabel(step.specialist)} completed ${step.title}.`);
+          return { step, plan };
+        } catch (error) {
+          this.updateStep(mission, step.id, { status: 'failed', completedAt: nowIso(), error: safeErrorMessage(error) }, `${specialistLabel(step.specialist)} failed ${step.title}.`);
+          throw error;
+        }
+      }));
+
+      for (const result of batch) {
+        plans.push(result);
+        pending.delete(result.step.id);
+        completed.add(result.step.id);
+      }
+    }
+
+    return this.mergeWorkerPlans(mission, plans);
+  }
+
   private async executeRepositoryMission(project: Project, mission: Mission): Promise<Mission> {
     if (!this.planner) throw new Error('AI planner is not configured.');
     if (!this.github) throw new Error('GitHub tool broker is not configured.');
     assertRepository(project.repository);
 
-    this.tasks.transitionMission(mission.id, 'planning', 'Taso agent team is inspecting the repository.', undefined, { progressPercent: 2, currentAction: 'Starting repository reconnaissance.' });
+    this.tasks.transitionMission(mission.id, 'planning', 'Taso agent team is inspecting the repository.', undefined, {
+      progressPercent: 2,
+      currentAction: 'Starting repository reconnaissance.',
+      workPlan: [],
+      artifacts: [],
+      handoffs: [],
+    });
     const deadline = Date.now() + this.planningTimeoutMs;
     const controller = new AbortController();
     this.planningControllers.set(mission.id, controller);
@@ -262,30 +443,79 @@ export class MissionExecutor {
         const fallback = ['README.md', 'package.json', 'composer.json'].filter((path) => paths.includes(path));
         const selectedPaths = selected.length ? selected : fallback;
         this.tasks.updateAgent(mission.id, runId, `Reading ${selectedPaths.length} selected files.`, 16, selectedPaths.slice(0, 12).join(', '));
-        const files = await withinDeadline('file reading', () => this.github!.readFiles(project.repository, project.defaultBranch, selectedPaths));
-        return { files, selectedPaths };
+        const selectedFiles = await withinDeadline('file reading', () => this.github!.readFiles(project.repository, project.defaultBranch, selectedPaths));
+        return { files: selectedFiles, selectedPaths };
       }, 'Repository context collected.');
 
+      this.addArtifact(mission, {
+        type: 'context',
+        label: 'Repository context',
+        summary: `${reconnaissance.selectedPaths.length} mission-relevant files loaded: ${reconnaissance.selectedPaths.join(', ')}`,
+      });
+
       if (mission.riskLevel === 'READ') {
-        const summary = await this.runAgent(mission, 'architect', 'Analyzing repository context and producing a grounded answer.', 30, 100, () =>
-          withinDeadline('read-only analysis', (signal) => this.planner!.analyze(project, mission, reconnaissance.files, signal)),
-          'Read-only analysis completed.');
+        const readStep: MissionStep = {
+          id: 'analysis-1',
+          title: 'Grounded repository analysis',
+          objective: mission.objective,
+          specialist: 'generalist',
+          status: 'running',
+          dependsOn: [],
+          targetPaths: reconnaissance.selectedPaths,
+          progress: 10,
+          startedAt: nowIso(),
+        };
+        this.patchExecution(mission, { orchestrationSummary: 'Read-only mission routed to one grounded analysis worker.', workPlan: [readStep] }, 'Read-only work graph created.');
+        const summary = await this.runAgent(
+          mission,
+          'architect',
+          'Analyzing repository context and producing a grounded answer.',
+          30,
+          100,
+          () => withinDeadline('read-only analysis', (signal) => this.planner!.analyze(project, mission, reconnaissance.files, signal)),
+          'Read-only analysis completed.',
+          { label: 'Repository Analyst', specialist: 'generalist', stepId: readStep.id },
+        );
+        this.updateStep(mission, readStep.id, { status: 'completed', progress: 100, completedAt: nowIso(), outputSummary: summary });
+        this.addArtifact(mission, { stepId: readStep.id, type: 'analysis', label: 'Grounded analysis', summary });
         return this.tasks.transitionMission(mission.id, 'completed', 'Read-only mission completed.', undefined, { summary, checkState: 'success', progressPercent: 100 });
       }
 
-      const plan = await this.runAgent(mission, 'architect', 'Designing the implementation against the actual repository.', 28, 42, async (runId) => {
-        const nextPlan = await withinDeadline('change planning', (signal) => this.planner!.planChanges(project, mission, reconnaissance.files, signal));
-        if (!nextPlan.files.length) throw new Error('AI planner produced no file changes.');
-        const manifest = this.projects.getManifest(project.id);
-        assertSafeChanges(mission, nextPlan.files.map((file) => file.path), manifest?.protectedPaths ?? []);
-        this.tasks.updateAgent(mission.id, runId, `Implementation plan ready for ${nextPlan.files.length} files.`, 38, nextPlan.summary);
-        return nextPlan;
-      }, 'Implementation design completed.');
+      const orchestration = await this.runAgent(
+        mission,
+        'architect',
+        'Decomposing the mission into specialist work items and dependencies.',
+        24,
+        32,
+        (runId) => withinDeadline('mission decomposition', async (signal) => {
+          const plan = await this.planner!.decomposeMission(project, mission, reconnaissance.files, signal);
+          this.tasks.updateAgent(mission.id, runId, `Work graph ready: ${plan.steps.length} specialist step(s).`, 31, plan.summary);
+          return plan;
+        }),
+        'Mission work graph created.',
+      );
+      this.patchExecution(
+        mission,
+        { orchestrationSummary: orchestration.summary, workPlan: orchestration.steps, artifacts: mission.execution?.artifacts ?? [], handoffs: [] },
+        `Mission decomposed into ${orchestration.steps.length} specialist work item(s).`,
+        { steps: orchestration.steps.map((step) => ({ id: step.id, specialist: step.specialist, dependsOn: step.dependsOn, targetPaths: step.targetPaths })) },
+      );
+
+      this.tasks.transitionMission(mission.id, 'running', 'Specialist workers are executing the mission work graph.', undefined, { progressPercent: 34 });
+      const plan = await this.executeWorkGraph(project, mission, reconnaissance.files, withinDeadline);
+      if (!plan.files.length) throw new Error('Specialist workers completed without producing any repository changes.');
+      const manifest = this.projects.getManifest(project.id);
+      assertSafeChanges(mission, plan.files.map((file) => file.path), manifest?.protectedPaths ?? []);
 
       const branch = safeBranch(project, mission);
-      this.tasks.transitionMission(mission.id, 'running', 'Implementation Agent is applying repository changes.', { files: plan.files.map((file) => file.path) }, { summary: plan.summary, branch, progressPercent: 45 });
-      const result = await this.runAgent(mission, 'builder', `Applying ${plan.files.length} scoped file changes and opening a pull request.`, 46, 66, () =>
-        this.github!.createPullRequestWithChanges({
+      this.patchExecution(mission, { summary: plan.summary, branch, progressPercent: 61, currentAction: 'Repository Publisher is preparing the unified change set.' }, 'Specialist outputs merged into one conflict-checked change set.');
+      const result = await this.runAgent(
+        mission,
+        'builder',
+        `Publishing ${plan.files.length} conflict-checked file changes and opening a pull request.`,
+        62,
+        70,
+        () => this.github!.createPullRequestWithChanges({
           repository: project.repository,
           base: project.defaultBranch,
           branch,
@@ -295,27 +525,40 @@ export class MissionExecutor {
           body: [
             '## Taso mission',
             '',
+            orchestration.summary,
+            '',
             plan.summary,
             '',
             `Mission: \`${mission.id}\``,
             `Risk: \`${mission.riskLevel}\``,
+            `Specialist workers: \`${orchestration.steps.map((step) => step.specialist).join(', ')}\``,
             '',
-            'Generated by Taso autonomous agent runtime. CI and preview gates must pass before merge.',
+            'Generated by Taso Mission Orchestrator V2. CI and preview gates must pass before merge.',
           ].join('\n'),
         }),
-        'Changes committed and pull request opened.');
+        'Unified changes committed and pull request opened.',
+        { label: 'Repository Publisher', specialist: 'repository-publisher' },
+      );
+      this.addArtifact(mission, { type: 'pull-request', label: `PR #${result.number}`, url: result.url, summary: plan.summary });
 
       this.tasks.transitionMission(mission.id, 'testing', 'Verification Agent is checking the generated change.', { pullRequest: result.url }, {
         branch: result.branch,
         commitSha: result.commitSha,
         pullRequestNumber: result.number,
         pullRequestUrl: result.url,
-        progressPercent: 68,
+        progressPercent: 72,
       });
 
-      const checkState = await this.runAgent(mission, 'verifier', 'Waiting for repository checks and verifying the generated commit.', 70, 84, () =>
-        this.github!.waitForChecks(project.repository, result.commitSha),
-        'Repository checks finished.');
+      const checkState = await this.runAgent(
+        mission,
+        'verifier',
+        'Waiting for repository checks and verifying the generated commit.',
+        74,
+        86,
+        () => this.github!.waitForChecks(project.repository, result.commitSha),
+        'Repository checks finished.',
+      );
+      this.addArtifact(mission, { type: 'ci', label: `CI ${checkState}`, url: result.url, summary: `Checks for ${result.commitSha.slice(0, 8)} finished with state ${checkState}.` });
       if (checkState !== 'success') {
         const reason = checkState === 'failed' ? 'CI checks failed.' : checkState === 'missing' ? 'No CI checks were detected for the generated commit.' : 'CI checks did not complete before timeout.';
         return this.tasks.transitionMission(mission.id, 'failed', reason, { checkState }, { checkState, blockedReason: reason, lastFailure: reason });
@@ -326,9 +569,16 @@ export class MissionExecutor {
           const reason = 'CI passed, but a Coolify resource is not configured for this project, so preview could not be verified.';
           return this.tasks.transitionMission(mission.id, 'failed', reason, { checkState }, { checkState, blockedReason: reason, lastFailure: reason });
         }
-        const preview = await this.runAgent(mission, 'release', 'Creating and verifying the isolated preview deployment.', 86, 100, () =>
-          this.coolify!.deploy(project, result.number),
-          'Preview deployment completed and verified.');
+        const preview = await this.runAgent(
+          mission,
+          'release',
+          'Creating and verifying the isolated preview deployment.',
+          88,
+          100,
+          () => this.coolify!.deploy(project, result.number),
+          'Preview deployment completed and verified.',
+        );
+        this.addArtifact(mission, { type: 'preview', label: 'Verified preview', url: preview.url, summary: `Coolify deployment ${preview.deploymentUuid}` });
         return this.tasks.transitionMission(mission.id, 'preview_ready', 'CI passed and Coolify preview deployment completed.', { deploymentUuid: preview.deploymentUuid }, {
           checkState,
           previewDeploymentUuid: preview.deploymentUuid,
@@ -353,6 +603,7 @@ export class MissionExecutor {
     const deployment = await this.runAgent(mission, 'release', 'Sending the approved production release to Coolify and waiting for verification.', 72, 100, () =>
       this.coolify!.deploy(project),
       'Production deployment completed and verified.');
+    this.addArtifact(mission, { type: 'deployment', label: 'Production deployment', url: deployment.url, summary: `Coolify deployment ${deployment.deploymentUuid}` });
     return this.tasks.transitionMission(mission.id, 'completed', 'Production deployment completed and was verified through Coolify.', { deploymentUuid: deployment.deploymentUuid }, {
       productionDeploymentUuid: deployment.deploymentUuid,
       productionUrl: deployment.url,
