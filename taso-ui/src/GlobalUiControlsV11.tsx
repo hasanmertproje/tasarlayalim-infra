@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useAuthSession } from './AuthGateV17';
 
 type Theme = 'dark' | 'light';
 
@@ -10,6 +11,7 @@ function resolveTheme(): Theme {
 
 export default function GlobalUiControlsV11() {
   const [theme, setTheme] = useState<Theme>(() => resolveTheme());
+  const { session, logout } = useAuthSession();
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -20,7 +22,11 @@ export default function GlobalUiControlsV11() {
   }, [theme]);
 
   return (
-    <div className="global-ui-v11" aria-label="Görünüm kontrolleri">
+    <div className="global-ui-v11" aria-label="Görünüm ve oturum kontrolleri">
+      <div className="auth-user-v17" aria-label="Aktif oturum">
+        <span title={session.email}>{session.email}</span>
+        <button type="button" onClick={() => void logout()}>Çıkış</button>
+      </div>
       <button
         type="button"
         className="global-theme-v11"
