@@ -12,7 +12,17 @@ export function registerPersonalizationRoutes(app:FastifyInstance,store:Personal
   });
   app.patch<{Body:{preferredName?:string;about?:string;relationshipStyle?:string;mode?:any;personality?:Partial<TasoPersonality>}}>('/v1/personalization',async(request,reply)=>{
     const {userId,userName}=userContext(request);
-    try{return {profile:store.updateUser(userId,request.body??{},userName)}}catch(error){return reply.code(400).send({error:(error as Error).message})}
+    try{
+      const body=request.body??{};
+      const current=store.getUser(userId,userName);
+      return {profile:store.updateUser(userId,{
+        preferredName:body.preferredName,
+        about:body.about,
+        relationshipStyle:body.relationshipStyle,
+        mode:body.mode,
+        personality:body.personality?{...current.personality,...body.personality}:current.personality,
+      },userName)};
+    }catch(error){return reply.code(400).send({error:(error as Error).message})}
   });
   app.get('/v1/personalization/company',async()=>({company:store.getCompany()}));
   app.patch<{Body:{companyName?:string;creatorName?:string;founderName?:string;assistantOrigin?:string;trustedFacts?:string[]}}>('/v1/personalization/company',async(request,reply)=>{
