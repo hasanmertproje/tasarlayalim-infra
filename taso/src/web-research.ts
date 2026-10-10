@@ -18,13 +18,42 @@ for(const [subnet,prefix] of [['0.0.0.0',8],['10.0.0.0',8],['100.64.0.0',10],['1
 for(const [subnet,prefix] of [['::',128],['::1',128],['fc00::',7],['fe80::',10],['ff00::',8],['::ffff:0:0',96],['64:ff9b::',96],['2001:db8::',32],['2001::',23],['2002::',16]])deniedAddresses.addSubnet(subnet,prefix,'ipv6');
 export function isPrivateAddress(address:string){const family=net.isIP(address);return !family||deniedAddresses.check(address,family===4?'ipv4':'ipv6')}
 function parseHttpUrl(input:string){let url:URL;try{url=new URL(input)}catch{throw new Error('Geçerli bir URL gerekli.')}if(!['http:','https:'].includes(url.protocol))throw new Error('Yalnızca HTTP/HTTPS URL desteklenir.');if(url.username||url.password)throw new Error('URL içinde kimlik bilgisi kullanılamaz.');return url}
-async function resolvePublicAddresses(hostname:string){const host=hostname.toLowerCase().replace(/^\\[|\\]$/g,'');const family=net.isIP(host);const records=family?[{address:host,family}]:await lookup(host,{all:true,verbatim:true});if(!records.length||records.some(record=>isPrivateAddress(record.address)))throw new Error('Özel/yerel ağ hedefleri engellendi.');return records}
+async function resolvePublicAddresses(hostname:string){const lower=hostname.toLowerCase();const host=lower.startsWith('[')&&lower.endsWith(']')?lower.slice(1,-1):lower;const family=net.isIP(host);const records=family?[{address:host,family}]:await lookup(host,{all:true,verbatim:true});if(!records.length||records.some(record=>isPrivateAddress(record.address)))throw new Error('Özel/yerel ağ hedefleri engellendi.');return records}
 async function assertPublicUrl(input:string){const url=parseHttpUrl(input);await resolvePublicAddresses(url.hostname);return url}
 function publicLookup(hostname:string,options:any,callback:(error:Error|null,address:any,family?:number)=>void){resolvePublicAddresses(hostname).then(records=>{if(options?.all)callback(null,records);else{const family=typeof options==='number'?options:options?.family||0;const record=records.find(item=>!family||item.family===family);if(!record)callback(new Error('Target hostname did not resolve to a public address.'),'',0);else callback(null,record.address,record.family)}}).catch(error=>callback(error instanceof Error?error:new Error('Target hostname resolution failed.'),'',0))}
 function requestPinned(url:URL,signal:AbortSignal,headers:Record<string,string>){return new Promise<http.IncomingMessage>((resolve,reject)=>{const transport=url.protocol==='https:'?https:http;const request=transport.request(url,{method:'GET',headers,signal,lookup:publicLookup as any},resolve);request.on('error',reject);request.end()})}
 async function responseText(response:http.IncomingMessage,maxBytes:number){const chunks:Buffer[]=[];let size=0;for await(const chunk of response){const bytes=Buffer.isBuffer(chunk)?chunk:Buffer.from(chunk);size+=bytes.length;if(size>maxBytes){response.destroy();throw new Error('Kaynak boyutu güvenlik sınırını aşıyor.')}chunks.push(bytes)}return Buffer.concat(chunks).toString('utf8')}
 
-export async function fetchPublic(urlInput:string):Promise<ResearchDocument>{const key=`fetch:${urlInput}`;const cached=cacheGet<ResearchDocument>(key);if(cached)return{...cached,cached:true};let current=await assertPublicUrl(urlInput);for(let redirect=0;redirect<=MAX_REDIRECTS;redirect++){const controller=new AbortController();const timer=setTimeout(()=>controller.abort(),REQUEST_TIMEOUT_MS);let response:http.IncomingMessage;try{response=await requestPinned(current,controller.signal,{'user-agent':'TasoResearch/1.0 (+public-web-read)',accept:'text/html,text/plain,application/json;q=0.8,*/*;q=0.2'})}finally{clearTimeout(timer)}if([301,302,303,307,308].includes(response.statusCode||0)){const location=response.headers.location;if(!location)throw new Error('Yönlendirme hedefi bulunamadı.');current=await assertPublicUrl(new URL(location,current).toString());response.resume();continue}const contentLength=Number(response.headers['content-length']||0);if(contentLength>MAX_BYTES){response.destroy();throw new Error('Kaynak boyutu güvenlik sınırını aşıyor.')}const contentType=String(response.headers['content-type']||'application/octet-stream');if(!/(text\\/|application\\/json|application\\/xml|application\\/xhtml\\+xml)/i.test(contentType)){response.destroy();throw new Error(`Desteklenmeyen içerik türü: ${contentType}`)}const raw=await responseText(response,MAX_BYTES);const parsed=/html|xhtml/i.test(contentType)?htmlToText(raw):{title:undefined,text:raw.trim()};const result:ResearchDocument={url:urlInput,finalUrl:current.toString(),status:response.statusCode||0,contentType,title:parsed.title,text:parsed.text.slice(0,120_000),fetchedAt:new Date().toISOString(),cached:false};if(result.status>=200&&result.status<300)cacheSet(key,result);return result}throw new Error('Çok fazla yönlendirme.')}
+export async function fetchPublic(urlInput:string):Promise<ResearchDocument>{
+  const key=`fetch:${urlInput}`;
+  const cached=cacheGet<ResearchDocument>(key);
+  if(cached)return{...cached,cached:true};
+  let current=await assertPublicUrl(urlInput);
+  for(let redirect=0;redirect<=MAX_REDIRECTS;redirect++){
+    const controller=new AbortController();
+    const timer=setTimeout(()=>controller.abort(),REQUEST_TIMEOUT_MS);
+    try{
+      const response=await requestPinned(current,controller.signal,{'user-agent':'TasoResearch/1.0 (+public-web-read)',accept:'text/html,text/plain,application/json;q=0.8,*/*;q=0.2'});
+      if([301,302,303,307,308].includes(response.statusCode||0)){
+        const location=response.headers.location;
+        if(!location)throw new Error('Yönlendirme hedefi bulunamadı.');
+        current=await assertPublicUrl(new URL(location,current).toString());
+        response.resume();
+        continue;
+      }
+      const contentLength=Number(response.headers['content-length']||0);
+      if(contentLength>MAX_BYTES){response.destroy();throw new Error('Kaynak boyutu güvenlik sınırını aşıyor.')}
+      const contentType=String(response.headers['content-type']||'application/octet-stream');
+      if(!/(text\\/|application\\/json|application\\/xml|application\\/xhtml\\+xml)/i.test(contentType)){response.destroy();throw new Error(`Desteklenmeyen içerik türü: ${contentType}`)}
+      const raw=await responseText(response,MAX_BYTES);
+      const parsed=/html|xhtml/i.test(contentType)?htmlToText(raw):{title:undefined,text:raw.trim()};
+      const result:ResearchDocument={url:urlInput,finalUrl:current.toString(),status:response.statusCode||0,contentType,title:parsed.title,text:parsed.text.slice(0,120_000),fetchedAt:new Date().toISOString(),cached:false};
+      if(result.status>=200&&result.status<300)cacheSet(key,result);
+      return result;
+    }finally{clearTimeout(timer)}
+  }
+  throw new Error('Çok fazla yönlendirme.');
+}
 
 export async function searchWeb(query:string,limit=8):Promise<ResearchSearchResult[]>{const endpoint=process.env.TASO_SEARCH_ENDPOINT?.trim();if(!endpoint)throw new Error('Web search provider yapılandırılmadı. TASO_SEARCH_ENDPOINT gerekli.');const base=parseHttpUrl(endpoint);base.searchParams.set('q',query);base.searchParams.set('format','json');const safeLimit=Math.max(1,Math.min(20,Math.floor(limit||8)));const key=`search:${base.toString()}:${safeLimit}`;const cached=cacheGet<ResearchSearchResult[]>(key);if(cached)return cached;const controller=new AbortController();const timer=setTimeout(()=>controller.abort(),REQUEST_TIMEOUT_MS);try{const response=await fetch(base,{signal:controller.signal,headers:{accept:'application/json','user-agent':'TasoResearch/1.0'}});if(!response.ok)throw new Error(`Search provider HTTP ${response.status}.`);const payload=await response.json() as {results?:Array<{title?:string;url?:string;content?:string;engine?:string}>};const results=(payload.results??[]).filter(i=>i.url&&i.title).slice(0,safeLimit).map(i=>({title:i.title!,url:i.url!,snippet:i.content?.slice(0,1000),engine:i.engine}));cacheSet(key,results,2*60_000);return results}finally{clearTimeout(timer)}}
 
