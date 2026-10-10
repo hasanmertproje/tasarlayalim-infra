@@ -1,6 +1,7 @@
 import type { DataClass, Project } from './domain.js';
 import { PersonalizationStore } from './personalization-store.js';
 import type { ProviderRouter } from './provider-router.js';
+import { currentRequestIdentity } from './request-context.js';
 import { tasoCharacterInstructions } from './taso-character.js';
 import { fetchPublic, researchStatus, searchWeb } from './web-research.js';
 
@@ -44,14 +45,17 @@ export class ConversationAi{
   status(){const provider=this.select('private_code');return provider?{configured:true,provider:provider.id,model:provider.model,dataClass:'private_code' as const}:{configured:false,dataClass:'private_code' as const}}
 
   async reply(project:Project,turns:ConversationTurn[],input:string,runtime:ConversationRuntimeContext={}):Promise<string>{
-    const userId=runtime.userId||'user_owner';
-    const personal=this.personalization.buildConversationContext(userId,runtime.userName||runtime.userEmail);
+    const requestIdentity=currentRequestIdentity();
+    const userId=runtime.userId||requestIdentity.userId||'user_owner';
+    const userName=runtime.userName||requestIdentity.userName;
+    const userEmail=runtime.userEmail||requestIdentity.userEmail;
+    const personal=this.personalization.buildConversationContext(userId,userName||userEmail);
     if(isRuntimeStatusQuestion(input))return deterministicStatus(project,runtime);
     if(isCreatorQuestion(input))return `Beni ${personal.company.creatorName} geliştirdi. Ben Taso’yum.`;
     if(isFounderQuestion(input))return `${personal.company.companyName}’ın kurucusu ${personal.company.founderName}.`;
     if(isSelfIdentityQuestion(input))return `Ben Taso’yum. ${personal.company.assistantOrigin} İstersen gündelik konuşuruz, araştırma yaparız ya da bir işi mission olarak yürütürüz.`;
     if(isUserIdentityQuestion(input)){
-      const name=personal.user.preferredName||runtime.userName||runtime.userEmail;
+      const name=personal.user.preferredName||userName||userEmail;
       return name?`Evet. Seni ${name} olarak tanıyorum. Profil ve konuşma tercihlerini de bu kimlikle ilişkilendiriyorum.`:'Seni oturum kimliğin üzerinden ayırt edebiliyorum ama henüz bana kullanmamı istediğin bir isim vermedin.';
     }
     if(isWebCapabilityQuestion(input)){
