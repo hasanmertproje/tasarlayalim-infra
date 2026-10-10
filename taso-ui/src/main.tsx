@@ -47,6 +47,7 @@ import './mission-intelligence-v8.css';
 import './operations-v9.css';
 import './operations-center-v10.css';
 import './agent-fleet-v11.css';
+import './agent-artifacts-v14.css';
 import './command-center-foundation-v11.css';
 import './notifications-center-v12.css';
 import './settings-command-center-v12.css';
