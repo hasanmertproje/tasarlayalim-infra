@@ -1,0 +1,31 @@
+/* Post-102 visual acceptance geometry guard.
+ * Dedicated full-screen surfaces may be offset by the desktop sidebar.
+ * `width: 100%` combined with a non-zero left inset makes fixed/sticky shells
+ * extend beyond the viewport, so use automatic width resolution instead.
+ */
+.pc9-shell,
+.oc10-shell,
+.mc8-shell,
+.ac9-shell,
+.af11-shell,
+.truth-surface-shell,
+.notifications-v12-shell,
+.knowledge-center,
+.integrations-center {
+  width: auto !important;
+  max-width: none !important;
+}
+
+@media (max-width: 760px) {
+  .pc9-shell,
+  .oc10-shell,
+  .mc8-shell,
+  .ac9-shell,
+  .af11-shell,
+  .truth-surface-shell,
+  .notifications-v12-shell,
+  .knowledge-center,
+  .integrations-center {
+    width: 100% !important;
+  }
+}
