@@ -5,6 +5,7 @@ import AgentOpsDock from './AgentOpsDock';
 import ConversationBridgeV2 from './ConversationBridgeV2';
 import IntegrationsCenter from './IntegrationsCenter';
 import KnowledgeCenter from './KnowledgeCenter';
+import MissionExecutionLive from './MissionExecutionLive';
 import MobileNavigationHub from './MobileNavigationHub';
 import MobileVoiceRouter from './MobileVoiceRouter';
 import SelfImprovementLane from './SelfImprovementLane';
@@ -33,6 +34,7 @@ import './mobile-shell-v4.css';
 import './command-center-v10.css';
 import './truth-surfaces.css';
 import './voice-identity-v2.css';
+import './mission-execution-live.css';
 
 const rootElement = document.getElementById('root')!;
 const requestedScreen = new URLSearchParams(window.location.search).get('screen');
@@ -69,10 +71,13 @@ function OperationsSurfaceBridge() {
     return () => window.removeEventListener('taso:open-mission', handleMissionOpen);
   }, [navigate]);
 
+  const showExecution = activeScreen === 'Command Center' || activeScreen === 'Tasks' || activeScreen === 'AI Agents';
+
   return (
     <>
       {activeScreen === 'Command Center' && <ConversationBridgeV2 />}
       <AgentOpsDock mode={activeScreen === 'AI Agents' ? 'page' : 'dock'} />
+      {showExecution && <MissionExecutionLive expanded={activeScreen === 'AI Agents'} />}
       {activeScreen === 'Integrations' && <IntegrationsCenter />}
       {activeScreen === 'Knowledge' && <KnowledgeCenter />}
     </>
