@@ -1,0 +1,279 @@
+/* Taso Voice Experience V22 — cinematic presence, first-class light/dark, zero toy-shell feel */
+.taso-voice-mode {
+  --v22-accent: #62ddf6;
+  --v22-accent-2: #74f0c8;
+  --v22-violet: #8d7cff;
+  --v22-text: #eefaff;
+  --v22-muted: #8ea5b5;
+  --v22-line: rgba(128, 220, 244, .12);
+  --v22-glass: rgba(12, 28, 41, .54);
+  color: var(--v22-text);
+  background:
+    radial-gradient(80% 54% at 50% 28%, rgba(51, 171, 203, .13), transparent 67%),
+    radial-gradient(42% 36% at 76% 74%, rgba(75, 205, 166, .07), transparent 72%),
+    radial-gradient(30% 26% at 22% 78%, rgba(125, 106, 229, .055), transparent 74%),
+    linear-gradient(155deg, #0b1822 0%, #0a151e 43%, #07121a 100%);
+  isolation: isolate;
+}
+
+.taso-voice-mode::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  opacity: .28;
+  background-image:
+    linear-gradient(rgba(154, 224, 241, .025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(154, 224, 241, .025) 1px, transparent 1px);
+  background-size: 72px 72px;
+  mask-image: linear-gradient(to bottom, transparent, #000 18%, #000 82%, transparent);
+}
+
+.taso-voice-mode-ambient { opacity: .32; filter: blur(92px); }
+.taso-voice-mode-ambient.ambient-a { background: rgba(66, 200, 237, .16); }
+.taso-voice-mode-ambient.ambient-b { background: rgba(85, 228, 184, .10); }
+
+.taso-voice-mode-header {
+  width: min(1180px, 100%);
+  margin: 0 auto;
+  padding: 2px 2px 0;
+}
+.taso-voice-mode-header > div { gap: 5px; }
+.taso-voice-mode-header span {
+  color: color-mix(in srgb, var(--v22-accent) 82%, white 18%);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: .19em;
+  text-transform: uppercase;
+}
+.taso-voice-mode-header strong {
+  font-size: clamp(14px, 1.3vw, 17px);
+  font-weight: 620;
+  letter-spacing: -.01em;
+}
+.taso-voice-mode-header button {
+  min-height: 42px;
+  padding: 0 15px;
+  border-radius: 999px;
+  border: 1px solid var(--v22-line);
+  background: color-mix(in srgb, var(--v22-glass) 72%, transparent);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.035);
+  backdrop-filter: blur(18px);
+}
+
+.taso-voice-mode-main {
+  width: min(880px, 100%);
+  gap: 18px;
+  padding: 24px 0 16px;
+}
+
+.taso-voice-mode-orb {
+  width: clamp(232px, 31vw, 360px);
+  filter: drop-shadow(0 32px 80px rgba(0,0,0,.18));
+}
+.taso-voice-mode-orb::before,
+.taso-voice-mode-orb::after {
+  content: '';
+  position: absolute;
+  border-radius: 50%;
+  pointer-events: none;
+}
+.taso-voice-mode-orb::before {
+  inset: 16%;
+  background:
+    radial-gradient(circle at 38% 30%, rgba(234, 253, 255, .98) 0 3%, rgba(165, 244, 255, .56) 8%, transparent 26%),
+    radial-gradient(circle at 58% 56%, rgba(98, 221, 246, .31), transparent 52%),
+    radial-gradient(circle at 42% 70%, rgba(116, 240, 200, .20), transparent 48%);
+  filter: blur(2px);
+  opacity: .88;
+}
+.taso-voice-mode-orb::after {
+  inset: 25%;
+  border: 1px solid rgba(206, 247, 255, .18);
+  box-shadow:
+    0 0 54px rgba(86, 217, 245, .22),
+    0 0 120px rgba(62, 161, 204, .14),
+    inset 0 0 44px rgba(180, 244, 255, .08);
+}
+.taso-voice-mode-orb > i {
+  opacity: .44;
+  border-color: rgba(124, 224, 245, .12);
+  animation-duration: 18s;
+}
+.taso-voice-mode-orb > i:nth-child(2) {
+  inset: 8%;
+  border-color: rgba(113, 238, 201, .12);
+  animation-duration: 13s;
+}
+.taso-voice-mode-orb > i:nth-child(3) {
+  inset: 18%;
+  border-color: rgba(143, 124, 255, .10);
+  animation-duration: 9s;
+}
+.taso-voice-mode-core {
+  position: relative;
+  z-index: 2;
+  width: 42%;
+  color: transparent;
+  text-shadow: none;
+  border: 1px solid rgba(202, 247, 255, .11);
+  background:
+    radial-gradient(circle at 37% 27%, rgba(237, 253, 255, .30), transparent 18%),
+    radial-gradient(circle at 48% 44%, rgba(108, 229, 246, .23), rgba(22, 96, 121, .12) 44%, rgba(7, 22, 31, .74) 74%),
+    linear-gradient(145deg, rgba(101, 226, 246, .11), rgba(128, 112, 236, .06));
+  box-shadow:
+    0 0 76px rgba(77, 205, 236, .18),
+    inset -16px -18px 40px rgba(3, 14, 21, .34),
+    inset 15px 14px 36px rgba(213, 251, 255, .055);
+  overflow: hidden;
+}
+.taso-voice-mode-core::before,
+.taso-voice-mode-core::after {
+  content: '';
+  position: absolute;
+  border-radius: 999px;
+}
+.taso-voice-mode-core::before {
+  width: 74%;
+  height: 74%;
+  left: 8%;
+  top: 7%;
+  background: radial-gradient(circle at 35% 28%, rgba(233, 253, 255, .68), rgba(93, 220, 245, .10) 28%, transparent 65%);
+  filter: blur(6px);
+}
+.taso-voice-mode-core::after {
+  width: 42%;
+  height: 42%;
+  right: 10%;
+  bottom: 9%;
+  background: radial-gradient(circle, rgba(103, 239, 197, .25), transparent 68%);
+  filter: blur(8px);
+}
+
+.state-listening .taso-voice-mode-core { transform: scale(1.045); }
+.state-speaking .taso-voice-mode-core { animation: v22Breath 1.6s ease-in-out infinite; }
+.state-thinking .taso-voice-mode-core,
+.state-connecting .taso-voice-mode-core { animation: v22Think 2.2s ease-in-out infinite; }
+.state-error .taso-voice-mode-core { box-shadow: 0 0 72px rgba(221, 92, 103, .16), inset 0 0 42px rgba(221, 92, 103, .05); }
+
+.taso-voice-mode-state { gap: 9px; }
+.taso-voice-mode-state > span {
+  font-size: clamp(22px, 2.8vw, 32px);
+  font-weight: 610;
+  letter-spacing: -.035em;
+}
+.taso-voice-wave { height: 28px; gap: 4px; }
+.taso-voice-wave i {
+  width: 3px;
+  background: linear-gradient(180deg, var(--v22-accent), var(--v22-accent-2));
+  box-shadow: 0 0 12px rgba(98, 221, 246, .16);
+}
+
+.taso-voice-mode-transcript {
+  width: min(720px, 100%);
+  max-height: 22vh;
+  gap: 8px;
+  scrollbar-width: thin;
+}
+.taso-voice-mode-transcript > div {
+  padding: 11px 14px;
+  border-radius: 18px;
+  border: 1px solid var(--v22-line);
+  background: rgba(13, 30, 43, .34);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.025);
+  backdrop-filter: blur(22px);
+}
+.taso-voice-mode-transcript span { color: var(--v22-muted); opacity: 1; }
+.taso-voice-mode-transcript p { font-size: 14px; line-height: 1.52; }
+.voice-mode-hint { color: var(--v22-muted); opacity: .82; }
+
+.voice-mission-proposal,
+.voice-mission-created,
+.voice-realtime-error { width: min(720px, 100%); }
+.voice-mission-proposal {
+  border-radius: 20px;
+  background: rgba(83, 57, 19, .18);
+  border-color: rgba(255, 195, 105, .18);
+}
+
+.taso-voice-mode-controls {
+  width: min(720px, 100%);
+  align-items: center;
+  padding-top: 6px;
+}
+.voice-interrupt {
+  min-width: 128px;
+  min-height: 48px;
+  border-radius: 999px;
+  background: rgba(15, 34, 48, .62);
+  border-color: var(--v22-line);
+  backdrop-filter: blur(18px);
+}
+.voice-end {
+  width: 58px;
+  height: 58px;
+  background: linear-gradient(145deg, #d84f5c, #ad2e3e);
+  border: 1px solid rgba(255, 207, 211, .12);
+}
+.voice-mode-footnote { color: var(--v22-muted); opacity: .72; }
+
+:root[data-theme='light'] .taso-voice-mode {
+  --v22-text: #102330;
+  --v22-muted: #617887;
+  --v22-line: rgba(40, 106, 133, .12);
+  --v22-glass: rgba(255,255,255,.60);
+  color: var(--v22-text);
+  background:
+    radial-gradient(68% 48% at 50% 24%, rgba(70, 185, 215, .13), transparent 70%),
+    radial-gradient(42% 36% at 78% 74%, rgba(80, 199, 162, .08), transparent 72%),
+    linear-gradient(155deg, #f4fafc 0%, #edf5f8 47%, #e8f1f5 100%);
+}
+:root[data-theme='light'] .taso-voice-mode::before { opacity: .42; }
+:root[data-theme='light'] .taso-voice-mode-header button,
+:root[data-theme='light'] .taso-voice-mode-transcript > div,
+:root[data-theme='light'] .voice-interrupt {
+  background: rgba(255,255,255,.68);
+  box-shadow: 0 14px 34px rgba(47, 87, 107, .08), inset 0 1px 0 rgba(255,255,255,.8);
+}
+:root[data-theme='light'] .taso-voice-mode-core {
+  border-color: rgba(56, 144, 170, .13);
+  background:
+    radial-gradient(circle at 38% 28%, rgba(255,255,255,.94), transparent 20%),
+    radial-gradient(circle at 48% 44%, rgba(95, 222, 243, .27), rgba(73, 164, 191, .10) 44%, rgba(225, 243, 248, .68) 74%);
+  box-shadow: 0 0 74px rgba(80, 184, 211, .17), inset -16px -18px 42px rgba(95, 151, 172, .08), inset 15px 14px 36px rgba(255,255,255,.62);
+}
+:root[data-theme='light'] .voice-interrupt,
+:root[data-theme='light'] .voice-end { color: #15303d; }
+:root[data-theme='light'] .voice-end { color: #fff; }
+
+@media (max-width: 760px) {
+  .taso-voice-mode { padding-left: 16px; padding-right: 16px; }
+  .taso-voice-mode-main { gap: 14px; padding-top: 10px; padding-bottom: 10px; }
+  .taso-voice-mode-orb { width: min(62vw, 236px); }
+  .taso-voice-mode-state > span { font-size: 24px; }
+  .taso-voice-mode-transcript { max-height: 23vh; }
+  .taso-voice-mode-controls { grid-template-columns: 1fr auto 1fr; }
+  .voice-interrupt { min-width: 104px; min-height: 44px; }
+  .voice-mode-footnote { max-width: 128px; font-size: 9px; }
+}
+
+@media (max-width: 390px) {
+  .taso-voice-mode { padding-left: 12px; padding-right: 12px; }
+  .taso-voice-mode-header button { min-height: 38px; padding: 0 11px; font-size: 10px; }
+  .taso-voice-mode-orb { width: min(58vw, 210px); }
+  .taso-voice-mode-main { gap: 11px; }
+  .taso-voice-mode-state > span { font-size: 21px; }
+  .taso-voice-mode-transcript p { font-size: 13px; }
+  .voice-interrupt { min-width: 92px; padding-inline: 11px; }
+  .voice-mode-footnote { max-width: 105px; font-size: 8px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .taso-voice-mode-orb > i,
+  .taso-voice-mode-core,
+  .taso-voice-wave i { animation: none !important; }
+}
+
+@keyframes v22Breath { 0%,100% { transform: scale(1); filter: brightness(1); } 50% { transform: scale(1.045); filter: brightness(1.08); } }
+@keyframes v22Think { 0%,100% { transform: scale(.985); filter: brightness(.96); } 50% { transform: scale(1.025); filter: brightness(1.12); } }
