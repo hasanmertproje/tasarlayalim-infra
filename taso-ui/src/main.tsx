@@ -16,7 +16,6 @@ import MobileVoiceRouter from './MobileVoiceRouter';
 import NotificationsCenterV12 from './NotificationsCenterV12';
 import OperationsCenterV10 from './OperationsCenterV10';
 import ProjectCenterV9 from './ProjectCenterV9';
-import SelfImprovementLane from './SelfImprovementLane';
 import TruthSurfaces from './TruthSurfaces';
 import VoiceIdentitySettings from './VoiceIdentitySettings';
 import VoiceModeOverlay from './VoiceModeOverlay';
@@ -60,6 +59,7 @@ import './command-center-v21.css';
 import './voice-experience-v22.css';
 import './operations-surfaces-v23.css';
 import './control-plane-v24.css';
+import './acceptance-hotfix-v29.css';
 
 const rootElement = document.getElementById('root')!;
 const requestedScreen = new URLSearchParams(window.location.search).get('screen');
@@ -93,22 +93,20 @@ function OperationsSurfaceBridge() {
     || activeScreen === 'Integrations'
     || activeScreen === 'Settings';
 
-  return (
-    <>
-      {activeScreen === 'Command Center' && <CommandCenterV21 />}
-      {activeScreen === 'Projects' && <ProjectCenterV9 />}
-      {activeScreen === 'Tasks' && <MissionControlV8 />}
-      {activeScreen === 'Approvals' && <ApprovalCenterV9 />}
-      {activeScreen === 'Deployments' && <OperationsCenterV10 mode="deployments" />}
-      {activeScreen === 'Monitoring' && <OperationsCenterV10 mode="monitoring" />}
-      {activeScreen === 'AI Agents' && <AgentFleetV11 />}
-      {activeScreen === 'Notifications' && <NotificationsCenterV12 />}
-      {activeScreen === 'Integrations' && <IntegrationsCenter />}
-      {activeScreen === 'Knowledge' && <KnowledgeCenter />}
-      {activeScreen === 'Settings' && <ControlPlaneV24 />}
-      {!hasDedicatedSurface && <AgentOpsDock mode="dock" />}
-    </>
-  );
+  return <>
+    {activeScreen === 'Command Center' && <CommandCenterV21 />}
+    {activeScreen === 'Projects' && <ProjectCenterV9 />}
+    {activeScreen === 'Tasks' && <MissionControlV8 />}
+    {activeScreen === 'Approvals' && <ApprovalCenterV9 />}
+    {activeScreen === 'Deployments' && <OperationsCenterV10 mode="deployments" />}
+    {activeScreen === 'Monitoring' && <OperationsCenterV10 mode="monitoring" />}
+    {activeScreen === 'AI Agents' && <AgentFleetV11 />}
+    {activeScreen === 'Notifications' && <NotificationsCenterV12 />}
+    {activeScreen === 'Integrations' && <IntegrationsCenter />}
+    {activeScreen === 'Knowledge' && <KnowledgeCenter />}
+    {activeScreen === 'Settings' && <ControlPlaneV24 />}
+    {!hasDedicatedSurface && <AgentOpsDock mode="dock" />}
+  </>;
 }
 
 ReactDOM.createRoot(rootElement).render(
@@ -121,7 +119,6 @@ ReactDOM.createRoot(rootElement).render(
       <MobileNavigationHub />
       <VoiceModeOverlay />
       <MobileVoiceRouter />
-      <SelfImprovementLane />
       <GlobalUiControlsV11 />
     </AuthGateV17>
   </React.StrictMode>,
