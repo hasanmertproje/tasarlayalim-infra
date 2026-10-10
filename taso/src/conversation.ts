@@ -45,6 +45,23 @@ const hasVerbStem = (value: string, stems: string[]) => {
   return stems.some((stem) => tokens.some((token) => token === stem || token.startsWith(stem)));
 };
 
+const WRITE_STEMS = [
+  'düzelt', 'geliştir', 'ekle', 'uygula', 'kodla', 'oluştur', 'refactor',
+  'değiştir', 'fix', 'implement', 'build', 'hazırla', 'üret', 'başlat', 'başla', 'kur', 'yap',
+];
+
+function looksLikeQuestion(text: string, normalized: string) {
+  return /[?？]$/.test(text.trim())
+    || hasWord(normalized, ['ne', 'neden', 'nasıl', 'hangi', 'kim', 'nerede', 'kaç', 'nedir', 'mı', 'mi', 'mu', 'mü']);
+}
+
+function explicitlyRequestsExecution(value: string) {
+  if (includesAny(value, ['lütfen ', 'hemen ', 'şimdi ', 'devam et', 'başla', 'uygula', 'yap ', 'yap.', 'yap!'])) return true;
+  if (/\b(misin|mısın|musun|müsün)\b/i.test(value) && hasVerbStem(value, WRITE_STEMS)) return true;
+  if (/\b(istiyorum|istiyoruz|gerekiyor|gerek)\b/i.test(value) && hasVerbStem(value, WRITE_STEMS)) return true;
+  return false;
+}
+
 export function classifyConversationIntent(text: string): ConversationDecision {
   const value = normalize(text);
   if (!value) return { intent: 'UNKNOWN', executionRequested: false, confidence: 1 };
@@ -70,15 +87,6 @@ export function classifyConversationIntent(text: string): ConversationDecision {
     return { intent: 'AUTONOMOUS_SESSION', executionRequested: true, suggestedRisk: 'WRITE', confidence: 0.93 };
   }
 
-  // Turkish verbs are often inflected (geliştirmeye, geliştirerek, üretsin, etc.).
-  // Stem matching is more reliable here than JavaScript \b, which is ASCII-centric.
-  if (hasVerbStem(value, [
-    'düzelt', 'geliştir', 'ekle', 'uygula', 'kodla', 'oluştur', 'refactor',
-    'değiştir', 'fix', 'implement', 'build', 'hazırla', 'üret', 'başlat', 'başla', 'kur',
-  ])) {
-    return { intent: 'WRITE_REQUEST', executionRequested: true, suggestedRisk: 'WRITE', confidence: 0.9 };
-  }
-
   // Read/research requests are normal assistant capabilities. They stay conversational and
   // may use read-only tools later, but they do not become missions by default.
   if (
@@ -97,7 +105,23 @@ export function classifyConversationIntent(text: string): ConversationDecision {
   if (includesAny(value, ['workspace', 'projeye geç', 'projesine geç'])) {
     return { intent: 'WORKSPACE_SWITCH', executionRequested: false, confidence: 0.72 };
   }
-  if (/[?？]$/.test(text.trim()) || hasWord(value, ['ne', 'neden', 'nasıl', 'hangi', 'kim', 'nerede', 'kaç', 'nedir', 'mı', 'mi', 'mu', 'mü'])) {
+
+  // A sentence can contain a coding verb without asking Taso to execute anything.
+  // Example: "Bir websitesi nasıl geliştirilir?" must remain ordinary assistant conversation.
+  // Question-shaped execution requests such as "bunu düzeltir misin?" are still executable.
+  const question = looksLikeQuestion(text, value);
+  const explicitExecution = explicitlyRequestsExecution(value);
+  if (question && !explicitExecution) {
+    return { intent: 'QUESTION', executionRequested: false, confidence: 0.9 };
+  }
+
+  // Turkish verbs are often inflected (geliştirmeye, geliştirerek, üretsin, etc.).
+  // Stem matching is more reliable here than JavaScript \b, which is ASCII-centric.
+  if (hasVerbStem(value, WRITE_STEMS)) {
+    return { intent: 'WRITE_REQUEST', executionRequested: true, suggestedRisk: 'WRITE', confidence: explicitExecution ? 0.94 : 0.9 };
+  }
+
+  if (question) {
     return { intent: 'QUESTION', executionRequested: false, confidence: 0.82 };
   }
   return { intent: 'CHAT', executionRequested: false, confidence: 0.92 };

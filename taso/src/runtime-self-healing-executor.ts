@@ -4,7 +4,8 @@ import { createId, nowIso, type Mission, type MissionArtifact, type Project } fr
 import { FunctionalVerifier, type FunctionalVerificationReport } from './functional-verifier.js';
 import { GitHubTools } from './github-tools.js';
 import { MissionExecutor, type MissionExecutorOptions } from './mission-executor.js';
-import { MultiProviderPlanner } from './multi-provider-planner.js';
+import { MissionAwarePlanner } from './mission-aware-planner.js';
+import { deriveMissionIntentProfile } from './mission-intelligence.js';
 import type { ProjectRegistry } from './project-registry.js';
 import { defaultProviders } from './provider-router.js';
 import type { TaskEngine } from './task-engine.js';
@@ -50,7 +51,7 @@ export class RuntimeSelfHealingExecutor extends MissionExecutor {
   constructor(
     private readonly runtimeTasks: TaskEngine,
     private readonly runtimeProjects: ProjectRegistry,
-    private readonly runtimePlanner = MultiProviderPlanner.fromEnv(defaultProviders().map((provider) => provider.id)),
+    private readonly runtimePlanner = MissionAwarePlanner.fromEnv(defaultProviders().map((provider) => provider.id)),
     private readonly runtimeGithub = GitHubTools.fromEnv(),
     private readonly runtimeCoolify = CoolifyTools.fromEnv(),
     options: RuntimeSelfHealingExecutorOptions = {},
@@ -364,6 +365,23 @@ export class RuntimeSelfHealingExecutor extends MissionExecutor {
   }
 
   override async execute(id: string): Promise<Mission> {
+    const pendingMission = this.runtimeTasks.getMission(id);
+    if (pendingMission && !pendingMission.execution?.intentProfile) {
+      const project = this.runtimeProjects.get(pendingMission.projectId);
+      if (project) {
+        const profile = deriveMissionIntentProfile(project, pendingMission.objective);
+        this.patchRuntimeExecution(pendingMission, {
+          ...(pendingMission.execution ?? {}),
+          intentProfile: profile,
+        }, 'Mission intent profile derived before autonomous execution.', {
+          mode: profile.mode,
+          requiredSpecialists: profile.requiredSpecialists,
+          skillHints: profile.skillHints,
+          acceptanceHints: profile.acceptanceHints,
+        });
+      }
+    }
+
     while (true) {
       try {
         const result = await super.execute(id);

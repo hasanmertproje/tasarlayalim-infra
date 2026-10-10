@@ -18,9 +18,26 @@ test('questions stay ordinary assistant conversation', () => {
     'Gemini Live nasıl çalışıyor?',
     'Production ortamı nedir?',
     'Secret key neden tarayıcıya konmamalı?',
+    'Bir websitesi nasıl geliştirilir?',
+    'React projesine dark mode nasıl eklenir?',
+    'Bu dashboardu nasıl düzeltmeliyiz?',
   ]) {
     const decision = classifyConversationIntent(text);
+    assert.equal(decision.intent, 'QUESTION');
     assert.equal(decision.executionRequested, false);
+  }
+});
+
+test('explicit polite implementation requests still create missions', () => {
+  for (const text of [
+    'bu dashboardu düzeltir misin?',
+    'lütfen mobil tasarımı geliştir',
+    'bu özelliği eklemeni istiyorum',
+  ]) {
+    const decision = classifyConversationIntent(text);
+    assert.equal(decision.intent, 'WRITE_REQUEST');
+    assert.equal(decision.executionRequested, true);
+    assert.equal(decision.suggestedRisk, 'WRITE');
   }
 });
 

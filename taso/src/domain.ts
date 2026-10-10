@@ -91,6 +91,17 @@ export interface MissionWorkspaceCheckpoint {
   updatedAt: string;
 }
 
+export interface MissionIntentProfile {
+  version: 1;
+  goal: string;
+  mode: 'website' | 'backend' | 'fullstack' | 'infrastructure' | 'general';
+  requiredSpecialists: SpecialistRole[];
+  skillHints: string[];
+  acceptanceHints: string[];
+  constraints: string[];
+  derivedAt: string;
+}
+
 export type StackMode = 'auto' | 'preserve' | 'pinned';
 export type ArchitectureMode =
   | 'professional_best_fit'
@@ -156,6 +167,7 @@ export interface MissionExecution {
   currentAction?: string;
   activeAgentRole?: AgentRole;
   agentRuns?: AgentRun[];
+  intentProfile?: MissionIntentProfile;
   orchestrationSummary?: string;
   workPlan?: MissionStep[];
   artifacts?: MissionArtifact[];
