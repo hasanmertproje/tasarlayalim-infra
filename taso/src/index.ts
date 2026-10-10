@@ -1,5 +1,6 @@
 import { registerAuthRoutes } from './auth.js';
 import { AuthServiceV18 } from './auth-v18.js';
+import { registerBrowserOperatorRoutes } from './browser-operator-routes.js';
 import { registerControlPlaneRoutes } from './control-plane-routes.js';
 import { IdentityStore } from './identity-store.js';
 import { registerRbacRoutes } from './rbac-routes.js';
@@ -20,6 +21,7 @@ registerControlPlaneRoutes(app, auth, identities);
 registerVoiceRealtimeRoutes(app);
 registerLocalVoiceRoutes(app);
 registerWebResearchRoutes(app);
+registerBrowserOperatorRoutes(app);
 
 app.listen({ port, host }).catch((error) => {
   app.log.error(error);
