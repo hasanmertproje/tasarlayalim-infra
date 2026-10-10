@@ -23,7 +23,7 @@ function isRuntimeStatusQuestion(input:string){return /\b(sistem durumu|sistem n
 function isWebCapabilityQuestion(input:string){return /(web|internet).*(eriş|ara|okuy|bağlan)|internete.*(eriş|bağlan)|web erişimin/i.test(normalized(input))}
 export function wantsWebSearch(input:string){
  const value=normalized(input);
- return /(?:^|[^\\p{L}\\p{N}_])(webde ara|internette ara|internetten araştır|web araştır|araştır ve bul|güncel|son gelişmeler|bugün|haberleri ara|internetten bak|şu an|şu anda|şimdi|hava durumu|hava nasıl|yağmur yağacak|kaç derece|döviz kuru|kaç tl|son dakika|son haberler|neler olmuş|ne olmuş|ne oldu|araştır|internette|webden|haberlerde|son durum)(?=$|[^\\p{L}\\p{N}_])/iu.test(value)
+ return /(?:^|[^\\p{L}\\p{N}_])(webde ara|internette ara|internetten araştır|web araştır|araştır ve bul|güncel|son gelişmeler|bugün|haberleri ara|internetten bak|hava durumu|hava nasıl|yağmur yağacak|kaç derece|döviz kuru|kaç tl|son dakika|son haberler|neler olmuş|ne olmuş|ne oldu|araştır|internette|webden|haberlerde|son durum)(?=$|[^\\p{L}\\p{N}_])/iu.test(value)
   || /\\b(weather|forecast|latest news|breaking news|search the web|look up)\\b/i.test(input);
 }
 function isCreatorQuestion(input:string){return /\b(seni kim yaptı|seni kim geliştirdi|kim tarafından geliştirildin|yaratıcın kim)\b/i.test(normalized(input))}
