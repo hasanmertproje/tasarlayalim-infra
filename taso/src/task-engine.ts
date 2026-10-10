@@ -10,6 +10,7 @@ import {
   type MissionExecution,
   type MissionInput,
   type MissionStatus,
+  type MissionStep,
 } from './domain.js';
 import { MissionEventStore } from './mission-events.js';
 import { evaluateMissionPolicy } from './policy.js';
@@ -33,6 +34,29 @@ const agentLabels: Record<AgentRole, string> = {
 
 function boundedProgress(value: number) {
   return Math.max(0, Math.min(100, Math.trunc(value)));
+}
+
+function resumableWorkPlan(workPlan: MissionStep[] | undefined, resetAttempts: boolean): MissionStep[] | undefined {
+  if (!workPlan?.length) return workPlan;
+  return workPlan.map((step) => {
+    if (step.status === 'completed') return step;
+    return {
+      ...step,
+      status: 'queued',
+      progress: 0,
+      ...(resetAttempts ? { attempts: 0, lastAttemptAt: undefined } : {}),
+      startedAt: undefined,
+      completedAt: undefined,
+      error: undefined,
+    };
+  });
+}
+
+function checkpointProgress(mission: Mission) {
+  const plan = mission.execution?.workPlan ?? [];
+  if (!plan.length) return 0;
+  const completed = plan.filter((step) => step.status === 'completed').length;
+  return Math.min(60, 34 + Math.trunc((completed / plan.length) * 26));
 }
 
 export class TaskEngine {
@@ -115,7 +139,7 @@ export class TaskEngine {
     mission.approvedAt = nowIso();
     mission.status = 'queued';
     mission.updatedAt = mission.approvedAt;
-    mission.execution = { ...(mission.execution ?? {}), currentAction: 'Approval received. Queued for autonomous execution.' };
+    mission.execution = { ...(mission.execution ?? {}), currentAction: 'Approval received. Queued for autonomous execution.', resumeAfterRestart: false };
     this.missions.set(id, mission);
     this.events.append(id, 'mission.approved', 'Mission approved by user.');
     this.onChange();
@@ -128,7 +152,7 @@ export class TaskEngine {
     mission.status = 'cancelled';
     mission.updatedAt = nowIso();
     const runs = (mission.execution?.agentRuns ?? []).map((run) => run.status === 'running' ? { ...run, status: 'cancelled' as const, updatedAt: mission.updatedAt, completedAt: mission.updatedAt } : run);
-    mission.execution = { ...(mission.execution ?? {}), nextRetryAt: undefined, currentAction: 'Mission cancelled.', activeAgentRole: undefined, agentRuns: runs };
+    mission.execution = { ...(mission.execution ?? {}), nextRetryAt: undefined, currentAction: 'Mission cancelled.', activeAgentRole: undefined, agentRuns: runs, resumeAfterRestart: false };
     this.missions.set(id, mission);
     this.events.append(id, 'mission.cancelled', 'Mission cancelled.');
     this.onChange();
@@ -144,6 +168,9 @@ export class TaskEngine {
     const requiresFreshApproval = project?.slug === 'taso-self-improvement' && mission.approvalRequired;
     if (requiresFreshApproval) mission.approvedAt = undefined;
 
+    const preservedCheckpoint = mission.execution?.workspaceCheckpoint;
+    const preservedPlan = resumableWorkPlan(mission.execution?.workPlan, true);
+    const hasCheckpoint = Boolean(preservedCheckpoint?.files.length || preservedCheckpoint?.completedStepIds.length);
     mission.status = mission.approvalRequired && !mission.approvedAt ? 'waiting_approval' : 'queued';
     mission.updatedAt = nowIso();
     mission.execution = {
@@ -153,15 +180,28 @@ export class TaskEngine {
       retryCount: 0,
       lastFailure: undefined,
       nextRetryAt: undefined,
-      progressPercent: 0,
-      currentAction: requiresFreshApproval ? 'Waiting for fresh approval.' : 'Queued for retry.',
+      progressPercent: hasCheckpoint ? checkpointProgress(mission) : 0,
+      currentAction: requiresFreshApproval
+        ? 'Waiting for fresh approval.'
+        : hasCheckpoint
+          ? 'Durable checkpoint retained. Queued to resume incomplete work.'
+          : 'Queued for retry.',
       activeAgentRole: undefined,
-      agentRuns: [],
+      workPlan: preservedPlan,
+      workspaceCheckpoint: preservedCheckpoint,
+      resumeAfterRestart: false,
     };
     this.missions.set(id, mission);
     this.events.append(id, 'mission.status_changed', requiresFreshApproval
       ? 'Self-improvement retry returned to explicit approval.'
-      : 'Mission queued for explicit retry.', { status: mission.status, retryCount: 0 });
+      : hasCheckpoint
+        ? 'Mission queued for explicit retry from durable checkpoint.'
+        : 'Mission queued for explicit retry.', {
+      status: mission.status,
+      retryCount: 0,
+      resumedFromCheckpoint: hasCheckpoint,
+      completedStepIds: preservedCheckpoint?.completedStepIds ?? [],
+    });
     if (requiresFreshApproval) {
       this.events.append(id, 'mission.approval_required', 'Taso self-improvement retries require fresh operator approval.');
     }
@@ -190,6 +230,7 @@ export class TaskEngine {
         nextRetryAt: undefined,
         currentAction: 'Automatic retry budget exhausted.',
         activeAgentRole: undefined,
+        resumeAfterRestart: false,
       };
       this.missions.set(id, mission);
       this.events.append(id, 'mission.status_changed', `Planning failed and the automatic retry budget is exhausted: ${safeReason}`, {
@@ -205,6 +246,7 @@ export class TaskEngine {
     const nextRetryCount = retryCount + 1;
     const boundedDelayMs = Math.max(0, Math.min(60_000, Math.trunc(delayMs)));
     const nextRetryAt = new Date(Date.now() + boundedDelayMs).toISOString();
+    const preservedPlan = resumableWorkPlan(mission.execution?.workPlan, false);
     mission.status = 'queued';
     mission.updatedAt = nowIso();
     mission.execution = {
@@ -214,8 +256,10 @@ export class TaskEngine {
       lastFailure: safeReason,
       blockedReason: undefined,
       nextRetryAt,
-      currentAction: `Automatic retry ${nextRetryCount}/${maxRetries} scheduled.`,
+      currentAction: `Automatic retry ${nextRetryCount}/${maxRetries} scheduled${mission.execution?.workspaceCheckpoint ? ' from checkpoint' : ''}.`,
       activeAgentRole: undefined,
+      workPlan: preservedPlan,
+      resumeAfterRestart: false,
     };
     this.missions.set(id, mission);
     this.events.append(id, 'mission.retry_scheduled', `Planning failed: ${safeReason} Automatic retry ${nextRetryCount}/${maxRetries} scheduled.`, {
@@ -225,6 +269,7 @@ export class TaskEngine {
       delayMs: boundedDelayMs,
       nextRetryAt,
       reason: safeReason,
+      resumedFromCheckpoint: Boolean(mission.execution?.workspaceCheckpoint),
     });
     this.onChange();
     return { mission, scheduled: true, retryCount: nextRetryCount, maxRetries };
@@ -234,22 +279,40 @@ export class TaskEngine {
     const recovered: Mission[] = [];
     for (const mission of this.missions.values()) {
       if (!['planning', 'running', 'testing'].includes(mission.status)) continue;
-      const reason = 'Taso Core restarted while this mission was executing. Review and retry it explicitly.';
-      mission.status = 'failed';
-      mission.updatedAt = nowIso();
-      const runs = (mission.execution?.agentRuns ?? []).map((run) => run.status === 'running' ? { ...run, status: 'failed' as const, updatedAt: mission.updatedAt, completedAt: mission.updatedAt, error: reason } : run);
+      const reason = 'Taso Core restarted while this mission was executing.';
+      const timestamp = nowIso();
+      const runs = (mission.execution?.agentRuns ?? []).map((run) => run.status === 'running'
+        ? { ...run, status: 'failed' as const, updatedAt: timestamp, completedAt: timestamp, error: reason }
+        : run);
+      const workPlan = (mission.execution?.workPlan ?? []).map((step) => {
+        if (step.status === 'completed') return step;
+        if (step.status === 'running') return { ...step, status: 'queued' as const, progress: 0, startedAt: undefined, completedAt: undefined, error: undefined };
+        return step;
+      });
+      const safeAutoResume = mission.riskLevel !== 'HIGH_IMPACT' && mission.autonomous.enabled;
+      mission.status = safeAutoResume ? 'queued' : 'failed';
+      mission.updatedAt = timestamp;
       mission.execution = {
         ...(mission.execution ?? {}),
-        blockedReason: reason,
+        blockedReason: safeAutoResume ? undefined : `${reason} High-impact work requires operator review before retry.`,
         lastFailure: reason,
         nextRetryAt: undefined,
-        currentAction: 'Execution interrupted by Core restart.',
+        currentAction: safeAutoResume
+          ? 'Core restart detected. Durable execution state retained; resuming incomplete work.'
+          : 'Core restart interrupted high-impact execution; operator review required.',
         activeAgentRole: undefined,
         agentRuns: runs,
+        workPlan,
+        resumeAfterRestart: safeAutoResume,
       };
-      this.events.append(mission.id, 'mission.status_changed', 'Interrupted mission marked failed after Taso Core restart.', {
-        status: 'failed',
-        blockedReason: reason,
+      this.events.append(mission.id, 'mission.status_changed', safeAutoResume
+        ? 'Interrupted mission recovered from durable state and queued for automatic resume.'
+        : 'Interrupted high-impact mission marked failed for explicit review.', {
+        status: mission.status,
+        blockedReason: mission.execution.blockedReason,
+        resumeAfterRestart: safeAutoResume,
+        completedStepIds: mission.execution.workspaceCheckpoint?.completedStepIds ?? [],
+        pullRequestNumber: mission.execution.pullRequestNumber,
       });
       recovered.push(mission);
     }
@@ -273,9 +336,9 @@ export class TaskEngine {
     mission.status = status;
     mission.updatedAt = timestamp;
     const lifecycleExecution: Partial<MissionExecution> = status === 'planning'
-      ? { planningStartedAt: timestamp, nextRetryAt: undefined, blockedReason: undefined }
+      ? { planningStartedAt: timestamp, nextRetryAt: undefined, blockedReason: undefined, resumeAfterRestart: false }
       : status === 'failed' || status === 'completed' || status === 'preview_ready'
-        ? { nextRetryAt: undefined, activeAgentRole: undefined, currentAction: message, progressPercent: status === 'failed' ? mission.execution?.progressPercent : 100 }
+        ? { nextRetryAt: undefined, activeAgentRole: undefined, currentAction: message, progressPercent: status === 'failed' ? mission.execution?.progressPercent : 100, resumeAfterRestart: false }
         : { currentAction: message };
     if (execution || Object.keys(lifecycleExecution).length) {
       mission.execution = { ...(mission.execution ?? {}), ...lifecycleExecution, ...(execution ?? {}) };
