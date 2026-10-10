@@ -67,7 +67,7 @@ export class RuntimeSelfHealingExecutor extends MissionExecutor {
     };
   }
 
-  private patchExecution(mission: Mission, patch: NonNullable<Mission['execution']>, note?: string, metadata?: Record<string, unknown>) {
+  private patchRuntimeExecution(mission: Mission, patch: NonNullable<Mission['execution']>, note?: string, metadata?: Record<string, unknown>) {
     mission.updatedAt = nowIso();
     mission.execution = { ...(mission.execution ?? {}), ...patch };
     if (note) this.runtimeTasks.noteMission(mission.id, note, metadata);
@@ -80,7 +80,7 @@ export class RuntimeSelfHealingExecutor extends MissionExecutor {
       createdAt: nowIso(),
       ...input,
     };
-    this.patchExecution(mission, {
+    this.patchRuntimeExecution(mission, {
       ...(mission.execution ?? {}),
       artifacts: [...(mission.execution?.artifacts ?? []), artifact],
     }, `Artifact ready: ${artifact.label}`, {
@@ -104,7 +104,7 @@ export class RuntimeSelfHealingExecutor extends MissionExecutor {
     if (!checkpoint) return;
     const replacements = new Map(plan.files.map((file) => [file.path, file.content]));
     const updatedAt = nowIso();
-    this.patchExecution(mission, {
+    this.patchRuntimeExecution(mission, {
       ...(mission.execution ?? {}),
       workspaceCheckpoint: {
         ...checkpoint,
@@ -152,7 +152,7 @@ export class RuntimeSelfHealingExecutor extends MissionExecutor {
   private async repairRuntimeFailure(project: Project, mission: Mission, failure: PreviewRuntimeError): Promise<Mission> {
     const diagnostics = failure.probe;
     const attempts = Math.max(0, mission.execution?.runtimeRepairAttempts ?? 0);
-    this.patchExecution(mission, {
+    this.patchRuntimeExecution(mission, {
       ...(mission.execution ?? {}),
       previewDeploymentUuid: failure.deploymentUuid,
       previewUrl: diagnostics.url,
@@ -221,7 +221,7 @@ export class RuntimeSelfHealingExecutor extends MissionExecutor {
     );
 
     this.refreshCheckpoint(mission, plan);
-    this.patchExecution(mission, {
+    this.patchRuntimeExecution(mission, {
       ...(mission.execution ?? {}),
       commitSha: repairedSha,
       checkState: 'pending',
