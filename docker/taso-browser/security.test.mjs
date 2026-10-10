@@ -9,7 +9,7 @@ test('rejects loopback, private, link-local, and reserved IPv4 ranges', () => {
 });
 
 test('rejects loopback, unique-local, link-local, and reserved IPv6 ranges', () => {
-  for (const address of ['::1', 'fc00::1', 'fe80::1', 'ff02::1', '2001:db8::1', '::']) {
+  for (const address of ['::1', 'fc00::1', 'fe80::1', 'ff02::1', '2001:db8::1', '::ffff:127.0.0.1', '64:ff9b::a9fe:a9fe', '::']) {
     assert.throws(() => assertPublicAddress(address), address);
   }
 });
