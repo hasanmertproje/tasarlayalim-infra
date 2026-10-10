@@ -102,44 +102,17 @@ function defaultFilePath() {
     || (process.env.NODE_ENV === 'production' ? '/data/taso-identities.json' : undefined);
 }
 
+function ownerCredentialConfigured() {
+  const insecureAllowed = process.env.NODE_ENV !== 'production' || process.env.TASO_AUTH_ALLOW_INSECURE_BOOTSTRAP === '1';
+  return Boolean(process.env.TASO_OWNER_PASSWORD_HASH?.trim() || (insecureAllowed && process.env.TASO_OWNER_PASSWORD));
+}
+
 function builtInRoles(now = isoNow()): TasoRole[] {
   return [
-    {
-      id: 'role_owner',
-      name: 'Ana Admin',
-      description: 'Taso üzerindeki tüm yetkilere sahip, kaldırılamayan ana yönetici rolü.',
-      permissions: [...ALL_PERMISSIONS],
-      system: true,
-      createdAt: now,
-      updatedAt: now,
-    },
-    {
-      id: 'role_admin',
-      name: 'Admin',
-      description: 'Kullanıcı ve rol yönetimi dahil geniş yönetim yetkileri.',
-      permissions: [...ALL_PERMISSIONS],
-      system: true,
-      createdAt: now,
-      updatedAt: now,
-    },
-    {
-      id: 'role_operator',
-      name: 'Operatör',
-      description: 'Günlük operasyonları ve onay akışlarını yönetebilir; kimlik ve kritik ayar yönetemez.',
-      permissions: [...OPERATOR_PERMISSIONS],
-      system: true,
-      createdAt: now,
-      updatedAt: now,
-    },
-    {
-      id: 'role_viewer',
-      name: 'Görüntüleyici',
-      description: 'Salt okunur görünürlük.',
-      permissions: [...READ_ONLY_PERMISSIONS],
-      system: true,
-      createdAt: now,
-      updatedAt: now,
-    },
+    { id:'role_owner', name:'Ana Admin', description:'Taso üzerindeki tüm yetkilere sahip, kaldırılamayan ana yönetici rolü.', permissions:[...ALL_PERMISSIONS], system:true, createdAt:now, updatedAt:now },
+    { id:'role_admin', name:'Admin', description:'Kullanıcı ve rol yönetimi dahil geniş yönetim yetkileri.', permissions:[...ALL_PERMISSIONS], system:true, createdAt:now, updatedAt:now },
+    { id:'role_operator', name:'Operatör', description:'Günlük operasyonları ve onay akışlarını yönetebilir; kimlik ve kritik ayar yönetemez.', permissions:[...OPERATOR_PERMISSIONS], system:true, createdAt:now, updatedAt:now },
+    { id:'role_viewer', name:'Görüntüleyici', description:'Salt okunur görünürlük.', permissions:[...READ_ONLY_PERMISSIONS], system:true, createdAt:now, updatedAt:now },
   ];
 }
 
@@ -172,8 +145,8 @@ export function verifyStoredPassword(password: string, configuredHash: string | 
 }
 
 function publicUser(user: StoredTasoUser): TasoUser {
-  const { passwordHash: _passwordHash, ...safe } = user;
-  return { ...safe, passwordConfigured: Boolean(user.owner || passwordHash) };
+  const { passwordHash, ...safe } = user;
+  return { ...safe, passwordConfigured: user.owner ? ownerCredentialConfigured() : Boolean(passwordHash) };
 }
 
 export class IdentityStore {
@@ -223,15 +196,6 @@ export class IdentityStore {
     return publicUser(user);
   }
 
-  clearPasswordChangeRequirement(userId: string) {
-    const user = this.snapshot.users.find((entry) => entry.id === userId);
-    if (!user) return false;
-    user.passwordChangeRequired = false;
-    user.updatedAt = isoNow();
-    this.persist();
-    return true;
-  }
-
   permissionsForUser(user: TasoUser | undefined) {
     if (!user || !user.active) return [] as TasoPermission[];
     const permissions = new Set<TasoPermission>();
@@ -252,17 +216,7 @@ export class IdentityStore {
     const now = isoNow();
     let user = this.snapshot.users.find((entry) => entry.owner);
     if (!user) {
-      user = {
-        id: 'user_owner',
-        email,
-        displayName: 'Ana Admin',
-        roleIds: ['role_owner'],
-        active: true,
-        owner: true,
-        createdAt: now,
-        updatedAt: now,
-        passwordChangeRequired: false,
-      };
+      user = { id:'user_owner', email, displayName:'Ana Admin', roleIds:['role_owner'], active:true, owner:true, createdAt:now, updatedAt:now, passwordChangeRequired:false };
       this.snapshot.users.push(user);
     } else {
       user.email = email;
@@ -283,14 +237,9 @@ export class IdentityStore {
     const roleIds = this.validateRoleIds(input.roleIds?.length ? input.roleIds : ['role_viewer']);
     const now = isoNow();
     const user: StoredTasoUser = {
-      id: id('user'),
-      email,
+      id: id('user'), email,
       displayName: input.displayName?.trim().slice(0, 100) || email.split('@')[0] || email,
-      roleIds,
-      active: true,
-      owner: false,
-      createdAt: now,
-      updatedAt: now,
+      roleIds, active:true, owner:false, createdAt:now, updatedAt:now,
       passwordHash: input.password ? createPasswordHash(input.password) : undefined,
       passwordChangeRequired: Boolean(input.passwordChangeRequired),
     };
@@ -316,15 +265,7 @@ export class IdentityStore {
     const name = input.name.trim();
     if (!name) throw new Error('Role name is required.');
     const now = isoNow();
-    const role: TasoRole = {
-      id: id('role'),
-      name: name.slice(0, 80),
-      description: input.description?.trim().slice(0, 240) || '',
-      permissions: uniquePermissions(input.permissions ?? []),
-      system: false,
-      createdAt: now,
-      updatedAt: now,
-    };
+    const role: TasoRole = { id:id('role'), name:name.slice(0,80), description:input.description?.trim().slice(0,240)||'', permissions:uniquePermissions(input.permissions??[]), system:false, createdAt:now, updatedAt:now };
     this.snapshot.roles.push(role);
     this.persist();
     return { ...role, permissions: [...role.permissions] };
@@ -333,9 +274,10 @@ export class IdentityStore {
   updateRole(roleId: string, input: { name?: string; description?: string; permissions?: string[] }) {
     const role = this.snapshot.roles.find((entry) => entry.id === roleId);
     if (!role) throw new Error('Role not found.');
+    if (role.id === 'role_owner') throw new Error('Owner role cannot be modified.');
     if (role.system) throw new Error('System roles cannot be modified. Create a custom role instead.');
-    if (input.name !== undefined) role.name = input.name.trim().slice(0, 80) || role.name;
-    if (input.description !== undefined) role.description = input.description.trim().slice(0, 240);
+    if (input.name !== undefined) role.name = input.name.trim().slice(0,80) || role.name;
+    if (input.description !== undefined) role.description = input.description.trim().slice(0,240);
     if (input.permissions !== undefined) role.permissions = uniquePermissions(input.permissions);
     role.updatedAt = isoNow();
     this.persist();
@@ -363,9 +305,7 @@ export class IdentityStore {
 
   private validateRoleIds(roleIds: string[]) {
     const unique = [...new Set(roleIds)];
-    for (const roleId of unique) {
-      if (!this.snapshot.roles.some((role) => role.id === roleId)) throw new Error(`Unknown role: ${roleId}`);
-    }
+    for (const roleId of unique) if (!this.snapshot.roles.some((role) => role.id === roleId)) throw new Error(`Unknown role: ${roleId}`);
     return unique;
   }
 
@@ -383,29 +323,22 @@ export class IdentityStore {
   }
 
   private load(): IdentitySnapshot {
-    if (!this.filePath) return { version: 2, roles: [], users: [] };
+    if (!this.filePath) return { version:2, roles:[], users:[] };
     try {
       const parsed = JSON.parse(readFileSync(this.filePath, 'utf8')) as { roles?: TasoRole[]; users?: Array<Partial<StoredTasoUser>> };
-      const users = Array.isArray(parsed.users) ? parsed.users.map((user) => ({
-        ...user,
-        passwordChangeRequired: Boolean(user.passwordChangeRequired),
-      })) as StoredTasoUser[] : [];
-      return {
-        version: 2,
-        roles: Array.isArray(parsed.roles) ? parsed.roles : [],
-        users,
-      };
+      const users = Array.isArray(parsed.users) ? parsed.users.map((user) => ({ ...user, passwordChangeRequired:Boolean(user.passwordChangeRequired) })) as StoredTasoUser[] : [];
+      return { version:2, roles:Array.isArray(parsed.roles)?parsed.roles:[], users };
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { version: 2, roles: [], users: [] };
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { version:2, roles:[], users:[] };
       throw new Error(`Taso identity state could not be loaded: ${(error as Error).message}`);
     }
   }
 
   private persist() {
     if (!this.filePath) return;
-    mkdirSync(dirname(this.filePath), { recursive: true, mode: 0o700 });
-    const temp = `${this.filePath}.${createHash('sha256').update(String(process.pid)).digest('hex').slice(0, 8)}.tmp`;
-    writeFileSync(temp, `${JSON.stringify({ ...this.snapshot, version: 2 }, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
+    mkdirSync(dirname(this.filePath), { recursive:true, mode:0o700 });
+    const temp = `${this.filePath}.${createHash('sha256').update(String(process.pid)).digest('hex').slice(0,8)}.tmp`;
+    writeFileSync(temp, `${JSON.stringify({ ...this.snapshot, version:2 }, null, 2)}\n`, { encoding:'utf8', mode:0o600 });
     renameSync(temp, this.filePath);
   }
 }
