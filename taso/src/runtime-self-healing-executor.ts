@@ -73,7 +73,7 @@ export class RuntimeSelfHealingExecutor extends MissionExecutor {
     if (note) this.runtimeTasks.noteMission(mission.id, note, metadata);
   }
 
-  private addArtifact(mission: Mission, input: Omit<MissionArtifact, 'id' | 'missionId' | 'createdAt'>) {
+  private addRuntimeArtifact(mission: Mission, input: Omit<MissionArtifact, 'id' | 'missionId' | 'createdAt'>) {
     const artifact: MissionArtifact = {
       id: createId('artifact'),
       missionId: mission.id,
@@ -167,7 +167,7 @@ export class RuntimeSelfHealingExecutor extends MissionExecutor {
       latencyMs: diagnostics.latencyMs,
       summary: diagnostics.summary,
     });
-    this.addArtifact(mission, {
+    this.addRuntimeArtifact(mission, {
       type: 'runtime-diagnostic',
       label: `Runtime diagnostic · ${diagnostics.status ?? 'network'}`,
       url: diagnostics.url,
@@ -235,7 +235,7 @@ export class RuntimeSelfHealingExecutor extends MissionExecutor {
       commitSha: repairedSha,
       repairedPaths: plan.files.map((file) => file.path),
     });
-    this.addArtifact(mission, {
+    this.addRuntimeArtifact(mission, {
       type: 'runtime-repair-commit',
       label: `Runtime repair #${nextAttempt} · ${repairedSha.slice(0, 8)}`,
       url: mission.execution?.pullRequestUrl,
