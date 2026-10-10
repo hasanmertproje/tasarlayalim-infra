@@ -1,4 +1,4 @@
-FROM mcr.microsoft.com/playwright:v1.55.0-noble
+FROM mcr.microsoft.com/playwright:v1.63.0-noble
 WORKDIR /app
 ENV NODE_ENV=production PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 PORT=3100
 COPY package.json ./
