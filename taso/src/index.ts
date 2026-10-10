@@ -16,8 +16,8 @@ const port = Number(process.env.PORT || 3000);
 const host = process.env.HOST || '0.0.0.0';
 
 const app = buildServer();
-const auth = new AuthServiceV18();
 const identities = new IdentityStore(process.env.TASO_OWNER_EMAIL || '');
+const auth = new AuthServiceV18(identities);
 registerAuthRoutes(app, auth);
 registerRbacRoutes(app, auth, identities);
 registerControlPlaneRoutes(app, auth, identities);
