@@ -15,6 +15,20 @@ export interface PreviewRuntimeProbe {
   bodyPreview?: string;
 }
 
+export class PreviewRuntimeError extends Error {
+  readonly deploymentUuid: string;
+  readonly probe: PreviewRuntimeProbe;
+  readonly deploymentAttempts: number;
+
+  constructor(input: { deploymentUuid: string; probe: PreviewRuntimeProbe; deploymentAttempts: number }) {
+    super(`Preview runtime verification failed after ${input.deploymentAttempts} deployment attempt(s): ${input.probe.summary}`);
+    this.name = 'PreviewRuntimeError';
+    this.deploymentUuid = input.deploymentUuid;
+    this.probe = input.probe;
+    this.deploymentAttempts = input.deploymentAttempts;
+  }
+}
+
 export interface CoolifyDeploymentResult {
   deploymentUuid: string;
   status: string;
@@ -168,7 +182,11 @@ export class CoolifyTools {
       const runtimeProbe = await this.probeRuntime(deployment.url);
       if (runtimeProbe.healthy) return { ...deployment, runtimeProbe, runtimeRedeploys };
       if (runtimeRedeploys >= this.previewRedeployAttempts) {
-        throw new Error(`Preview runtime verification failed after ${runtimeRedeploys + 1} deployment attempt(s): ${runtimeProbe.summary}`);
+        throw new PreviewRuntimeError({
+          deploymentUuid,
+          probe: runtimeProbe,
+          deploymentAttempts: runtimeRedeploys + 1,
+        });
       }
       runtimeRedeploys += 1;
     }
