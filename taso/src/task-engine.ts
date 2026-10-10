@@ -334,9 +334,10 @@ export class TaskEngine {
     if (!mission) throw new Error('Mission not found.');
     const runs = [...(mission.execution?.agentRuns ?? [])];
     const index = runs.findIndex((run) => run.id === runId);
-    if (index < 0) throw new Error('Agent run not found.');
+    const current = index >= 0 ? runs[index] : undefined;
+    if (!current) throw new Error('Agent run not found.');
     const timestamp = nowIso();
-    const run: AgentRun = { ...runs[index], action, progress: boundedProgress(progress), detail, updatedAt: timestamp };
+    const run: AgentRun = { ...current, action, progress: boundedProgress(progress), detail, updatedAt: timestamp };
     runs[index] = run;
     mission.updatedAt = timestamp;
     mission.execution = { ...(mission.execution ?? {}), progressPercent: run.progress, currentAction: action, activeAgentRole: run.role, agentRuns: runs };
@@ -351,9 +352,10 @@ export class TaskEngine {
     if (!mission) throw new Error('Mission not found.');
     const runs = [...(mission.execution?.agentRuns ?? [])];
     const index = runs.findIndex((run) => run.id === runId);
-    if (index < 0) throw new Error('Agent run not found.');
+    const current = index >= 0 ? runs[index] : undefined;
+    if (!current) throw new Error('Agent run not found.');
     const timestamp = nowIso();
-    const run: AgentRun = { ...runs[index], status: 'completed', action, progress: boundedProgress(progress), detail, updatedAt: timestamp, completedAt: timestamp };
+    const run: AgentRun = { ...current, status: 'completed', action, progress: boundedProgress(progress), detail, updatedAt: timestamp, completedAt: timestamp };
     runs[index] = run;
     mission.updatedAt = timestamp;
     mission.execution = { ...(mission.execution ?? {}), progressPercent: run.progress, currentAction: action, activeAgentRole: undefined, agentRuns: runs };
@@ -368,9 +370,10 @@ export class TaskEngine {
     if (!mission) throw new Error('Mission not found.');
     const runs = [...(mission.execution?.agentRuns ?? [])];
     const index = runs.findIndex((run) => run.id === runId);
-    if (index < 0) throw new Error('Agent run not found.');
+    const current = index >= 0 ? runs[index] : undefined;
+    if (!current) throw new Error('Agent run not found.');
     const timestamp = nowIso();
-    const run: AgentRun = { ...runs[index], status: 'failed', updatedAt: timestamp, completedAt: timestamp, error };
+    const run: AgentRun = { ...current, status: 'failed', updatedAt: timestamp, completedAt: timestamp, error };
     runs[index] = run;
     mission.updatedAt = timestamp;
     mission.execution = { ...(mission.execution ?? {}), currentAction: `${run.label} failed.`, activeAgentRole: undefined, agentRuns: runs };
