@@ -1,7 +1,7 @@
 import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from 'react';
 
 type Role = { id: string; name: string; description: string; permissions: string[]; system: boolean };
-type User = { id: string; email: string; displayName: string; roleIds: string[]; active: boolean; owner: boolean; lastLoginAt?: string };
+type User = { id: string; email: string; displayName: string; roleIds: string[]; active: boolean; owner: boolean; lastLoginAt?: string; passwordConfigured?: boolean; passwordChangeRequired?: boolean };
 type TrustedDevice = { id: string; label: string; userAgent?: string; createdAt: string; expiresAt: string; lastUsedAt?: string; revokedAt?: string };
 type Branding = { assistantName: string; assistantSubtitle: string; iconDataUrl?: string; lightIconDataUrl?: string; animationPreset: string; updatedAt: string };
 type Me = { user: User; permissions: string[]; roles: Role[] };
@@ -41,8 +41,10 @@ export default function ControlPlaneV24() {
   const [animationPresets, setAnimationPresets] = useState<string[]>([]);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const [oneTimePassword, setOneTimePassword] = useState('');
+  const [oneTimeEmail, setOneTimeEmail] = useState('');
   const [busy, setBusy] = useState(false);
-  const [newUser, setNewUser] = useState({ email: '', displayName: '', roleId: 'role_viewer' });
+  const [newUser, setNewUser] = useState({ email: '', displayName: '', roleId: 'role_viewer', password: '' });
   const [newRole, setNewRole] = useState({ name: '', description: '', permissions: [] as string[] });
 
   const can = (permission: string) => me?.permissions.includes(permission) ?? false;
@@ -69,17 +71,36 @@ export default function ControlPlaneV24() {
 
   async function createUser(event: FormEvent) {
     event.preventDefault(); if (!newUser.email.trim()) return;
-    setBusy(true); setError('');
+    setBusy(true); setError(''); setNotice(''); setOneTimePassword('');
     try {
-      await api('/auth/admin/users', { method: 'POST', body: JSON.stringify({ email: newUser.email, displayName: newUser.displayName, roleIds: [newUser.roleId] }) });
-      setNewUser({ email: '', displayName: '', roleId: 'role_viewer' }); setNotice('Kullanıcı oluşturuldu.'); await refresh();
+      const payload = await api<{ user: User; temporaryPassword?: string; passwordChangeRequired: boolean }>('/auth/admin/users', {
+        method: 'POST',
+        body: JSON.stringify({ email: newUser.email, displayName: newUser.displayName, roleIds: [newUser.roleId], password: newUser.password.trim() || undefined }),
+      });
+      setOneTimeEmail(payload.user.email);
+      setOneTimePassword(payload.temporaryPassword || newUser.password.trim());
+      setNewUser({ email: '', displayName: '', roleId: 'role_viewer', password: '' });
+      setNotice('Kullanıcı oluşturuldu. İlk girişte şifre değişikliği zorunlu.');
+      await refresh();
     } catch (cause) { setError((cause as Error).message); } finally { setBusy(false); }
   }
 
   async function patchUser(user: User, patch: Partial<Pick<User,'displayName'|'roleIds'|'active'>>) {
-    setBusy(true); setError('');
+    setBusy(true); setError(''); setOneTimePassword('');
     try { await api(`/auth/admin/users/${user.id}`, { method:'PATCH', body:JSON.stringify(patch) }); setNotice('Kullanıcı güncellendi.'); await refresh(); }
     catch (cause) { setError((cause as Error).message); } finally { setBusy(false); }
+  }
+
+  async function resetPassword(user: User) {
+    if (!confirm(`${user.email} için mevcut oturumları ve trusted device kayıtlarını iptal edip geçici şifre üretmek istiyor musunuz?`)) return;
+    setBusy(true); setError(''); setNotice(''); setOneTimePassword('');
+    try {
+      const payload = await api<{ temporaryPassword?: string; passwordChangeRequired: boolean }>(`/auth/admin/users/${user.id}/reset-password`, { method:'POST', body:'{}' });
+      setOneTimeEmail(user.email);
+      setOneTimePassword(payload.temporaryPassword || '');
+      setNotice('Geçici şifre üretildi; mevcut oturumlar ve trusted device kayıtları iptal edildi.');
+      await refresh();
+    } catch (cause) { setError((cause as Error).message); } finally { setBusy(false); }
   }
 
   async function createRole(event: FormEvent) {
@@ -118,16 +139,17 @@ export default function ControlPlaneV24() {
   return <section className="cp24-shell" aria-label="Taso Control Plane">
     <header className="cp24-header"><div><span>CONTROL PLANE</span><h1>Admin Merkezi</h1><p>Kullanıcı, rol, cihaz güveni ve Taso kimliğini tek yerden yönet.</p></div><div className="cp24-identity"><strong>{me?.user.displayName ?? '—'}</strong><small>{me?.roles.map(r=>r.name).join(' · ') || 'Rol yok'}</small></div></header>
     {(error || notice) && <div className={`cp24-message ${error ? 'bad' : 'ok'}`}>{error || notice}</div>}
-    <nav className="cp24-tabs">{(['users','roles','security','branding'] as const).map((item) => <button key={item} className={tab===item?'active':''} onClick={()=>{setTab(item);setNotice('');}}>{item==='users'?'Kullanıcılar':item==='roles'?'Roller':item==='security'?'Güvenlik':'Taso Kimliği'}</button>)}</nav>
+    {oneTimePassword && <div className="cp24-message ok" role="status"><strong>{oneTimeEmail}</strong> için tek seferlik başlangıç şifresi: <code>{oneTimePassword}</code> <button type="button" onClick={()=>void navigator.clipboard?.writeText(oneTimePassword)}>Kopyala</button><span> Bu değer tekrar gösterilmez.</span></div>}
+    <nav className="cp24-tabs">{(['users','roles','security','branding'] as const).map((item) => <button key={item} className={tab===item?'active':''} onClick={()=>{setTab(item);setNotice('');setOneTimePassword('');}}>{item==='users'?'Kullanıcılar':item==='roles'?'Roller':item==='security'?'Güvenlik':'Taso Kimliği'}</button>)}</nav>
 
     {tab==='users' && <div className="cp24-grid">
-      <section className="cp24-card wide"><div className="cp24-card-head"><div><span>USERS</span><strong>Ekip erişimi</strong></div><b>{users.length}</b></div><div className="cp24-user-list">{users.map(user => <article key={user.id}><div className="cp24-avatar">{user.displayName.slice(0,1).toUpperCase()}</div><div><strong>{user.displayName}</strong><small>{user.email}</small><em>{user.roleIds.map(id=>roleMap.get(id)?.name ?? id).join(' · ')}</em></div><select disabled={!can('users.write')||user.owner||busy} value={user.roleIds[0] ?? ''} onChange={e=>void patchUser(user,{roleIds:[e.target.value]})}>{roles.map(role=><option key={role.id} value={role.id}>{role.name}</option>)}</select><button disabled={!can('users.write')||user.owner||busy} onClick={()=>void patchUser(user,{active:!user.active})}>{user.active?'Aktif':'Pasif'}</button></article>)}</div></section>
-      {can('users.write') && <form className="cp24-card" onSubmit={createUser}><div className="cp24-card-head"><div><span>NEW USER</span><strong>Kullanıcı ekle</strong></div></div><label>E-posta<input type="email" value={newUser.email} onChange={e=>setNewUser({...newUser,email:e.target.value})} required /></label><label>Ad<input value={newUser.displayName} onChange={e=>setNewUser({...newUser,displayName:e.target.value})} /></label><label>Rol<select value={newUser.roleId} onChange={e=>setNewUser({...newUser,roleId:e.target.value})}>{roles.filter(r=>r.id!=='role_owner').map(r=><option key={r.id} value={r.id}>{r.name}</option>)}</select></label><button className="primary" disabled={busy}>Kullanıcı oluştur</button></form>}
+      <section className="cp24-card wide"><div className="cp24-card-head"><div><span>USERS</span><strong>Ekip erişimi</strong></div><b>{users.length}</b></div><div className="cp24-user-list">{users.map(user => <article key={user.id}><div className="cp24-avatar">{user.displayName.slice(0,1).toUpperCase()}</div><div><strong>{user.displayName}</strong><small>{user.email}</small><em>{user.roleIds.map(id=>roleMap.get(id)?.name ?? id).join(' · ')}{user.passwordChangeRequired?' · Şifre değişikliği bekliyor':''}</em></div><select disabled={!can('users.write')||user.owner||busy} value={user.roleIds[0] ?? ''} onChange={e=>void patchUser(user,{roleIds:[e.target.value]})}>{roles.map(role=><option key={role.id} value={role.id}>{role.name}</option>)}</select><button disabled={!can('users.write')||user.owner||busy} onClick={()=>void patchUser(user,{active:!user.active})}>{user.active?'Aktif':'Pasif'}</button>{!user.owner&&can('users.write')&&<button disabled={busy} onClick={()=>void resetPassword(user)}>Şifre sıfırla</button>}</article>)}</div></section>
+      {can('users.write') && <form className="cp24-card" onSubmit={createUser}><div className="cp24-card-head"><div><span>NEW USER</span><strong>Kullanıcı ekle</strong></div></div><label>E-posta<input type="email" value={newUser.email} onChange={e=>setNewUser({...newUser,email:e.target.value})} required /></label><label>Ad<input value={newUser.displayName} onChange={e=>setNewUser({...newUser,displayName:e.target.value})} /></label><label>Rol<select value={newUser.roleId} onChange={e=>setNewUser({...newUser,roleId:e.target.value})}>{roles.filter(r=>r.id!=='role_owner').map(r=><option key={r.id} value={r.id}>{r.name}</option>)}</select></label><label>Başlangıç şifresi <small>(boş bırakırsanız güvenli geçici şifre üretilir)</small><input type="password" minLength={12} value={newUser.password} onChange={e=>setNewUser({...newUser,password:e.target.value})} /></label><button className="primary" disabled={busy}>Kullanıcı oluştur</button></form>}
     </div>}
 
     {tab==='roles' && <div className="cp24-grid"><section className="cp24-card wide"><div className="cp24-card-head"><div><span>RBAC</span><strong>Roller ve yetkiler</strong></div></div><div className="cp24-role-grid">{roles.map(role=><article key={role.id}><div><strong>{role.name}</strong>{role.system&&<span>SYSTEM</span>}</div><p>{role.description}</p><small>{role.permissions.length} yetki</small></article>)}</div></section>{can('roles.write')&&<form className="cp24-card" onSubmit={createRole}><div className="cp24-card-head"><div><span>CUSTOM ROLE</span><strong>Yeni rol</strong></div></div><label>Ad<input value={newRole.name} onChange={e=>setNewRole({...newRole,name:e.target.value})}/></label><label>Açıklama<input value={newRole.description} onChange={e=>setNewRole({...newRole,description:e.target.value})}/></label><div className="cp24-permissions">{permissions.map(p=><label key={p}><input type="checkbox" checked={newRole.permissions.includes(p)} onChange={e=>setNewRole({...newRole,permissions:e.target.checked?[...newRole.permissions,p]:newRole.permissions.filter(x=>x!==p)})}/><span>{p}</span></label>)}</div><button className="primary" disabled={busy}>Rol oluştur</button></form>}</div>}
 
-    {tab==='security' && <div className="cp24-grid"><section className="cp24-card"><div className="cp24-card-head"><div><span>TRUST POLICY</span><strong>Trusted device</strong></div></div><label>Güven süresi (gün)<input type="number" min={1} max={365} value={trustedDays} onChange={e=>setTrustedDays(Number(e.target.value))}/></label><button className="primary" disabled={!can('security.write')||busy} onClick={()=>void saveSecurity()}>Politikayı kaydet</button></section><section className="cp24-card wide"><div className="cp24-card-head"><div><span>DEVICES</span><strong>Güvenilen cihazlar</strong></div><b>{devices.filter(d=>!d.revokedAt).length}</b></div><div className="cp24-device-list">{devices.map(d=><article key={d.id}><div><strong>{d.label}</strong><small>{d.userAgent || 'Bilinmeyen tarayıcı'}</small><em>Son kullanım: {d.lastUsedAt ? new Date(d.lastUsedAt).toLocaleString('tr-TR') : '—'}</em></div><button disabled={!can('security.write')||Boolean(d.revokedAt)||busy} onClick={()=>void revokeDevice(d.id)}>{d.revokedAt?'Kaldırıldı':'Güveni kaldır'}</button></article>)}</div></section></div>}
+    {tab==='security' && <div className="cp24-grid"><section className="cp24-card"><div className="cp24-card-head"><div><span>TRUST POLICY</span><strong>Trusted device</strong></div></div><label>Güven süresi (gün)<input type="number" min={1} max={365} value={trustedDays} onChange={e=>setTrustedDays(Number(e.target.value))}/></label><button className="primary" disabled={!can('security.write')||busy} onClick={()=>void saveSecurity()}>Politikayı kaydet</button></section><section className="cp24-card wide"><div className="cp24-card-head"><div><span>DEVICES</span><strong>Güvenilen cihazlarım</strong></div><b>{devices.filter(d=>!d.revokedAt).length}</b></div><div className="cp24-device-list">{devices.map(d=><article key={d.id}><div><strong>{d.label}</strong><small>{d.userAgent || 'Bilinmeyen tarayıcı'}</small><em>Son kullanım: {d.lastUsedAt ? new Date(d.lastUsedAt).toLocaleString('tr-TR') : '—'}</em></div><button disabled={!can('security.write')||Boolean(d.revokedAt)||busy} onClick={()=>void revokeDevice(d.id)}>{d.revokedAt?'Kaldırıldı':'Güveni kaldır'}</button></article>)}</div></section></div>}
 
     {tab==='branding' && branding && <div className="cp24-grid"><section className="cp24-card"><div className="cp24-card-head"><div><span>IDENTITY</span><strong>Taso kimliği</strong></div></div><label>Asistan adı<input value={branding.assistantName} onChange={e=>setBranding({...branding,assistantName:e.target.value})}/></label><label>Alt başlık<input value={branding.assistantSubtitle} onChange={e=>setBranding({...branding,assistantSubtitle:e.target.value})}/></label><label>Animasyon<select value={branding.animationPreset} onChange={e=>setBranding({...branding,animationPreset:e.target.value})}>{animationPresets.map(p=><option key={p}>{p}</option>)}</select></label><button className="primary" disabled={!can('settings.write')||busy} onClick={()=>void saveBranding()}>Kimliği kaydet</button></section><section className="cp24-card wide"><div className="cp24-card-head"><div><span>ICON SYSTEM</span><strong>Dark / Light ikon</strong></div></div><div className="cp24-brand-preview"><div className={`cp24-orb preset-${branding.animationPreset}`} style={branding.iconDataUrl?{backgroundImage:`url(${branding.iconDataUrl})`}:undefined}>{!branding.iconDataUrl&&branding.assistantName.slice(0,1)}</div><div><strong>{branding.assistantName}</strong><span>{branding.assistantSubtitle}</span><small>Preset: {branding.animationPreset}</small></div></div><div className="cp24-upload-row"><label>Dark ikon<input type="file" accept="image/png,image/webp" onChange={e=>void uploadIcon(e,false)}/></label><label>Light ikon<input type="file" accept="image/png,image/webp" onChange={e=>void uploadIcon(e,true)}/></label></div></section></div>}
   </section>;

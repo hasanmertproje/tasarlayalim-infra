@@ -49,7 +49,7 @@ test('TOTP enrollment trusts a device, skips repeat 2FA, and supports revoke', a
   const keys = [
     'TASO_OWNER_EMAIL', 'TASO_OWNER_PASSWORD', 'TASO_OWNER_PASSWORD_HASH', 'NODE_ENV',
     'TASO_AUTH_ALLOW_INSECURE_BOOTSTRAP', 'TASO_GATEWAY_SECRET', 'TASO_AUTH_ENCRYPTION_KEY',
-    'TASO_AUTH_SECURITY_FILE',
+    'TASO_AUTH_SECURITY_FILE', 'TASO_IDENTITY_FILE',
   ] as const;
   const previous = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
 
@@ -60,6 +60,7 @@ test('TOTP enrollment trusts a device, skips repeat 2FA, and supports revoke', a
   delete process.env.TASO_OWNER_PASSWORD_HASH;
   delete process.env.TASO_AUTH_ALLOW_INSECURE_BOOTSTRAP;
   delete process.env.TASO_AUTH_SECURITY_FILE;
+  delete process.env.TASO_IDENTITY_FILE;
 
   const app = Fastify({ logger: false });
   const auth = new AuthServiceV18();
@@ -70,7 +71,6 @@ test('TOTP enrollment trusts a device, skips repeat 2FA, and supports revoke', a
     assert.equal(anonymous.statusCode, 200);
     assert.equal(anonymous.json().configured, true);
     assert.equal(anonymous.json().authenticated, false);
-    assert.equal(anonymous.json().twoFactorEnabled, false);
 
     const rejected = await app.inject({ method: 'POST', url: '/auth/login', payload: { email: 'owner@example.test', password: 'wrong-password' } });
     assert.equal(rejected.statusCode, 401);

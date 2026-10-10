@@ -1,137 +1,16 @@
 import { createHash } from 'node:crypto';
 import { tasoCharacterInstructions } from './taso-character.js';
-
-function enabled(value: string | undefined) {
-  return value?.trim().toLowerCase() === 'true';
-}
-
-function clamp(value: number | undefined, min: number, max: number, fallback: number) {
-  if (!Number.isFinite(value)) return fallback;
-  return Math.min(max, Math.max(min, value as number));
-}
-
-export interface VoiceRealtimeStatus {
-  provider: 'openai-realtime';
-  transport: 'webrtc';
-  enabled: boolean;
-  paidAllowed: boolean;
-  configured: boolean;
-  ready: boolean;
-  model: string;
-  voice: string;
-  fallback: 'browser-stt-tts';
-}
-
-export interface VoiceWorkspaceContext {
-  projectId: string;
-  workspaceName?: string;
-}
-
-export interface VoiceSessionOptions {
-  speed?: number;
-}
-
-export class VoiceRealtimeRuntime {
-  private readonly isEnabled = enabled(process.env.TASO_VOICE_REALTIME_ENABLED);
-  private readonly paidAllowed = enabled(process.env.TASO_VOICE_REALTIME_PAID_ALLOWED);
-  private readonly apiKey = process.env.TASO_VOICE_REALTIME_API_KEY?.trim() || process.env.OPENAI_API_KEY?.trim();
-  private readonly baseUrl = (process.env.TASO_VOICE_REALTIME_BASE_URL?.trim() || 'https://api.openai.com').replace(/\/$/, '');
-  private readonly model = process.env.TASO_VOICE_REALTIME_MODEL?.trim() || 'gpt-realtime-2.1-mini';
-  private readonly voice = process.env.TASO_VOICE_REALTIME_VOICE?.trim() || 'marin';
-  private readonly safetySalt = process.env.TASO_VOICE_SAFETY_SALT?.trim();
-
-  status(): VoiceRealtimeStatus {
-    const configured = Boolean(this.apiKey);
-    return {
-      provider: 'openai-realtime',
-      transport: 'webrtc',
-      enabled: this.isEnabled,
-      paidAllowed: this.paidAllowed,
-      configured,
-      ready: this.isEnabled && this.paidAllowed && configured,
-      model: this.model,
-      voice: this.voice,
-      fallback: 'browser-stt-tts',
-    };
-  }
-
-  private safetyIdentifier(projectId: string) {
-    if (!this.safetySalt) return undefined;
-    return createHash('sha256').update(`${this.safetySalt}:${projectId}`).digest('hex');
-  }
-
-  private instructions(context: VoiceWorkspaceContext) {
-    return [
-      tasoCharacterInstructions(),
-      'Bu oturum canlı konuşma modudur. CHAT ile MISSION kesin olarak ayrıdır.',
-      'Repository, kod, test, PR, CI, deployment, silme, ödeme, rol/yetki veya production işlemi yapma. Bu oturumda hiçbir tool yetkin yoktur.',
-      'Kullanıcı yürütme isteyen bir talep verirse isteği kısa biçimde anladığını söyle ve arayüzde ayrı mission önerisinin onaylanması gerektiğini belirt.',
-      'Runtime bağlamında açıkça doğrulanmayan bir değişikliğin, testin, PR\'ın veya deployment\'ın gerçekleştiğini asla iddia etme.',
-      'Başka workspace verisini kullanma veya sızdırma.',
-      `Aktif workspace kimliği: ${context.projectId}`,
-      context.workspaceName ? `Aktif workspace adı: ${context.workspaceName}` : 'Aktif workspace adı sağlanmadı.',
-    ].join('\n');
-  }
-
-  async createSession(context: VoiceWorkspaceContext, sdp: string, options: VoiceSessionOptions = {}) {
-    const status = this.status();
-    if (!status.enabled) throw new Error('Realtime voice is disabled.');
-    if (!status.paidAllowed) throw new Error('Paid realtime voice is not allowed by policy.');
-    if (!this.apiKey) throw new Error('Realtime voice API key is not configured.');
-    if (!context.projectId.trim()) throw new Error('projectId is required.');
-    if (!sdp.trim() || sdp.length > 128_000) throw new Error('Invalid SDP offer.');
-
-    const speed = clamp(options.speed, 0.75, 1.15, 0.95);
-    const form = new FormData();
-    form.set('sdp', sdp);
-    form.set('session', JSON.stringify({
-      type: 'realtime',
-      model: this.model,
-      instructions: this.instructions(context),
-      output_modalities: ['audio'],
-      audio: {
-        input: {
-          transcription: {
-            model: 'gpt-realtime-whisper',
-            language: 'tr',
-            delay: 'low',
-          },
-          turn_detection: {
-            type: 'semantic_vad',
-            eagerness: 'medium',
-            create_response: true,
-            interrupt_response: true,
-          },
-        },
-        output: {
-          voice: this.voice,
-          speed,
-        },
-      },
-    }));
-
-    const headers: Record<string, string> = { authorization: `Bearer ${this.apiKey}` };
-    const safetyIdentifier = this.safetyIdentifier(context.projectId);
-    if (safetyIdentifier) headers['OpenAI-Safety-Identifier'] = safetyIdentifier;
-
-    const response = await fetch(`${this.baseUrl}/v1/realtime/calls`, {
-      method: 'POST',
-      headers,
-      body: form,
-      signal: AbortSignal.timeout(30_000),
-    });
-    const answerSdp = await response.text();
-    if (!response.ok) {
-      throw new Error(`Realtime voice provider failed with HTTP ${response.status}: ${answerSdp.slice(0, 300)}`);
-    }
-
-    return {
-      sdp: answerSdp,
-      provider: status.provider,
-      model: status.model,
-      voice: status.voice,
-      speed,
-      transport: status.transport,
-    };
-  }
+function enabled(value:string|undefined){return value?.trim().toLowerCase()==='true'}function clamp(value:number|undefined,min:number,max:number,fallback:number){if(!Number.isFinite(value))return fallback;return Math.min(max,Math.max(min,value as number))}
+export interface VoiceRealtimeStatus{provider:'openai-realtime';transport:'webrtc';enabled:boolean;paidAllowed:boolean;configured:boolean;ready:boolean;model:string;voice:string;fallback:'browser-stt-tts'}
+export interface VoiceWorkspaceContext{projectId:string;workspaceName?:string}
+export interface VoiceSessionOptions{speed?:number;language?:string;tone?:string}
+const allowedTone=new Set(['natural','warm','concise','formal']);
+function languageCode(value:string|undefined){return value?.toLowerCase().startsWith('en')?'en':'tr'}
+function toneInstruction(value:string|undefined){switch(allowedTone.has(value||'')?value:'natural'){case'warm':return'Ses tonu sıcak, sakin ve doğal olsun.';case'concise':return'Yanıtlar kısa, doğrudan ve gereksiz tekrar içermeyen konuşma dilinde olsun.';case'formal':return'Ses tonu profesyonel, ölçülü ve açık olsun.';default:return'Ses tonu doğal, akıcı ve yapay sunucu gibi olmayan konuşma dilinde olsun.'}}
+export class VoiceRealtimeRuntime{
+ private readonly isEnabled=enabled(process.env.TASO_VOICE_REALTIME_ENABLED);private readonly paidAllowed=enabled(process.env.TASO_VOICE_REALTIME_PAID_ALLOWED);private readonly apiKey=process.env.TASO_VOICE_REALTIME_API_KEY?.trim()||process.env.OPENAI_API_KEY?.trim();private readonly baseUrl=(process.env.TASO_VOICE_REALTIME_BASE_URL?.trim()||'https://api.openai.com').replace(/\/$/,'');private readonly model=process.env.TASO_VOICE_REALTIME_MODEL?.trim()||'gpt-realtime-2.1-mini';private readonly voice=process.env.TASO_VOICE_REALTIME_VOICE?.trim()||'marin';private readonly safetySalt=process.env.TASO_VOICE_SAFETY_SALT?.trim();
+ status():VoiceRealtimeStatus{const configured=Boolean(this.apiKey);return{provider:'openai-realtime',transport:'webrtc',enabled:this.isEnabled,paidAllowed:this.paidAllowed,configured,ready:this.isEnabled&&this.paidAllowed&&configured,model:this.model,voice:this.voice,fallback:'browser-stt-tts'}}
+ private safetyIdentifier(projectId:string){if(!this.safetySalt)return undefined;return createHash('sha256').update(`${this.safetySalt}:${projectId}`).digest('hex')}
+ private instructions(context:VoiceWorkspaceContext,options:VoiceSessionOptions){const lang=languageCode(options.language);return[tasoCharacterInstructions(),'Bu oturum canlı konuşma modudur. CHAT ile MISSION kesin olarak ayrıdır.','Repository, kod, test, PR, CI, deployment, silme, ödeme, rol/yetki veya production işlemi yapma. Bu oturumda hiçbir tool yetkin yoktur.','Kullanıcı yürütme isteyen bir talep verirse isteği kısa biçimde anladığını söyle ve arayüzde ayrı mission önerisinin onaylanması gerektiğini belirt.','Runtime bağlamında açıkça doğrulanmayan bir değişikliğin, testin, PR\'ın veya deployment\'ın gerçekleştiğini asla iddia etme.','Başka workspace verisini kullanma veya sızdırma.',lang==='en'?'Respond in English unless the user explicitly switches language.':'Kullanıcı açıkça başka dile geçmedikçe Türkçe yanıt ver.',toneInstruction(options.tone),`Aktif workspace kimliği: ${context.projectId}`,context.workspaceName?`Aktif workspace adı: ${context.workspaceName}`:'Aktif workspace adı sağlanmadı.'].join('\n')}
+ async createSession(context:VoiceWorkspaceContext,sdp:string,options:VoiceSessionOptions={}){const status=this.status();if(!status.enabled)throw new Error('Realtime voice is disabled.');if(!status.paidAllowed)throw new Error('Paid realtime voice is not allowed by policy.');if(!this.apiKey)throw new Error('Realtime voice API key is not configured.');if(!context.projectId.trim())throw new Error('projectId is required.');if(!sdp.trim()||sdp.length>128000)throw new Error('Invalid SDP offer.');const speed=clamp(options.speed,.75,1.15,.95),language=languageCode(options.language);const form=new FormData();form.set('sdp',sdp);form.set('session',JSON.stringify({type:'realtime',model:this.model,instructions:this.instructions(context,options),output_modalities:['audio'],audio:{input:{transcription:{model:'gpt-realtime-whisper',language,delay:'low'},turn_detection:{type:'semantic_vad',eagerness:'medium',create_response:true,interrupt_response:true}},output:{voice:this.voice,speed}}}));const headers:Record<string,string>={authorization:`Bearer ${this.apiKey}`};const safetyIdentifier=this.safetyIdentifier(context.projectId);if(safetyIdentifier)headers['OpenAI-Safety-Identifier']=safetyIdentifier;const response=await fetch(`${this.baseUrl}/v1/realtime/calls`,{method:'POST',headers,body:form,signal:AbortSignal.timeout(30000)});const answerSdp=await response.text();if(!response.ok)throw new Error(`Realtime voice provider failed with HTTP ${response.status}: ${answerSdp.slice(0,300)}`);return{sdp:answerSdp,provider:status.provider,model:status.model,voice:status.voice,speed,language,transport:status.transport}}
 }
