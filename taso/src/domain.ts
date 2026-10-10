@@ -46,6 +46,9 @@ export interface MissionStep {
   dependsOn: string[];
   targetPaths: string[];
   progress: number;
+  attempts?: number;
+  maxAttempts?: number;
+  lastAttemptAt?: string;
   startedAt?: string;
   completedAt?: string;
   outputSummary?: string;
