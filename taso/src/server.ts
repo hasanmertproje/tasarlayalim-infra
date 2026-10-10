@@ -4,7 +4,7 @@ import { ConversationAi } from './conversation-ai.js';
 import { classifyConversationIntent, ConversationStore } from './conversation.js';
 import type { DataClass, RiskLevel } from './domain.js';
 import { MissionEventStore } from './mission-events.js';
-import { MissionExecutor } from './mission-executor.js';
+import { RuntimeSelfHealingExecutor } from './runtime-self-healing-executor.js';
 import { buildOperationsSnapshot } from './operations-snapshot.js';
 import {
   ProjectKnowledgeStore,
@@ -88,7 +88,7 @@ export function buildServer() {
   tasks.recoverInterruptedMissions();
   persist();
 
-  const executor = new MissionExecutor(tasks, projects);
+  const executor = new RuntimeSelfHealingExecutor(tasks, projects);
   const conversationAi = new ConversationAi(router);
   const stopWatchdog = executor.startWatchdog();
   const gatewaySecret = process.env.TASO_GATEWAY_SECRET?.trim();
