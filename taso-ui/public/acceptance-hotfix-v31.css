@@ -16,6 +16,15 @@
   max-width: none !important;
 }
 
+/* Integrations V29 uses fixed top+bottom insets. The global production shell
+ * contract also gives it min-height:100vh, which makes the inset shell taller
+ * than the viewport (86px top + 100vh) and trips real visual clipping. Let the
+ * fixed insets resolve its height instead of enforcing a viewport min-height. */
+.integrations-center.i29 {
+  min-height: 0 !important;
+  height: auto !important;
+}
+
 @media (max-width: 760px) {
   .pc9-shell,
   .oc10-shell,
