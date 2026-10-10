@@ -66,6 +66,11 @@ jobs:
               [ -z "$app_uuid" ] && continue
               detail="$(api_get "applications/$app_uuid")"
               jq -r '"- \(.name // "unnamed") — UUID: \(.uuid // "n/a") — repo: \(.git_repository // "n/a") — branch: \(.git_branch // "n/a") — build pack: \(.build_pack // "n/a") — base dir: \(.base_directory // "n/a") — Dockerfile: \(.dockerfile_location // "n/a") — Compose: \(.docker_compose_location // "n/a") — source id: \((.source_id // "n/a")|tostring) — private key id: \((.private_key_id // "n/a")|tostring) — server id: \((.server_id // "n/a")|tostring) — project id: \((.project_id // "n/a")|tostring) — environment id: \((.environment_id // "n/a")|tostring) — destination id: \((.destination_id // "n/a")|tostring) — connect network: \((.settings.connect_to_docker_network // false)|tostring) — state: \(.status // "unknown")"' <<< "$detail"
+              if [[ "$detail" == *'"name":"taso-core-v2"'* ]]; then
+                envs="$(api_get "applications/$app_uuid/envs")"
+                echo "  - Core environment keys (names only):"
+                jq -r 'if type=="array" then .[] | "    - " + (.key // "unknown") + " — shown once: " + ((.is_shown_once // false)|tostring) + " — preview: " + ((.is_preview // false)|tostring) else "    - unexpected response shape" end' <<< "$envs"
+              fi
             done < <(jq -r 'if type=="array" then .[] | select((.name // "") | startswith("taso-")) | .uuid else empty end' <<< "$applications")
             echo "### Application storage mounts (metadata only)"
             while IFS= read -r app_uuid; do
