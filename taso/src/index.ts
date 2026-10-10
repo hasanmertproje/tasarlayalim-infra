@@ -2,6 +2,7 @@ import { registerAuthRoutes } from './auth.js';
 import { AuthServiceV18 } from './auth-v18.js';
 import { registerBrowserOperatorRoutes } from './browser-operator-routes.js';
 import { registerControlPlaneRoutes } from './control-plane-routes.js';
+import { registerHealthIncidentRoutes } from './health-incidents.js';
 import { IdentityStore } from './identity-store.js';
 import { registerRbacRoutes } from './rbac-routes.js';
 import { buildServer } from './server.js';
@@ -26,6 +27,7 @@ registerWebResearchRoutes(app);
 registerBrowserOperatorRoutes(app);
 registerVisualQaRoutes(app);
 registerVerificationRoutes(app);
+registerHealthIncidentRoutes(app);
 
 app.listen({ port, host }).catch((error) => {
   app.log.error(error);
