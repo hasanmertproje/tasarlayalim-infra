@@ -376,6 +376,12 @@ export class MissionExecutor {
     return [...new Set(step.dependsOn.flatMap((dependency) => steps.find((item) => item.id === dependency)?.targetPaths ?? []))];
   }
 
+  private dependencyContextPaths(step: MissionStep, steps: MissionStep[], producerByPath: Map<string, string>) {
+    return [...producerByPath.entries()]
+      .filter(([, producer]) => producer !== step.id && dependsTransitively(step.id, producer, steps))
+      .map(([path]) => path);
+  }
+
   private async executeWorkGraph(
     project: Project,
     mission: Mission,
@@ -425,8 +431,10 @@ export class MissionExecutor {
         const ordinal = Math.max(0, steps.findIndex((item) => item.id === step.id));
         const startProgress = 34 + Math.trunc((ordinal / Math.max(1, total)) * 24);
         const endProgress = Math.min(60, startProgress + Math.max(4, Math.trunc(24 / Math.max(1, total))));
-        const contextFiles = effectivePaths.length
-          ? effectivePaths.flatMap((path) => workingFiles.has(path) ? [{ path, content: workingFiles.get(path)! }] : [])
+        const dependencyPaths = this.dependencyContextPaths(step, currentPlan, producerByPath);
+        const contextPaths = [...new Set([...effectivePaths, ...dependencyPaths])];
+        const contextFiles = contextPaths.length
+          ? contextPaths.flatMap((path) => workingFiles.has(path) ? [{ path, content: workingFiles.get(path)! }] : [])
           : [...workingFiles.entries()].map(([path, content]) => ({ path, content }));
         const handoffContext = (mission.execution?.handoffs ?? [])
           .filter((handoff) => handoff.toStepId === step.id)
