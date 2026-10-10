@@ -48,7 +48,8 @@ jobs:
           {
             echo "## Coolify resource discovery (read-only)"
             echo "### Coolify version"
-            jq -r 'if type=="string" then . else .version // "unknown" end' <<< "$version" | tr -cd '[:alnum:].-\n' | head -n 1
+            version_safe="$(printf '%s' "$version" | tr -cd '[:alnum:].-' | cut -c1-64)"
+            echo "- ${version_safe:-unknown}"
             echo "### Servers"
             jq -r 'if type=="array" then .[] | "- " + (.name // "unnamed") + " — UUID: " + (.uuid // "n/a") + " — " + (.ip // "IP hidden") else "Unexpected response shape" end' <<< "$servers"
             echo "### Projects"
