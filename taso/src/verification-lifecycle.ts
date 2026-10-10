@@ -95,8 +95,8 @@ export function missionVerificationGates(mission: Mission): VerificationGate[] {
   const functional = has('functional-verification');
 
   return [
-    gate('core-tests', 'Core tests', checks === 'success' ? 'passed' : checks === 'failure' ? 'failed' : 'pending'),
-    gate('ci', 'CI', checks === 'success' ? 'passed' : checks === 'failure' ? 'failed' : 'pending'),
+    gate('core-tests', 'Core tests', checks === 'success' ? 'passed' : checks === 'failed' ? 'failed' : 'pending'),
+    gate('ci', 'CI', checks === 'success' ? 'passed' : checks === 'failed' ? 'failed' : 'pending'),
     gate('functional', 'Functional verification', functional ? 'passed' : 'pending'),
     gate('browser-qa', 'Browser QA', preview ? 'pending' : 'not-configured', preview ? 'Preview available for Browser Operator verification.' : 'No preview URL available.'),
     gate('responsive', 'Responsive QA', preview ? 'pending' : 'not-configured'),
