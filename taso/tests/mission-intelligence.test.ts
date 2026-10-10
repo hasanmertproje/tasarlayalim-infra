@@ -54,3 +54,57 @@ test('unknown mission falls back to generalist plus QA and preserves goal', () =
   assert.equal(profile.goal, objective);
   assert.ok(profile.acceptanceHints.length >= 2);
 });
+
+test('project manifest and relevant knowledge become bounded grounded context with secrets redacted', () => {
+  const profile = deriveMissionIntentProfile(project(), 'Dashboard tasarımını düzelt ve mobil yapıyı koru', {
+    manifest: {
+      projectId: 'project_demo',
+      source: 'discovered',
+      appType: 'React dashboard',
+      languages: ['TypeScript'],
+      frameworks: ['React', 'Vite'],
+      architecture: 'SPA',
+      packageManagers: ['npm'],
+      databases: [],
+      commands: { build: 'npm run build' },
+      deployment: {},
+      protectedPaths: ['src/auth'],
+      constraints: ['Auth akışını değiştirme.'],
+      confidence: 0.9,
+      discoveredAt: new Date(0).toISOString(),
+      updatedAt: new Date(0).toISOString(),
+    },
+    knowledge: [
+      {
+        id: 'knowledge_1',
+        projectId: 'project_demo',
+        kind: 'decision',
+        title: 'Dashboard kararı',
+        body: 'Dashboard mobil öncelikli değil; masaüstü de eşit önemli. api_key=super-secret-value',
+        tags: ['dashboard', 'mobil'],
+        source: 'manual',
+        createdAt: new Date(0).toISOString(),
+        updatedAt: new Date(0).toISOString(),
+      },
+      {
+        id: 'knowledge_2',
+        projectId: 'project_demo',
+        kind: 'note',
+        title: 'Alakasız not',
+        body: 'Muhasebe raporu hakkında not.',
+        tags: ['finance'],
+        source: 'manual',
+        createdAt: new Date(0).toISOString(),
+        updatedAt: new Date(0).toISOString(),
+      },
+    ],
+  });
+
+  assert.equal(profile.contextSources?.manifest, true);
+  assert.equal(profile.contextSources?.knowledgeRecords, 1);
+  assert.ok(profile.projectContext?.some((item) => item.includes('React, Vite')));
+  assert.ok(profile.projectContext?.some((item) => item.includes('Dashboard kararı')));
+  assert.ok(profile.constraints.some((item) => item.includes('Auth akışını değiştirme')));
+  assert.ok(profile.projectContext?.every((item) => !item.includes('super-secret-value')));
+  assert.ok(profile.projectContext?.some((item) => item.includes('[redacted]')));
+});
