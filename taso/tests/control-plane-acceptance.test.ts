@@ -24,5 +24,6 @@ test('control plane persists bounded browser policy, project access, emergency a
 
 test('branding rejects scriptable image types and supports favicon PNG',()=>{
  const dir=mkdtempSync(join(tmpdir(),'taso-branding-'));const old=process.env.TASO_CONTROL_PLANE_FILE;process.env.TASO_CONTROL_PLANE_FILE=join(dir,'control.json');
- try{const store=new ControlPlaneStore();assert.throws(()=>store.updateBranding({iconDataUrl:'data:image/svg+xml;base64,PHN2Zz4='}),/PNG or WebP/);const branding=store.updateBranding({faviconDataUrl:'data:image/png;base64,AA==',animationPreset:'minimal'});assert.equal(branding.animationPreset,'minimal');assert.match(branding.faviconDataUrl??'',/^data:image\/png/)}finally{if(old===undefined)delete process.env.TASO_CONTROL_PLANE_FILE;else process.env.TASO_CONTROL_PLANE_FILE=old;rmSync(dir,{recursive:true,force:true})}
+ try{const store=new ControlPlaneStore();assert.throws(()=>store.updateBranding({iconDataUrl:'data:image/svg+xml;base64,PHN2Zz4='}),/PNG, WebP veya GIF/);const branding=store.updateBranding({faviconDataUrl:'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aSfoAAAAASUVORK5CYII=',animationPreset:'minimal'});assert.equal(branding.animationPreset,'minimal');assert.match(branding.faviconDataUrl??'',/^data:image\/png/)}finally{if(old===undefined)delete process.env.TASO_CONTROL_PLANE_FILE;else process.env.TASO_CONTROL_PLANE_FILE=old;rmSync(dir,{recursive:true,force:true})}
 });
+
