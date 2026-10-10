@@ -38,6 +38,7 @@ import './voice-identity-v2.css';
 import './mission-execution-live.css';
 import './command-center-v8.css';
 import './mission-control-v8.css';
+import './mission-intelligence-v8.css';
 
 const rootElement = document.getElementById('root')!;
 const requestedScreen = new URLSearchParams(window.location.search).get('screen');
