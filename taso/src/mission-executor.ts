@@ -614,7 +614,7 @@ export class MissionExecutor {
         });
       }
 
-      const diagnostics = await this.github.getFailureDiagnostics(project.repository, commitSha);
+      const diagnostics = await this.github!.getFailureDiagnostics(project.repository, commitSha);
       this.patchExecution(mission, {
         checkState: 'failed',
         lastCiFailureSummary: diagnostics.summary,
@@ -653,7 +653,7 @@ export class MissionExecutor {
           lastCiFailureSummary: diagnostics.summary,
         });
       }
-      const repairFiles = await this.github.readFiles(project.repository, branch, allowedPaths);
+      const repairFiles = await this.github!.readFiles(project.repository, branch, allowedPaths);
       const repairAllowedPaths = repairFiles.map((file) => file.path);
       if (!repairAllowedPaths.length) {
         const reason = 'CI self-heal could not read any current mission-scoped files from the pull request branch.';
