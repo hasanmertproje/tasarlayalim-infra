@@ -246,7 +246,7 @@ export class TaskEngine {
     const nextRetryCount = retryCount + 1;
     const boundedDelayMs = Math.max(0, Math.min(60_000, Math.trunc(delayMs)));
     const nextRetryAt = new Date(Date.now() + boundedDelayMs).toISOString();
-    const preservedPlan = resumableWorkPlan(mission.execution?.workPlan, false);
+    const preservedPlan = resumableWorkPlan(mission.execution?.workPlan, true);
     mission.status = 'queued';
     mission.updatedAt = nowIso();
     mission.execution = {
