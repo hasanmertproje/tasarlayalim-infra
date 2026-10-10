@@ -46,7 +46,8 @@ export async function fetchPublic(urlInput:string):Promise<ResearchDocument>{
       const contentLength=Number(response.headers['content-length']||0);
       if(contentLength>MAX_BYTES){response.destroy();throw new Error('Kaynak boyutu güvenlik sınırını aşıyor.')}
       const contentType=String(response.headers['content-type']||'application/octet-stream');
-      if(!/(text\\/|application\\/json|application\\/xml|application\\/xhtml\\+xml)/i.test(contentType)){response.destroy();throw new Error(`Desteklenmeyen içerik türü: ${contentType}`)}
+      const normalizedType=contentType.toLowerCase();
+      if(!(normalizedType.startsWith('text/')||['application/json','application/xml','application/xhtml+xml'].some(type=>normalizedType.includes(type)))){response.destroy();throw new Error('Desteklenmeyen içerik türü: '+contentType)}
       const raw=await responseText(response,MAX_BYTES);
       const parsed=/html|xhtml/i.test(contentType)?htmlToText(raw):{title:undefined,text:raw.trim()};
       const result:ResearchDocument={url:urlInput,finalUrl:current.toString(),status:response.statusCode||0,contentType,title:parsed.title,text:parsed.text.slice(0,120_000),fetchedAt:new Date().toISOString(),cached:false};
