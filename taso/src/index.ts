@@ -6,6 +6,7 @@ import { IdentityStore } from './identity-store.js';
 import { registerRbacRoutes } from './rbac-routes.js';
 import { buildServer } from './server.js';
 import { registerLocalVoiceRoutes } from './voice-local-routes.js';
+import { registerVisualQaRoutes } from './visual-qa.js';
 import { registerVoiceRealtimeRoutes } from './voice-realtime-routes.js';
 import { registerWebResearchRoutes } from './web-research.js';
 
@@ -22,6 +23,7 @@ registerVoiceRealtimeRoutes(app);
 registerLocalVoiceRoutes(app);
 registerWebResearchRoutes(app);
 registerBrowserOperatorRoutes(app);
+registerVisualQaRoutes(app);
 
 app.listen({ port, host }).catch((error) => {
   app.log.error(error);
