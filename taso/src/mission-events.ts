@@ -7,7 +7,11 @@ export type MissionEventType =
   | 'mission.cancelled'
   | 'mission.retry_scheduled'
   | 'mission.status_changed'
-  | 'mission.note';
+  | 'mission.note'
+  | 'agent.started'
+  | 'agent.progress'
+  | 'agent.completed'
+  | 'agent.failed';
 
 export interface MissionEvent {
   id: string;
