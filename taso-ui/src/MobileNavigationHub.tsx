@@ -1,40 +1,55 @@
 import { useEffect, useRef, useState } from 'react';
-import { TASO_PRIMARY_SCREENS, useTasoNavigation, type TasoScreen } from './navigation';
+import { TASO_SCREENS, useTasoNavigation, type TasoScreen } from './navigation';
 
-const descriptions: Record<(typeof TASO_PRIMARY_SCREENS)[number], string> = {
+const descriptions: Record<TasoScreen, string> = {
   'Command Center': 'Ana kontrol merkezi',
   Projects: 'Workspace ve projeler',
-  Tasks: 'Görevler ve mission akışı',
+  Tasks: 'Mission ve görev yürütme',
   Approvals: 'İnsan onayı gereken işlemler',
-  Deployments: 'Preview ve production',
+  Deployments: 'Preview ve production akışı',
   'AI Agents': 'Agent Operations Center',
   Knowledge: 'Project knowledge ve manifest',
-  Integrations: 'GitHub · Coolify · AI',
+  Integrations: 'GitHub · Coolify · servisler',
   Monitoring: 'Sistem ve servis durumu',
   Settings: 'Taso ayarları',
+  Notifications: 'Bildirim merkezi',
+  Infrastructure: 'Altyapı ve servis görünürlüğü',
 };
+
+const groups: Array<{ label: string; screens: TasoScreen[] }> = [
+  { label: 'Çalışma alanı', screens: ['Command Center', 'Projects', 'Tasks', 'Approvals'] },
+  { label: 'Operasyon', screens: ['Deployments', 'AI Agents', 'Monitoring', 'Infrastructure'] },
+  { label: 'Bilgi ve bağlantılar', screens: ['Knowledge', 'Integrations', 'Notifications'] },
+  { label: 'Sistem', screens: ['Settings'] },
+];
+
+function NavIcon({ screen }: { screen: TasoScreen }) {
+  const glyphs: Record<TasoScreen, string> = {
+    'Command Center': '⌂', Projects: '◫', Tasks: '✓', Approvals: '◆', Deployments: '↗',
+    'AI Agents': '✦', Knowledge: '◇', Integrations: '⌘', Monitoring: '◉', Settings: '⚙',
+    Notifications: '●', Infrastructure: '▦',
+  };
+  return <span className="taso-nav-glyph" aria-hidden="true">{glyphs[screen]}</span>;
+}
 
 export default function MobileNavigationHub() {
   const [open, setOpen] = useState(false);
   const [active, navigate] = useTasoNavigation();
   const closeRef = useRef<HTMLButtonElement>(null);
-  const triggerRef = useRef<HTMLButtonElement>(null);
+  const moreRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     if (!open) return;
-
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') setOpen(false);
     };
-
-    document.body.classList.add('mobile-screen-menu-open');
+    document.body.classList.add('taso-navigation-open');
     window.addEventListener('keydown', onKey);
     window.requestAnimationFrame(() => closeRef.current?.focus());
-
     return () => {
-      document.body.classList.remove('mobile-screen-menu-open');
+      document.body.classList.remove('taso-navigation-open');
       window.removeEventListener('keydown', onKey);
-      triggerRef.current?.focus({ preventScroll: true });
+      moreRef.current?.focus({ preventScroll: true });
     };
   }, [open]);
 
@@ -43,45 +58,57 @@ export default function MobileNavigationHub() {
     setOpen(false);
   }
 
+  const directScreens: TasoScreen[] = ['Command Center', 'Projects', 'Tasks'];
+  const moreActive = !directScreens.includes(active);
+
   return (
     <>
-      <button
-        ref={triggerRef}
-        type="button"
-        className={`mobile-screen-menu-trigger ${open ? 'active' : ''}`}
-        aria-label={open ? 'Taso ekran menüsünü kapat' : 'Tüm Taso ekranlarını aç'}
-        aria-expanded={open}
-        aria-controls="taso-mobile-screen-sheet"
-        onClick={() => setOpen((value) => !value)}
-      >
-        <span /><span /><span />
-      </button>
+      <nav className="mobile-nav taso-mobile-dock" aria-label="Taso ana navigasyonu">
+        <button type="button" className={active === 'Command Center' ? 'active' : ''} onClick={() => openScreen('Command Center')} aria-current={active === 'Command Center' ? 'page' : undefined}>
+          <NavIcon screen="Command Center" /><span>Ana Sayfa</span>
+        </button>
+        <button type="button" className={active === 'Projects' ? 'active' : ''} onClick={() => openScreen('Projects')} aria-current={active === 'Projects' ? 'page' : undefined}>
+          <NavIcon screen="Projects" /><span>Projeler</span>
+        </button>
+        <button type="button" className="mobile-taso taso-mobile-voice" aria-label="Taso ile konuş">
+          <span className="taso-mobile-core" aria-hidden="true">T</span><span>Taso</span>
+        </button>
+        <button type="button" className={active === 'Tasks' ? 'active' : ''} onClick={() => openScreen('Tasks')} aria-current={active === 'Tasks' ? 'page' : undefined}>
+          <NavIcon screen="Tasks" /><span>Görevler</span>
+        </button>
+        <button ref={moreRef} type="button" className={moreActive || open ? 'active' : ''} onClick={() => setOpen(true)} aria-expanded={open} aria-controls="taso-mobile-navigation-panel">
+          <span className="taso-more-glyph" aria-hidden="true"><i/><i/><i/></span><span>Menü</span>
+        </button>
+      </nav>
 
       {open && (
-        <div id="taso-mobile-screen-sheet" className="mobile-screen-sheet" role="dialog" aria-modal="true" aria-label="Taso ekranları">
-          <button className="mobile-screen-sheet-backdrop" type="button" aria-label="Menüyü kapat" onClick={() => setOpen(false)} />
-          <section className="mobile-screen-sheet-panel">
-            <header>
-              <div><span>TASO</span><strong>Tüm ekranlar</strong><small>{active}</small></div>
-              <button ref={closeRef} type="button" onClick={() => setOpen(false)} aria-label="Kapat">×</button>
-            </header>
-            <nav className="mobile-screen-grid" aria-label="Taso ekran seçimi">
-              {TASO_PRIMARY_SCREENS.map((screen, index) => (
-                <button
-                  type="button"
-                  key={screen}
-                  className={active === screen ? 'active' : ''}
-                  aria-current={active === screen ? 'page' : undefined}
-                  onClick={() => openScreen(screen)}
-                >
-                  <span className="mobile-screen-index">{String(index + 1).padStart(2, '0')}</span>
-                  <span className="mobile-screen-copy"><strong>{screen}</strong><small>{descriptions[screen]}</small></span>
-                  <span className="mobile-screen-arrow" aria-hidden="true">↗</span>
-                </button>
-              ))}
-            </nav>
-          </section>
-        </div>
+        <section id="taso-mobile-navigation-panel" className="taso-navigation-panel" role="dialog" aria-modal="true" aria-label="Taso navigasyonu">
+          <header className="taso-navigation-header">
+            <div><span>TASO</span><strong>Navigasyon</strong><small>{active}</small></div>
+            <button ref={closeRef} type="button" onClick={() => setOpen(false)} aria-label="Navigasyonu kapat">×</button>
+          </header>
+
+          <div className="taso-navigation-scroll">
+            {groups.map((group) => (
+              <section className="taso-navigation-group" key={group.label}>
+                <h2>{group.label}</h2>
+                <div className="taso-navigation-list">
+                  {group.screens.map((screen) => (
+                    <button key={screen} type="button" className={active === screen ? 'active' : ''} aria-current={active === screen ? 'page' : undefined} onClick={() => openScreen(screen)}>
+                      <NavIcon screen={screen} />
+                      <span className="taso-navigation-copy"><strong>{screen}</strong><small>{descriptions[screen]}</small></span>
+                      <span className="taso-navigation-chevron" aria-hidden="true">›</span>
+                    </button>
+                  ))}
+                </div>
+              </section>
+            ))}
+          </div>
+
+          <footer className="taso-navigation-footer">
+            <small>{TASO_SCREENS.length} ekran · tüm modüllere mobil erişim</small>
+          </footer>
+        </section>
       )}
     </>
   );
