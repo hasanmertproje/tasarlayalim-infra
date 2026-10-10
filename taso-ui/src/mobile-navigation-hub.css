@@ -1,326 +1,69 @@
 @media (max-width: 760px) {
-  :root {
-    --taso-mobile-nav-height: 74px;
-  }
+  :root { --taso-mobile-nav-height: 74px; }
+  body { padding-bottom: calc(var(--taso-mobile-nav-height) + 20px + env(safe-area-inset-bottom)); }
 
-  body {
-    padding-bottom: calc(var(--taso-mobile-nav-height) + 20px + env(safe-area-inset-bottom));
-  }
+  /* V20 owns mobile navigation. The legacy App nav must never coexist with it. */
+  .app-shell > .mobile-nav:not(.taso-mobile-dock) { display: none !important; }
 
   .taso-mobile-dock {
-    position: fixed;
-    left: 10px;
-    right: 10px;
-    bottom: calc(8px + env(safe-area-inset-bottom));
-    z-index: 9300;
-    min-height: var(--taso-mobile-nav-height);
-    display: grid;
-    grid-template-columns: 1fr 1fr 1.12fr 1fr 1fr;
-    align-items: end;
-    gap: 2px;
-    padding: 8px 8px 7px;
-    border: 1px solid var(--taso-border, rgba(124, 231, 255, .14));
-    border-radius: 24px;
-    background: color-mix(in srgb, var(--taso-surface-strong, #0b1623) 88%, transparent);
-    backdrop-filter: blur(22px) saturate(145%);
-    -webkit-backdrop-filter: blur(22px) saturate(145%);
-    box-shadow: 0 18px 50px rgba(0,0,0,.26), inset 0 1px 0 rgba(255,255,255,.04);
-  }
-
-  :root[data-theme="light"] .taso-mobile-dock {
-    background: rgba(250,253,255,.94);
-    border-color: rgba(42,93,122,.13);
-    box-shadow: 0 18px 44px rgba(45,73,89,.13), inset 0 1px 0 rgba(255,255,255,.9);
-  }
-
-  .taso-mobile-dock > button {
-    appearance: none;
-    border: 0;
-    min-width: 0;
-    min-height: 54px;
-    padding: 7px 3px 5px;
-    border-radius: 16px;
-    background: transparent;
-    color: var(--taso-text-muted, rgba(235,246,255,.58));
-    display: grid;
-    justify-items: center;
-    align-content: center;
-    gap: 5px;
-    font: inherit;
-    -webkit-tap-highlight-color: transparent;
-  }
-
-  .taso-mobile-dock > button > span:last-child {
-    font-size: 10px;
-    font-weight: 700;
-    line-height: 1;
-    letter-spacing: .01em;
-    white-space: nowrap;
-  }
-
-  .taso-mobile-dock > button.active {
-    color: var(--taso-text, #f5fbff);
-    background: linear-gradient(180deg, rgba(68,190,231,.11), rgba(61,205,180,.055));
-  }
-
-  :root[data-theme="light"] .taso-mobile-dock > button {
-    color: rgba(29,58,75,.56);
-  }
-
-  :root[data-theme="light"] .taso-mobile-dock > button.active {
-    color: #173a4d;
-    background: linear-gradient(180deg, rgba(55,164,205,.11), rgba(46,179,155,.065));
-  }
-
-  .taso-nav-glyph {
-    width: 24px;
-    height: 24px;
-    display: grid;
-    place-items: center;
-    font-size: 18px;
-    line-height: 1;
-  }
-
-  .taso-mobile-voice {
-    position: relative;
-    transform: translateY(-10px);
-    color: var(--taso-text, #f5fbff) !important;
-    background: transparent !important;
-  }
-
-  .taso-mobile-core {
-    width: 48px;
-    height: 48px;
-    border-radius: 50%;
+    position: fixed !important;
+    left: 10px !important;
+    right: 10px !important;
+    bottom: calc(8px + env(safe-area-inset-bottom)) !important;
+    z-index: 9300 !important;
+    height: auto !important;
+    min-height: var(--taso-mobile-nav-height) !important;
     display: grid !important;
-    place-items: center;
-    font-size: 16px !important;
-    font-weight: 800 !important;
-    letter-spacing: -.03em !important;
-    color: #ecfbff;
-    border: 1px solid rgba(112,225,255,.32);
-    background:
-      radial-gradient(circle at 38% 30%, rgba(214,250,255,.95) 0 4%, transparent 18%),
-      radial-gradient(circle at 50% 54%, rgba(62,197,231,.92), rgba(20,95,139,.72) 46%, rgba(9,37,63,.96) 72%);
-    box-shadow: 0 0 0 5px rgba(57,174,216,.07), 0 7px 22px rgba(26,141,191,.32), inset 0 0 18px rgba(191,244,255,.18);
+    grid-template-columns: 1fr 1fr 1.12fr 1fr 1fr !important;
+    align-items: end !important;
+    gap: 2px !important;
+    padding: 8px 8px 7px !important;
+    border: 1px solid var(--taso-border, rgba(124,231,255,.14)) !important;
+    border-radius: 24px !important;
+    background: color-mix(in srgb, var(--taso-surface-strong, #0b1623) 88%, transparent) !important;
+    backdrop-filter: blur(22px) saturate(145%) !important;
+    -webkit-backdrop-filter: blur(22px) saturate(145%) !important;
+    box-shadow: 0 18px 50px rgba(0,0,0,.26), inset 0 1px 0 rgba(255,255,255,.04) !important;
   }
+  :root[data-theme="light"] .taso-mobile-dock { background: rgba(250,253,255,.94) !important; border-color: rgba(42,93,122,.13) !important; box-shadow: 0 18px 44px rgba(45,73,89,.13), inset 0 1px 0 rgba(255,255,255,.9) !important; }
+  .taso-mobile-dock > button { appearance:none; border:0 !important; min-width:0; min-height:54px !important; width:auto !important; height:auto !important; padding:7px 3px 5px !important; border-radius:16px !important; background:transparent !important; color:var(--taso-text-muted,rgba(235,246,255,.58)) !important; display:grid !important; justify-items:center; place-items:center; align-content:center; gap:5px !important; font:inherit; box-shadow:none !important; transform:none; -webkit-tap-highlight-color:transparent; }
+  .taso-mobile-dock > button > span:last-child { font-size:10px; font-weight:700; line-height:1; letter-spacing:.01em; white-space:nowrap; }
+  .taso-mobile-dock > button.active { color:var(--taso-text,#f5fbff) !important; background:linear-gradient(180deg,rgba(68,190,231,.11),rgba(61,205,180,.055)) !important; }
+  :root[data-theme="light"] .taso-mobile-dock > button { color:rgba(29,58,75,.56) !important; }
+  :root[data-theme="light"] .taso-mobile-dock > button.active { color:#173a4d !important; background:linear-gradient(180deg,rgba(55,164,205,.11),rgba(46,179,155,.065)) !important; }
+  .taso-nav-glyph { width:24px; height:24px; display:grid; place-items:center; font-size:18px; line-height:1; }
+  .taso-mobile-dock > .taso-mobile-voice { position:relative; transform:translateY(-10px) !important; color:var(--taso-text,#f5fbff) !important; background:transparent !important; }
+  .taso-mobile-core { width:48px; height:48px; border-radius:50%; display:grid !important; place-items:center; font-size:16px !important; font-weight:800 !important; letter-spacing:-.03em !important; color:#ecfbff; border:1px solid rgba(112,225,255,.32); background:radial-gradient(circle at 38% 30%,rgba(214,250,255,.95) 0 4%,transparent 18%),radial-gradient(circle at 50% 54%,rgba(62,197,231,.92),rgba(20,95,139,.72) 46%,rgba(9,37,63,.96) 72%); box-shadow:0 0 0 5px rgba(57,174,216,.07),0 7px 22px rgba(26,141,191,.32),inset 0 0 18px rgba(191,244,255,.18); }
+  :root[data-theme="light"] .taso-mobile-core { color:white; border-color:rgba(34,145,189,.28); box-shadow:0 0 0 5px rgba(54,164,207,.06),0 8px 20px rgba(35,126,163,.20),inset 0 0 18px rgba(255,255,255,.18); }
+  .taso-more-glyph { width:24px; height:24px; display:flex !important; align-items:center; justify-content:center; gap:3px; }
+  .taso-more-glyph i { width:4px; height:4px; border-radius:50%; background:currentColor; }
 
-  :root[data-theme="light"] .taso-mobile-core {
-    color: white;
-    border-color: rgba(34,145,189,.28);
-    box-shadow: 0 0 0 5px rgba(54,164,207,.06), 0 8px 20px rgba(35,126,163,.20), inset 0 0 18px rgba(255,255,255,.18);
-  }
-
-  .taso-more-glyph {
-    width: 24px;
-    height: 24px;
-    display: flex !important;
-    align-items: center;
-    justify-content: center;
-    gap: 3px;
-  }
-
-  .taso-more-glyph i {
-    width: 4px;
-    height: 4px;
-    border-radius: 50%;
-    background: currentColor;
-  }
-
-  .taso-navigation-panel {
-    position: fixed;
-    inset: 0;
-    z-index: 9600;
-    display: grid;
-    grid-template-rows: auto 1fr auto;
-    background:
-      radial-gradient(circle at 86% 7%, rgba(46,167,210,.11), transparent 28%),
-      linear-gradient(180deg, var(--taso-bg, #07111c), var(--taso-bg-deep, #050c14));
-    color: var(--taso-text, #f3f9fc);
-    animation: taso-navigation-enter .18s ease-out both;
-    overscroll-behavior: contain;
-  }
-
-  :root[data-theme="light"] .taso-navigation-panel {
-    background:
-      radial-gradient(circle at 88% 4%, rgba(49,157,199,.10), transparent 26%),
-      linear-gradient(180deg, #f8fbfd, #eef5f8);
-    color: #173444;
-  }
-
-  @keyframes taso-navigation-enter {
-    from { opacity: 0; transform: translateY(10px); }
-    to { opacity: 1; transform: translateY(0); }
-  }
-
-  .taso-navigation-header {
-    min-height: 88px;
-    padding: calc(16px + env(safe-area-inset-top)) 18px 14px;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 16px;
-    border-bottom: 1px solid var(--taso-border, rgba(124,231,255,.10));
-  }
-
-  .taso-navigation-header > div {
-    min-width: 0;
-    display: grid;
-    gap: 3px;
-  }
-
-  .taso-navigation-header span {
-    font-size: 10px;
-    font-weight: 800;
-    letter-spacing: .18em;
-    opacity: .48;
-  }
-
-  .taso-navigation-header strong {
-    font-size: 24px;
-    line-height: 1.05;
-    letter-spacing: -.035em;
-  }
-
-  .taso-navigation-header small {
-    font-size: 11px;
-    opacity: .5;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .taso-navigation-header > button {
-    flex: 0 0 auto;
-    width: 44px;
-    height: 44px;
-    border-radius: 14px;
-    border: 1px solid var(--taso-border, rgba(124,231,255,.13));
-    background: color-mix(in srgb, var(--taso-surface, #102131) 72%, transparent);
-    color: inherit;
-    font-size: 25px;
-    line-height: 1;
-  }
-
-  .taso-navigation-scroll {
-    overflow-y: auto;
-    overscroll-behavior: contain;
-    padding: 18px 16px 28px;
-  }
-
-  .taso-navigation-group + .taso-navigation-group {
-    margin-top: 24px;
-  }
-
-  .taso-navigation-group h2 {
-    margin: 0 0 9px 4px;
-    font-size: 10px;
-    line-height: 1;
-    text-transform: uppercase;
-    letter-spacing: .14em;
-    opacity: .42;
-  }
-
-  .taso-navigation-list {
-    display: grid;
-    gap: 7px;
-  }
-
-  .taso-navigation-list > button {
-    width: 100%;
-    min-height: 62px;
-    display: grid;
-    grid-template-columns: 42px minmax(0,1fr) 20px;
-    align-items: center;
-    gap: 10px;
-    padding: 9px 11px;
-    text-align: left;
-    color: inherit;
-    border-radius: 18px;
-    border: 1px solid var(--taso-border, rgba(124,231,255,.09));
-    background: color-mix(in srgb, var(--taso-surface, #102131) 58%, transparent);
-  }
-
-  :root[data-theme="light"] .taso-navigation-list > button {
-    background: rgba(255,255,255,.68);
-    border-color: rgba(42,93,122,.10);
-  }
-
-  .taso-navigation-list > button.active {
-    border-color: rgba(76,199,235,.30);
-    background: linear-gradient(135deg, rgba(31,156,201,.13), rgba(63,198,168,.07));
-  }
-
-  .taso-navigation-list .taso-nav-glyph {
-    width: 40px;
-    height: 40px;
-    border-radius: 13px;
-    background: rgba(255,255,255,.035);
-  }
-
-  :root[data-theme="light"] .taso-navigation-list .taso-nav-glyph {
-    background: rgba(24,90,120,.045);
-  }
-
-  .taso-navigation-copy {
-    min-width: 0;
-    display: grid;
-    gap: 3px;
-  }
-
-  .taso-navigation-copy strong {
-    font-size: 14px;
-    line-height: 1.15;
-    letter-spacing: -.01em;
-  }
-
-  .taso-navigation-copy small {
-    min-width: 0;
-    font-size: 11px;
-    line-height: 1.25;
-    opacity: .52;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .taso-navigation-chevron {
-    font-size: 24px;
-    line-height: 1;
-    opacity: .28;
-  }
-
-  .taso-navigation-footer {
-    min-height: 48px;
-    display: grid;
-    place-items: center;
-    padding: 10px 16px calc(10px + env(safe-area-inset-bottom));
-    border-top: 1px solid var(--taso-border, rgba(124,231,255,.08));
-  }
-
-  .taso-navigation-footer small {
-    font-size: 10px;
-    opacity: .42;
-  }
-
-  body.taso-navigation-open {
-    overflow: hidden;
-  }
-
-  body.taso-navigation-open .taso-mobile-dock {
-    display: none;
-  }
+  .taso-navigation-panel { position:fixed; inset:0; z-index:9600; display:grid; grid-template-rows:auto 1fr auto; background:radial-gradient(circle at 86% 7%,rgba(46,167,210,.11),transparent 28%),linear-gradient(180deg,var(--taso-bg,#07111c),var(--taso-bg-deep,#050c14)); color:var(--taso-text,#f3f9fc); animation:taso-navigation-enter .18s ease-out both; overscroll-behavior:contain; }
+  :root[data-theme="light"] .taso-navigation-panel { background:radial-gradient(circle at 88% 4%,rgba(49,157,199,.10),transparent 26%),linear-gradient(180deg,#f8fbfd,#eef5f8); color:#173444; }
+  @keyframes taso-navigation-enter { from{opacity:0;transform:translateY(10px)} to{opacity:1;transform:translateY(0)} }
+  .taso-navigation-header { min-height:88px; padding:calc(16px + env(safe-area-inset-top)) 18px 14px; display:flex; align-items:center; justify-content:space-between; gap:16px; border-bottom:1px solid var(--taso-border,rgba(124,231,255,.10)); }
+  .taso-navigation-header > div { min-width:0; display:grid; gap:3px; }
+  .taso-navigation-header span { font-size:10px; font-weight:800; letter-spacing:.18em; opacity:.48; }
+  .taso-navigation-header strong { font-size:24px; line-height:1.05; letter-spacing:-.035em; }
+  .taso-navigation-header small { font-size:11px; opacity:.5; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .taso-navigation-header > button { flex:0 0 auto; width:44px; height:44px; border-radius:14px; border:1px solid var(--taso-border,rgba(124,231,255,.13)); background:color-mix(in srgb,var(--taso-surface,#102131) 72%,transparent); color:inherit; font-size:25px; line-height:1; }
+  .taso-navigation-scroll { overflow-y:auto; overscroll-behavior:contain; padding:18px 16px 28px; }
+  .taso-navigation-group + .taso-navigation-group { margin-top:24px; }
+  .taso-navigation-group h2 { margin:0 0 9px 4px; font-size:10px; line-height:1; text-transform:uppercase; letter-spacing:.14em; opacity:.42; }
+  .taso-navigation-list { display:grid; gap:7px; }
+  .taso-navigation-list > button { width:100%; min-height:62px; display:grid; grid-template-columns:42px minmax(0,1fr) 20px; align-items:center; gap:10px; padding:9px 11px; text-align:left; color:inherit; border-radius:18px; border:1px solid var(--taso-border,rgba(124,231,255,.09)); background:color-mix(in srgb,var(--taso-surface,#102131) 58%,transparent); }
+  :root[data-theme="light"] .taso-navigation-list > button { background:rgba(255,255,255,.68); border-color:rgba(42,93,122,.10); }
+  .taso-navigation-list > button.active { border-color:rgba(76,199,235,.30); background:linear-gradient(135deg,rgba(31,156,201,.13),rgba(63,198,168,.07)); }
+  .taso-navigation-list .taso-nav-glyph { width:40px; height:40px; border-radius:13px; background:rgba(255,255,255,.035); }
+  :root[data-theme="light"] .taso-navigation-list .taso-nav-glyph { background:rgba(24,90,120,.045); }
+  .taso-navigation-copy { min-width:0; display:grid; gap:3px; }
+  .taso-navigation-copy strong { font-size:14px; line-height:1.15; letter-spacing:-.01em; }
+  .taso-navigation-copy small { min-width:0; font-size:11px; line-height:1.25; opacity:.52; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .taso-navigation-chevron { font-size:24px; line-height:1; opacity:.28; }
+  .taso-navigation-footer { min-height:48px; display:grid; place-items:center; padding:10px 16px calc(10px + env(safe-area-inset-bottom)); border-top:1px solid var(--taso-border,rgba(124,231,255,.08)); }
+  .taso-navigation-footer small { font-size:10px; opacity:.42; }
+  body.taso-navigation-open { overflow:hidden; }
+  body.taso-navigation-open .taso-mobile-dock { display:none !important; }
 }
-
-@media (min-width: 761px) {
-  .taso-mobile-dock,
-  .taso-navigation-panel {
-    display: none !important;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .taso-navigation-panel {
-    animation: none !important;
-  }
-}
+@media (min-width:761px) { .taso-mobile-dock,.taso-navigation-panel{display:none!important} }
+@media (prefers-reduced-motion:reduce) { .taso-navigation-panel{animation:none!important} }
