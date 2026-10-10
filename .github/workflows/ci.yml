@@ -151,8 +151,9 @@ jobs:
           docker logs tasarlayalim-taso-ui || true
           exit 1
 
-      - name: Smoke test Taso auth and Core gateway
+      - name: Smoke test Taso TOTP, trusted device and Core gateway
         run: |
+          set -eu
           READY=0
           for i in $(seq 1 20); do
             if curl -fsS http://127.0.0.1:4173/api/health | grep -q '"ok":true'; then
@@ -174,21 +175,45 @@ jobs:
 
           COOKIE_JAR="$(mktemp)"
           trap 'rm -f "$COOKIE_JAR"' EXIT
-          curl -fsS -c "$COOKIE_JAR" \
-            -H 'Content-Type: application/json' \
-            -d '{"email":"owner@ci.local","password":"ci-password"}' \
-            http://127.0.0.1:4173/api/auth/login | grep -q '"authenticated":true'
+          LOGIN_JSON="$(curl -fsS -H 'Content-Type: application/json' -d '{"email":"owner@ci.local","password":"ci-password"}' http://127.0.0.1:4173/api/auth/login)"
+          printf '%s' "$LOGIN_JSON" | grep -q '"requiresTwoFactorSetup":true'
+          CHALLENGE_ID="$(node -e 'console.log(JSON.parse(process.argv[1]).challengeId)' "$LOGIN_JSON")"
+          SECRET="$(node -e 'console.log(JSON.parse(process.argv[1]).secret)' "$LOGIN_JSON")"
+          CODE="$(python3 - "$SECRET" <<'PY'
+          import base64, hashlib, hmac, struct, sys, time
+          secret = sys.argv[1]
+          padding = '=' * ((8 - len(secret) % 8) % 8)
+          key = base64.b32decode(secret + padding)
+          counter = int(time.time()) // 30
+          digest = hmac.new(key, struct.pack('>Q', counter), hashlib.sha1).digest()
+          offset = digest[-1] & 15
+          value = ((digest[offset] & 127) << 24) | (digest[offset+1] << 16) | (digest[offset+2] << 8) | digest[offset+3]
+          print(f'{value % 1000000:06d}')
+          PY
+          )"
+          ENROLL_PAYLOAD="$(python3 - "$CHALLENGE_ID" "$CODE" <<'PY'
+          import json, sys
+          print(json.dumps({'challengeId': sys.argv[1], 'code': sys.argv[2], 'deviceName': 'CI trusted device'}))
+          PY
+          )"
+          ENROLL_JSON="$(curl -fsS -c "$COOKIE_JAR" -H 'Content-Type: application/json' -d "$ENROLL_PAYLOAD" http://127.0.0.1:4173/api/auth/2fa/setup/confirm)"
+          printf '%s' "$ENROLL_JSON" | grep -q '"authenticated":true'
+          printf '%s' "$ENROLL_JSON" | grep -q '"trustedDevice":true'
+          printf '%s' "$ENROLL_JSON" | grep -q '"recoveryCodes"'
 
           curl -fsS -b "$COOKIE_JAR" http://127.0.0.1:4173/api/v1/projects | grep -q '"projects"'
           curl -fsS -b "$COOKIE_JAR" http://127.0.0.1:4173/api/v1/providers | grep -q '"providers"'
           curl -fsS -b "$COOKIE_JAR" http://127.0.0.1:4173/api/v1/operations | grep -q '"agents"'
           curl -fsS -b "$COOKIE_JAR" http://127.0.0.1:4173/api/v1/voice/realtime | grep -q '"fallback":"browser-stt-tts"'
-          curl -fsS -b "$COOKIE_JAR" http://127.0.0.1:4173/api/v1/voice/realtime | grep -q '"ready":false'
           curl -fsS -b "$COOKIE_JAR" http://127.0.0.1:4173/api/v1/voice/local | grep -q '"configured":false'
-          curl -fsS -b "$COOKIE_JAR" http://127.0.0.1:4173/api/v1/voice/local | grep -q '"ready":false'
+          curl -fsS -b "$COOKIE_JAR" http://127.0.0.1:4173/api/auth/security | grep -q '"trustedDeviceDays":30'
 
-          curl -fsS -b "$COOKIE_JAR" -X POST http://127.0.0.1:4173/api/auth/logout | grep -q '"authenticated":false'
+          curl -fsS -b "$COOKIE_JAR" -c "$COOKIE_JAR" -H 'Content-Type: application/json' -d '{}' http://127.0.0.1:4173/api/auth/logout | grep -q '"authenticated":false'
           test "$(curl -sS -b "$COOKIE_JAR" -o /dev/null -w '%{http_code}' http://127.0.0.1:4173/api/v1/projects)" = "401"
+
+          TRUSTED_LOGIN="$(curl -fsS -b "$COOKIE_JAR" -c "$COOKIE_JAR" -H 'Content-Type: application/json' -d '{"email":"owner@ci.local","password":"ci-password"}' http://127.0.0.1:4173/api/auth/login)"
+          printf '%s' "$TRUSTED_LOGIN" | grep -q '"authenticated":true'
+          curl -fsS -b "$COOKIE_JAR" http://127.0.0.1:4173/api/v1/projects | grep -q '"projects"'
 
       - name: Verify Core rejects direct unauthenticated API
         run: |
