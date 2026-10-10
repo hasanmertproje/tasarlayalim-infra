@@ -12,6 +12,9 @@ type MissionStep = {
   dependsOn: string[];
   targetPaths: string[];
   progress: number;
+  attempts?: number;
+  maxAttempts?: number;
+  lastAttemptAt?: string;
   startedAt?: string;
   completedAt?: string;
   outputSummary?: string;
@@ -133,7 +136,7 @@ export default function MissionExecutionLive({ expanded = false }: Props) {
     <section className={`mission-execution-live ${expanded ? 'expanded' : ''}`} aria-label="Canlı mission orchestration">
       <div className="mission-execution-head">
         <div>
-          <span className="mission-execution-kicker">MISSION ORCHESTRATOR V2 · LIVE 2s</span>
+          <span className="mission-execution-kicker">MISSION ORCHESTRATOR V3 · LIVE 2s</span>
           <strong>{mission?.objective ?? 'Mission execution unavailable'}</strong>
           <small>{execution?.currentAction ?? (error ? `Core error: ${error}` : 'Waiting for execution state…')}</small>
         </div>
@@ -180,6 +183,7 @@ export default function MissionExecutionLive({ expanded = false }: Props) {
                     <span>{step.targetPaths.length ? `${step.targetPaths.length} scoped path` : 'dynamic scope'}</span>
                     <span>{stepArtifacts.length} artifact</span>
                     <span>{incoming.length} handoff</span>
+                    {step.maxAttempts !== undefined && <span>attempt {step.attempts ?? 0}/{step.maxAttempts}</span>}
                   </div>
                   {step.dependsOn.length > 0 && <small>Depends on: {step.dependsOn.join(' · ')}</small>}
                   {step.outputSummary && <small className="mission-step-output">{step.outputSummary}</small>}
