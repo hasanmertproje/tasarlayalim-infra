@@ -92,7 +92,7 @@ const independentSteps: MissionStep[] = [
   },
 ];
 
-test('Mission Orchestrator V2 executes specialist work items and persists artifacts', async () => {
+test('Mission Orchestrator executes specialist work items and persists artifacts', async () => {
   const { projects, tasks, mission } = setup(false);
   const executor = new MissionExecutor(tasks, projects, plannerFor(independentSteps) as any, fakeGithub() as any, undefined, { planningTimeoutMs: 10_000 });
 
@@ -127,7 +127,84 @@ test('dependent specialist work receives an explicit artifact handoff', async ()
   assert.ok((handoff?.artifactIds.length ?? 0) >= 1);
 });
 
-test('conflicting specialist file outputs fail instead of silently overwriting', async () => {
+test('dependent worker receives the upstream generated file snapshot and may refine it', async () => {
+  const { projects, tasks, mission } = setup(false);
+  const dependentSteps: MissionStep[] = [
+    { ...independentSteps[0]! },
+    {
+      id: 'qa-refine',
+      title: 'Refine UI',
+      objective: 'Validate and refine the frontend output.',
+      specialist: 'qa',
+      status: 'queued',
+      dependsOn: ['frontend-ui'],
+      targetPaths: [],
+      progress: 0,
+    },
+  ];
+  let downstreamSawGeneratedSnapshot = false;
+  const planner = {
+    readiness: () => ({ configured: true, providers: [], legacy: false }),
+    chooseFiles: async () => ['src/App.tsx'],
+    analyze: async () => 'unused',
+    planChanges: async () => ({ summary: 'unused', commitMessage: 'unused', files: [] }),
+    decomposeMission: async () => ({ summary: 'Dependency-aware work.', steps: dependentSteps }),
+    planStepChanges: async (_project: unknown, _mission: Mission, files: Array<{ path: string; content: string }>, step: MissionStep) => {
+      if (step.id === 'frontend-ui') {
+        return { summary: 'frontend output', commitMessage: 'frontend', files: [{ path: 'src/App.tsx', content: '// frontend generated v1' }] };
+      }
+      downstreamSawGeneratedSnapshot = files.some((file) => file.path === 'src/App.tsx' && file.content === '// frontend generated v1');
+      assert.deepEqual(step.targetPaths, ['src/App.tsx']);
+      return { summary: 'qa refined upstream output', commitMessage: 'qa refine', files: [{ path: 'src/App.tsx', content: '// qa refined v2' }] };
+    },
+  };
+  const executor = new MissionExecutor(tasks, projects, planner as any, fakeGithub() as any, undefined, { planningTimeoutMs: 10_000 });
+
+  const completed = await executor.execute(mission.id);
+
+  assert.equal(completed.status, 'completed');
+  assert.equal(downstreamSawGeneratedSnapshot, true);
+  assert.deepEqual(completed.execution?.workPlan?.find((step) => step.id === 'qa-refine')?.targetPaths, ['src/App.tsx']);
+  assert.equal(completed.execution?.workPlan?.find((step) => step.id === 'qa-refine')?.status, 'completed');
+});
+
+test('a specialist step retries locally without restarting successful sibling work', async () => {
+  const { projects, tasks, mission } = setup(false);
+  const calls = new Map<string, number>();
+  const planner = {
+    readiness: () => ({ configured: true, providers: [], legacy: false }),
+    chooseFiles: async () => ['src/App.tsx', 'src/api.ts'],
+    analyze: async () => 'unused',
+    planChanges: async () => ({ summary: 'unused', commitMessage: 'unused', files: [] }),
+    decomposeMission: async () => ({ summary: 'Retryable specialist work.', steps: independentSteps }),
+    planStepChanges: async (_project: unknown, _mission: Mission, _files: unknown[], step: MissionStep) => {
+      const count = (calls.get(step.id) ?? 0) + 1;
+      calls.set(step.id, count);
+      if (step.id === 'backend-api' && count === 1) throw new Error('temporary specialist failure');
+      return {
+        summary: `${step.id} success`,
+        commitMessage: step.id,
+        files: [{ path: step.targetPaths[0]!, content: `// ${step.id} attempt ${count}` }],
+      };
+    },
+  };
+  const executor = new MissionExecutor(tasks, projects, planner as any, fakeGithub() as any, undefined, { planningTimeoutMs: 10_000, stepMaxAttempts: 2 });
+
+  const completed = await executor.execute(mission.id);
+  const frontend = completed.execution?.workPlan?.find((step) => step.id === 'frontend-ui');
+  const backend = completed.execution?.workPlan?.find((step) => step.id === 'backend-api');
+
+  assert.equal(completed.status, 'completed');
+  assert.equal(calls.get('frontend-ui'), 1);
+  assert.equal(calls.get('backend-api'), 2);
+  assert.equal(frontend?.attempts, 1);
+  assert.equal(backend?.attempts, 2);
+  assert.equal(backend?.status, 'completed');
+  assert.ok((completed.execution?.agentRuns ?? []).some((run) => run.stepId === 'backend-api' && run.status === 'failed'));
+  assert.ok((completed.execution?.agentRuns ?? []).some((run) => run.stepId === 'backend-api' && run.status === 'completed'));
+});
+
+test('conflicting independent specialist file outputs fail instead of silently overwriting', async () => {
   const { projects, tasks, mission } = setup(false);
   const conflictingSteps: MissionStep[] = independentSteps.map((step) => ({ ...step, targetPaths: [] }));
   const executor = new MissionExecutor(tasks, projects, plannerFor(conflictingSteps, true) as any, fakeGithub() as any, undefined, { planningTimeoutMs: 10_000 });
