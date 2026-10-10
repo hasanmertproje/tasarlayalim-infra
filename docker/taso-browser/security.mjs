@@ -11,7 +11,7 @@ for (const [subnet, prefix] of [
 ]) denied.addSubnet(subnet, prefix, 'ipv4');
 for (const [subnet, prefix] of [
   ['::', 128], ['::1', 128], ['fc00::', 7], ['fe80::', 10], ['ff00::', 8],
-  ['2001:db8::', 32], ['2001::', 23], ['2002::', 16],
+  ['::ffff:0:0', 96], ['64:ff9b::', 96], ['2001:db8::', 32], ['2001::', 23], ['2002::', 16],
 ]) denied.addSubnet(subnet, prefix, 'ipv6');
 
 export function assertPublicAddress(address) {
