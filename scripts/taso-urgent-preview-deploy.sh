@@ -13,7 +13,9 @@ readonly ENV_UUID=cy0sluzw26gnwozrqwiupqep
 readonly GH_APP_UUID=2fzt2ok1zrpemvsz2gxhw4nw
 readonly REPOSITORY=hasanmertproje/tasarlayalim-infra
 readonly SOURCE_CORE=3slhlwoxz7bwdlnjpl7viw0f
-readonly TMP="$(mktemp -d)" RESP="$TMP/response.json" PAYLOAD="$TMP/payload.json"
+readonly TMP="$(mktemp -d)"
+readonly RESP="$TMP/response.json"
+readonly PAYLOAD="$TMP/payload.json"
 trap 'rm -rf "$TMP"' EXIT
 api(){ local method="$1" path="$2" body="${3:-}" code; local args=(--silent --show-error --connect-timeout 15 --max-time 180 --output "$RESP" --write-out '%{http_code}' --header "Authorization: Bearer $COOLIFY_API_TOKEN" --header 'Accept: application/json'); if [[ -n "$body" ]];then printf '%s' "$body">"$PAYLOAD";args+=(--header 'Content-Type: application/json' --data-binary "@$PAYLOAD");fi;code="$(curl "${args[@]}" -X "$method" "$API_BASE/$path")";[[ "$code" =~ ^2 ]]||{ echo "::error::Coolify API $method $path failed (HTTP $code)." >&2;cat "$RESP"|jq -r '.message//.error//empty' >&2||true;return 1;};cat "$RESP";}
 mask(){ [[ -n "${1:-}" ]]&&printf '::add-mask::%s\n' "$1"; }
