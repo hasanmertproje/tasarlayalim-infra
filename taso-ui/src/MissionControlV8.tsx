@@ -28,6 +28,16 @@ type AgentRun = {
 };
 type Artifact = { id: string; stepId?: string; type: string; label: string; path?: string; url?: string; summary?: string; createdAt: string };
 type Handoff = { id: string; fromStepId: string; toStepId: string; summary: string; artifactIds: string[]; createdAt: string };
+type MissionIntentProfile = {
+  version: number;
+  goal: string;
+  mode: string;
+  requiredSpecialists: string[];
+  skillHints: string[];
+  acceptanceHints: string[];
+  constraints: string[];
+  derivedAt: string;
+};
 type Mission = {
   id: string;
   projectId: string;
@@ -51,6 +61,7 @@ type Mission = {
     progressPercent?: number;
     currentAction?: string;
     activeAgentRole?: string;
+    intentProfile?: MissionIntentProfile;
     orchestrationSummary?: string;
     workPlan?: MissionStep[];
     artifacts?: Artifact[];
@@ -84,6 +95,7 @@ function label(value?: string) {
     waiting_approval: 'Onay bekliyor', preview_ready: 'Preview hazır', completed: 'Tamamlandı',
     failed: 'Hata', cancelled: 'İptal', frontend: 'Frontend', backend: 'Backend', database: 'Veritabanı',
     security: 'Güvenlik', qa: 'QA', devops: 'DevOps', generalist: 'Generalist',
+    website: 'Website', fullstack: 'Full-stack', infrastructure: 'Altyapı', general: 'Genel',
   };
   return value ? map[value] ?? value : '—';
 }
@@ -142,6 +154,7 @@ export default function MissionControlV8() {
   const mission = useMemo(() => missions.find((item) => item.id === selectedId) ?? missions[0], [missions, selectedId]);
   const project = projects.find((item) => item.id === mission?.projectId);
   const execution = mission?.execution;
+  const profile = execution?.intentProfile;
   const steps = execution?.workPlan ?? [];
   const artifacts = execution?.artifacts ?? [];
   const handoffs = execution?.handoffs ?? [];
@@ -149,6 +162,7 @@ export default function MissionControlV8() {
   const activeRuns = runs.filter((run) => run.status === 'running');
   const activeStep = steps.find((step) => step.status === 'running');
   const progress = Math.max(0, Math.min(100, execution?.progressPercent ?? 0));
+  const activeAgentName = activeRuns[0]?.label ?? execution?.activeAgentRole;
 
   useEffect(() => {
     if (!mission?.id) { setEvents([]); return; }
@@ -188,7 +202,7 @@ export default function MissionControlV8() {
               </div>
               <div className="mc8-focus-row">
                 <div className="mc8-percent"><strong>{progress}%</strong><span>MISSION</span></div>
-                <div className="mc8-now"><span>ŞU AN</span><strong>{execution?.currentAction ?? label(mission.status)}</strong><p>{activeRuns[0]?.label ?? execution?.activeAgentRole ? `Aktif agent: ${activeRuns[0]?.label ?? execution?.activeAgentRole}` : 'Aktif agent yok'}</p></div>
+                <div className="mc8-now"><span>ŞU AN</span><strong>{execution?.currentAction ?? label(mission.status)}</strong><p>{activeAgentName ? `Aktif agent: ${activeAgentName}` : 'Aktif agent yok'}</p></div>
                 <div className="mc8-current-file"><span>AKTİF DOSYA KAPSAMI</span><strong>{activeStep?.targetPaths?.[0] ?? '—'}</strong><small>{activeStep?.targetPaths?.length ? `${activeStep.targetPaths.length} hedef path` : 'Aktif step path bildirmiyor'}</small></div>
               </div>
               <div className="mc8-progress"><i style={{ width: `${progress}%` }} /></div>
@@ -203,6 +217,19 @@ export default function MissionControlV8() {
               <div><span>VERIFY</span><strong>{execution?.functionalChecksPlanned ? `${execution.functionalChecksPassed ?? 0}/${execution.functionalChecksPlanned}` : '—'}</strong></div>
               <div><span>RETRY</span><strong>{execution?.retryCount ?? 0}</strong></div>
             </section>
+
+            {profile && <section className="mc8-surface mc8-intelligence">
+              <div className="mc8-section-head"><div><span>MISSION INTELLIGENCE</span><strong>Taso görevi böyle anladı</strong></div><small>{label(profile.mode)} · {rel(profile.derivedAt)}</small></div>
+              <div className="mc8-intelligence-grid">
+                <div className="mc8-intel-goal"><span>AMAÇ</span><strong>{profile.goal}</strong></div>
+                <div><span>UZMANLAR</span><div className="mc8-tags">{profile.requiredSpecialists.map((item) => <b key={item}>{label(item)}</b>)}</div></div>
+                <div><span>SKILL İPUÇLARI</span><div className="mc8-tags">{profile.skillHints.length ? profile.skillHints.map((item) => <b key={item}>{item}</b>) : <em>Genel</em>}</div></div>
+              </div>
+              <div className="mc8-intel-lists">
+                <div><span>KABUL KRİTERİ İPUÇLARI</span>{profile.acceptanceHints.map((item) => <p key={item}>• {item}</p>)}</div>
+                <div><span>KORUNACAK SINIRLAR</span>{profile.constraints.map((item) => <p key={item}>• {item}</p>)}</div>
+              </div>
+            </section>}
 
             <div className="mc8-content-grid">
               <section className="mc8-surface mc8-steps">
