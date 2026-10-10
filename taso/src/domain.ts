@@ -14,6 +14,24 @@ export type MissionStatus =
   | 'failed'
   | 'cancelled';
 
+export type AgentRole = 'scout' | 'architect' | 'builder' | 'verifier' | 'release';
+export type AgentRunStatus = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled';
+
+export interface AgentRun {
+  id: string;
+  missionId: string;
+  role: AgentRole;
+  label: string;
+  status: AgentRunStatus;
+  action: string;
+  progress: number;
+  startedAt: string;
+  updatedAt: string;
+  completedAt?: string;
+  detail?: string;
+  error?: string;
+}
+
 export type StackMode = 'auto' | 'preserve' | 'pinned';
 export type ArchitectureMode =
   | 'professional_best_fit'
@@ -75,6 +93,10 @@ export interface MissionExecution {
   retryCount?: number;
   lastFailure?: string;
   nextRetryAt?: string;
+  progressPercent?: number;
+  currentAction?: string;
+  activeAgentRole?: AgentRole;
+  agentRuns?: AgentRun[];
 }
 
 export interface Mission {
