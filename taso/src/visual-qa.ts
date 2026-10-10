@@ -2,10 +2,11 @@ import type { FastifyInstance } from 'fastify';
 
 type BrowserConsoleEntry = { type?: string; text?: string };
 type BrowserFailure = { url?: string; error?: string };
-type OverflowCandidate = { tag?: string; id?: string; className?: string };
+type ElementCandidate = { tag?: string; id?: string; className?: string; width?: number; height?: number };
 
 export type BrowserEvidence = {
   viewport?: string;
+  theme?: string | null;
   dimensions?: { width?: number; height?: number };
   httpStatus?: number | null;
   title?: string;
@@ -13,7 +14,9 @@ export type BrowserEvidence = {
   horizontalOverflow?: boolean;
   documentWidth?: number;
   viewportWidth?: number;
-  overflowers?: OverflowCandidate[];
+  overflowers?: ElementCandidate[];
+  clippedFixed?: ElementCandidate[];
+  smallTapTargets?: ElementCandidate[];
   console?: BrowserConsoleEntry[];
   pageErrors?: string[];
   requestFailures?: BrowserFailure[];
@@ -29,9 +32,10 @@ export type BrowserRunPayload = {
 };
 
 export type VisualQaIssue = {
-  code: 'http-status' | 'horizontal-overflow' | 'console-error' | 'page-error' | 'request-failure' | 'missing-screenshot';
+  code: 'http-status' | 'horizontal-overflow' | 'fixed-clipping' | 'small-tap-target' | 'console-error' | 'page-error' | 'request-failure' | 'missing-screenshot';
   severity: 'blocker' | 'warning';
   viewport: string;
+  theme: string;
   message: string;
   evidence?: Record<string, unknown>;
 };
@@ -41,6 +45,7 @@ export type VisualQaReport = {
   target?: string;
   generatedAt: string;
   viewports: string[];
+  themes: string[];
   blockerCount: number;
   warningCount: number;
   issues: VisualQaIssue[];
@@ -74,78 +79,48 @@ export function assessVisualQaEvidence(browser: BrowserRunPayload): VisualQaRepo
 
   for (const item of evidence) {
     const viewport = clipped(item.viewport || 'unknown', 40) || 'unknown';
+    const theme = clipped(item.theme || 'unknown', 20) || 'unknown';
+    const push = (issue: Omit<VisualQaIssue, 'viewport' | 'theme'>) => issues.push({ ...issue, viewport, theme });
     const status = typeof item.httpStatus === 'number' ? item.httpStatus : null;
-    if (status !== null && status >= 400) {
-      issues.push({
-        code: 'http-status',
-        severity: 'blocker',
-        viewport,
-        message: `HTTP ${status} returned for ${viewport}.`,
-        evidence: { status, url: clipped(item.url, 500) },
-      });
-    }
 
-    if (item.horizontalOverflow) {
-      issues.push({
-        code: 'horizontal-overflow',
-        severity: 'blocker',
-        viewport,
-        message: `Horizontal overflow detected on ${viewport}.`,
-        evidence: {
-          documentWidth: item.documentWidth,
-          viewportWidth: item.viewportWidth,
-          candidates: (item.overflowers ?? []).slice(0, 12),
-        },
-      });
-    }
+    if (status !== null && status >= 400) push({
+      code: 'http-status', severity: 'blocker', message: `HTTP ${status} returned for ${viewport}/${theme}.`,
+      evidence: { status, url: clipped(item.url, 500) },
+    });
+
+    if (item.horizontalOverflow) push({
+      code: 'horizontal-overflow', severity: 'blocker', message: `Horizontal overflow detected on ${viewport}/${theme}.`,
+      evidence: { documentWidth: item.documentWidth, viewportWidth: item.viewportWidth, candidates: (item.overflowers ?? []).slice(0, 12) },
+    });
+
+    if ((item.clippedFixed ?? []).length) push({
+      code: 'fixed-clipping', severity: 'blocker', message: `Fixed/sticky controls are clipped on ${viewport}/${theme}.`,
+      evidence: { candidates: (item.clippedFixed ?? []).slice(0, 12) },
+    });
+
+    if ((item.smallTapTargets ?? []).length) push({
+      code: 'small-tap-target', severity: 'warning', message: `${item.smallTapTargets!.length} compact interactive target(s) detected on ${viewport}/${theme}.`,
+      evidence: { candidates: item.smallTapTargets!.slice(0, 12) },
+    });
 
     for (const entry of item.console ?? []) {
-      if (entry.type !== 'error') continue;
-      issues.push({
-        code: 'console-error',
-        severity: 'blocker',
-        viewport,
-        message: clipped(entry.text || 'Console error', 800),
-      });
+      if (entry.type === 'error') push({ code: 'console-error', severity: 'blocker', message: clipped(entry.text || 'Console error', 800) });
     }
+    for (const error of item.pageErrors ?? []) push({ code: 'page-error', severity: 'blocker', message: clipped(error, 800) });
+    for (const failure of item.requestFailures ?? []) push({
+      code: 'request-failure', severity: 'warning',
+      message: `${clipped(failure.error || 'Request failed', 220)} · ${clipped(failure.url, 500)}`,
+    });
 
-    for (const error of item.pageErrors ?? []) {
-      issues.push({
-        code: 'page-error',
-        severity: 'blocker',
-        viewport,
-        message: clipped(error, 800),
-      });
-    }
-
-    for (const failure of item.requestFailures ?? []) {
-      issues.push({
-        code: 'request-failure',
-        severity: 'warning',
-        viewport,
-        message: `${clipped(failure.error || 'Request failed', 220)} · ${clipped(failure.url, 500)}`,
-      });
-    }
-
-    if (!item.screenshot || item.screenshot.omitted || !item.screenshot.base64) {
-      issues.push({
-        code: 'missing-screenshot',
-        severity: 'warning',
-        viewport,
-        message: `Screenshot evidence is unavailable for ${viewport}.`,
-        evidence: { bytes: item.screenshot?.bytes },
-      });
-    }
-  }
-
-  if (!evidence.length) {
-    issues.push({
-      code: 'page-error',
-      severity: 'blocker',
-      viewport: 'unknown',
-      message: 'Browser Operator returned no viewport evidence.',
+    if (!item.screenshot || item.screenshot.omitted || !item.screenshot.base64) push({
+      code: 'missing-screenshot', severity: 'warning', message: `Screenshot evidence is unavailable for ${viewport}/${theme}.`,
+      evidence: { bytes: item.screenshot?.bytes },
     });
   }
+
+  if (!evidence.length) issues.push({
+    code: 'page-error', severity: 'blocker', viewport: 'unknown', theme: 'unknown', message: 'Browser Operator returned no viewport evidence.',
+  });
 
   const blockerCount = issues.filter((issue) => issue.severity === 'blocker').length;
   const warningCount = issues.length - blockerCount;
@@ -153,7 +128,8 @@ export function assessVisualQaEvidence(browser: BrowserRunPayload): VisualQaRepo
     status: blockerCount ? 'failed' : 'passed',
     target: browser.target,
     generatedAt: browser.generatedAt || new Date().toISOString(),
-    viewports: evidence.map((item) => clipped(item.viewport || 'unknown', 40)),
+    viewports: [...new Set(evidence.map((item) => clipped(item.viewport || 'unknown', 40)))],
+    themes: [...new Set(evidence.map((item) => clipped(item.theme || 'unknown', 20)))],
     blockerCount,
     warningCount,
     issues,
@@ -177,13 +153,7 @@ export async function runBoundedVisualRepairLoop<TReport extends { status: 'pass
     report = await input.verify();
   }
 
-  return {
-    passed: report.status === 'passed',
-    exhausted: report.status === 'failed' && attempts.length >= maxAttempts,
-    maxAttempts,
-    attempts,
-    finalReport: report,
-  };
+  return { passed: report.status === 'passed', exhausted: report.status === 'failed' && attempts.length >= maxAttempts, maxAttempts, attempts, finalReport: report };
 }
 
 function workerUrl() {
@@ -204,6 +174,7 @@ async function browserRun(input: { url: string; actions?: unknown[] }) {
     body: JSON.stringify({
       url: input.url,
       viewports: ['desktop', 'mobile'],
+      themes: ['dark', 'light'],
       actions: Array.isArray(input.actions) ? input.actions.slice(0, 20) : [],
     }),
     signal: AbortSignal.timeout(90_000),
@@ -217,27 +188,23 @@ export function registerVisualQaRoutes(app: FastifyInstance) {
   app.get('/v1/visual-qa/status', async () => ({
     configured: Boolean(workerUrl() && workerSecret()),
     maxAutoRepairAttempts: DEFAULT_MAX_REPAIR_ATTEMPTS,
-    gates: ['http', 'desktop', 'mobile', 'horizontal-overflow', 'console', 'page-errors', 'request-failures', 'screenshot-evidence'],
+    viewports: ['desktop', 'mobile'],
+    themes: ['dark', 'light'],
+    gates: ['http', 'horizontal-overflow', 'fixed-sticky-clipping', 'tap-targets', 'console', 'page-errors', 'request-failures', 'screenshot-evidence'],
     durableAutoRepair: 'mission-callback-required',
   }));
 
   app.post<{ Body: { url?: string; actions?: unknown[] } }>('/v1/visual-qa/run', async (request, reply) => {
     if (!request.body?.url || typeof request.body.url !== 'string') return reply.code(400).send({ error: 'url is required.' });
     try {
-      const browser = await browserRun({ url: request.body.url, actions: request.body.actions });
-      const report = assessVisualQaEvidence(browser);
+      const report = assessVisualQaEvidence(await browserRun({ url: request.body.url, actions: request.body.actions }));
       return {
         ...report,
-        autoRepair: {
-          maxAttempts: DEFAULT_MAX_REPAIR_ATTEMPTS,
-          required: report.status === 'failed',
-          durableRepairRequiresMissionContext: true,
-        },
+        autoRepair: { maxAttempts: DEFAULT_MAX_REPAIR_ATTEMPTS, required: report.status === 'failed', durableRepairRequiresMissionContext: true },
       };
     } catch (error) {
       const message = clipped(error instanceof Error ? error.message : error, 800);
-      const status = message.includes('not configured') ? 503 : 502;
-      return reply.code(status).send({ error: message });
+      return reply.code(message.includes('not configured') ? 503 : 502).send({ error: message });
     }
   });
 }
