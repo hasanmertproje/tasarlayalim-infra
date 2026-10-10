@@ -1,0 +1,6 @@
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+numpy==1.26.4
+resemblyzer==0.1.4
+soundfile==0.12.1
+python-multipart==0.0.20
