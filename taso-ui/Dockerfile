@@ -2,7 +2,7 @@ FROM node:22-alpine AS build
 WORKDIR /app
 
 COPY package*.json ./
-RUN npm install
+RUN npm install && npm audit --omit=dev --audit-level=high
 
 COPY . .
 ARG VITE_TASO_API_URL="/api"

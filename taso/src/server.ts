@@ -53,7 +53,7 @@ function isDataClass(value: unknown): value is DataClass {
 }
 
 export function buildServer() {
-  const app = Fastify({ logger: true });
+  const app = Fastify({ logger: true, trustProxy: 'uniquelocal' });
   const stateFile = process.env.TASO_STATE_FILE?.trim() || (process.env.NODE_ENV === 'production' ? '/data/taso-state.json' : undefined);
   const stateStore = new JsonStateStore(stateFile);
   const snapshot = stateStore.load();

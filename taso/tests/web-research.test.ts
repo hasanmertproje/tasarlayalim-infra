@@ -11,7 +11,7 @@ test('htmlToText removes executable markup and keeps readable text', () => {
 });
 
 test('private and loopback network addresses are blocked', () => {
-  for (const address of ['127.0.0.1', '10.0.0.1', '172.16.4.2', '192.168.1.2', '169.254.169.254', '::1', 'fd00::1', 'fe80::1']) {
+  for (const address of ['127.0.0.1', '10.0.0.1', '172.16.4.2', '192.168.1.2', '169.254.169.254', '100.64.0.1', '192.0.0.1', '224.0.0.1', '240.0.0.1', '::1', 'fd00::1', 'fe80::1', '::ffff:127.0.0.1', '64:ff9b::a9fe:a9fe']) {
     assert.equal(isPrivateAddress(address), true, address);
   }
   assert.equal(isPrivateAddress('1.1.1.1'), false);

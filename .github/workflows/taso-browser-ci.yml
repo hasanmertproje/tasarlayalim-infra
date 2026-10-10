@@ -20,6 +20,8 @@ jobs:
           node-version: '22'
       - name: Syntax check browser worker
         run: node --check docker/taso-browser/server.mjs
+      - name: Test browser worker egress guard
+        run: node --test docker/taso-browser/security.test.mjs
       - name: Build browser worker image
         run: docker build -t tasarlayalim-taso-browser ./docker/taso-browser
 
@@ -54,7 +56,7 @@ jobs:
           exit 1
       - name: Install Playwright
         run: |
-          npm install --no-save playwright@1.51.1
+          npm install --no-save playwright@1.63.0
           npx playwright install --with-deps chromium
       - name: Capture and assert visual acceptance
         run: node scripts/taso-visual-acceptance.mjs
