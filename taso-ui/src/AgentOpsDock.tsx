@@ -10,6 +10,11 @@ type AgentItem = {
   status: AgentStatus;
   detail: string;
   activeMissions?: number;
+  missionId?: string;
+  projectId?: string;
+  role?: 'scout' | 'architect' | 'builder' | 'verifier' | 'release';
+  progress?: number;
+  startedAt?: string;
 };
 
 type ProjectMilestone = {
@@ -98,7 +103,7 @@ function formatTime(value?: string) {
   const date = new Date(value);
   return Number.isNaN(date.getTime())
     ? value
-    : date.toLocaleString('tr-TR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+    : date.toLocaleString('tr-TR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' });
 }
 
 function statusLabel(status: AgentStatus) {
@@ -154,10 +159,10 @@ export default function AgentOpsDock({ mode = 'dock' }: AgentOpsDockProps) {
     return response.json() as Promise<T>;
   }
 
-  async function refresh() {
-    setLoading(true);
+  async function refresh(background = false) {
+    if (!background) setLoading(true);
     try {
-      const payload = await requestJson<{ operations?: OperationsSnapshot }>(`/v1/operations?limit=${mode === 'page' ? 60 : 30}`);
+      const payload = await requestJson<{ operations?: OperationsSnapshot }>(`/v1/operations?limit=${mode === 'page' ? 80 : 40}`);
       if (!payload.operations) throw new Error('Operations snapshot missing.');
       setSnapshot(payload.operations);
       setSelectedProjectId((current) => payload.operations?.projects.some((project) => project.projectId === current)
@@ -176,13 +181,13 @@ export default function AgentOpsDock({ mode = 'dock' }: AgentOpsDockProps) {
     } catch (cause) {
       setError((cause as Error).message);
     } finally {
-      setLoading(false);
+      if (!background) setLoading(false);
     }
   }
 
   useEffect(() => {
     void refresh();
-    const timer = window.setInterval(() => void refresh(), 10_000);
+    const timer = window.setInterval(() => void refresh(true), 2_000);
     return () => window.clearInterval(timer);
   }, [mode]);
 
@@ -193,13 +198,15 @@ export default function AgentOpsDock({ mode = 'dock' }: AgentOpsDockProps) {
     return 'ready';
   }, [snapshot]);
 
-  const activity = snapshot?.activity.slice(0, mode === 'page' ? 30 : 12) ?? [];
+  const activity = snapshot?.activity.slice(0, mode === 'page' ? 40 : 16) ?? [];
   const improvement = snapshot?.selfImprovement.missions.slice(0, mode === 'page' ? 16 : 8) ?? [];
   const selectedProject = snapshot?.projects.find((project) => project.projectId === selectedProjectId) ?? snapshot?.projects[0];
   const visible = mode === 'page' || open;
-  const readyAgents = snapshot?.agents.filter((agent) => agent.status === 'ready').length ?? 0;
+  const liveWorkers = snapshot?.agents.filter((agent) => agent.id.startsWith('worker:')) ?? [];
+  const platformAgents = snapshot?.agents.filter((agent) => !agent.id.startsWith('worker:')) ?? [];
+  const readyAgents = platformAgents.filter((agent) => agent.status === 'ready').length;
   const busyAgents = snapshot?.agents.filter((agent) => agent.status === 'busy').length ?? 0;
-  const degradedAgents = snapshot?.agents.filter((agent) => agent.status === 'degraded').length ?? 0;
+  const degradedAgents = platformAgents.filter((agent) => agent.status === 'degraded').length;
   const activeMissions = snapshot?.projects.reduce((sum, project) => sum + project.activeMissions, 0) ?? 0;
   const failedMissions = snapshot?.projects.reduce((sum, project) => sum + project.failedMissions, 0) ?? 0;
   const waitingApprovals = snapshot?.projects.reduce((sum, project) => sum + project.waitingApproval, 0) ?? 0;
@@ -259,7 +266,7 @@ export default function AgentOpsDock({ mode = 'dock' }: AgentOpsDockProps) {
             <div>
               <span>TASO RUNTIME</span>
               <strong>{mode === 'page' ? 'Agent Operations Center' : 'Agent Operations'}</strong>
-              <small>{snapshot ? `SYNC ${formatTime(snapshot.generatedAt)}` : 'SYNCING'}</small>
+              <small>{snapshot ? `LIVE ${formatTime(snapshot.generatedAt)} · 2s` : 'SYNCING'}</small>
             </div>
             <div className="agent-ops-actions">
               <button type="button" onClick={() => void refresh()} disabled={loading} aria-label="Agent Operations verisini yenile">{loading ? '…' : '↻'}</button>
@@ -271,7 +278,7 @@ export default function AgentOpsDock({ mode = 'dock' }: AgentOpsDockProps) {
 
           {mode === 'page' && (
             <section className="agent-ops-summary" aria-label="Agent Operations özeti">
-              <article><span>READY AGENTS</span><strong>{readyAgents}</strong><small>{busyAgents} busy • {degradedAgents} degraded</small></article>
+              <article><span>LIVE WORKERS</span><strong>{liveWorkers.length}</strong><small>{liveWorkers.length ? 'mission-scoped agents executing' : 'idle'}</small></article>
               <article><span>ACTIVE MISSIONS</span><strong>{activeMissions}</strong><small>Core mission state</small></article>
               <article><span>APPROVAL QUEUE</span><strong>{waitingApprovals}</strong><small>Human-gated actions</small></article>
               <article><span>FAILED MISSIONS</span><strong>{failedMissions}</strong><small>Needs review / retry</small></article>
@@ -280,9 +287,29 @@ export default function AgentOpsDock({ mode = 'dock' }: AgentOpsDockProps) {
 
           <div className={mode === 'page' ? 'agent-ops-content-grid' : undefined}>
             <section className="agent-ops-section runtime-section">
-              <div className="agent-ops-section-head"><span>RUNTIME AGENTS</span><small>Core verified</small></div>
+              <div className="agent-ops-section-head"><span>LIVE MISSION AGENTS</span><small>actual execution state</small></div>
               <div className="agent-ops-agent-grid">
-                {(snapshot?.agents ?? []).map((agent) => (
+                {liveWorkers.map((agent) => (
+                  <article className={`agent-runtime-card status-${agent.status}`} key={agent.id} onClick={() => agent.missionId && openMission(agent.missionId)}>
+                    <div className="agent-runtime-top"><span className="agent-runtime-dot" /><b>{statusLabel(agent.status)}</b></div>
+                    <strong>{agent.label}</strong>
+                    <p>{agent.detail}</p>
+                    {agent.progress !== undefined && (
+                      <>
+                        <div className="agent-progress-track mission-progress"><i style={{ width: `${agent.progress}%` }} /></div>
+                        <small>{agent.role?.toUpperCase()} · %{agent.progress} · {formatTime(agent.startedAt)}</small>
+                      </>
+                    )}
+                  </article>
+                ))}
+                {snapshot && liveWorkers.length === 0 && <div className="agent-ops-empty">Şu anda çalışan mission agent yok.</div>}
+              </div>
+            </section>
+
+            <section className="agent-ops-section runtime-section">
+              <div className="agent-ops-section-head"><span>PLATFORM RUNTIME</span><small>{readyAgents} ready · {degradedAgents} degraded</small></div>
+              <div className="agent-ops-agent-grid">
+                {platformAgents.map((agent) => (
                   <article className={`agent-runtime-card status-${agent.status}`} key={agent.id}>
                     <div className="agent-runtime-top"><span className="agent-runtime-dot" /><b>{statusLabel(agent.status)}</b></div>
                     <strong>{agent.label}</strong>
@@ -420,7 +447,7 @@ export default function AgentOpsDock({ mode = 'dock' }: AgentOpsDockProps) {
                   <button type="button" onClick={() => openMission(item.missionId)} key={item.id} className={`agent-activity-row agent-action-row state-${item.missionStatus}`}>
                     <span className="agent-runtime-dot" />
                     <div>
-                      <strong>{item.projectName} • {item.type.replace('mission.', '')}</strong>
+                      <strong>{item.projectName} • {item.type.replace('mission.', '').replace('agent.', 'agent ')}</strong>
                       <p>{item.message}</p>
                       <small>{item.objective} • {formatTime(item.createdAt)}</small>
                       <em>Mission detayını aç →</em>
