@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import { createHmac } from 'node:crypto';
 import test from 'node:test';
 import Fastify from 'fastify';
-import { AuthService, registerAuthRoutes } from '../src/auth.js';
+import { registerAuthRoutes } from '../src/auth.js';
+import { AuthServiceV18 } from '../src/auth-v18.js';
 
 const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
 
@@ -61,7 +62,7 @@ test('TOTP enrollment trusts a device, skips repeat 2FA, and supports revoke', a
   delete process.env.TASO_AUTH_SECURITY_FILE;
 
   const app = Fastify({ logger: false });
-  const auth = new AuthService();
+  const auth = new AuthServiceV18();
   registerAuthRoutes(app, auth);
 
   try {
