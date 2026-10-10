@@ -33,6 +33,7 @@ jobs:
               "$COOLIFY_BASE_URL/api/v1/$1"
           }
 
+          version="$(api_get version)"
           servers="$(api_get servers)"
           projects="$(api_get projects)"
           applications="$(api_get applications)"
@@ -46,6 +47,8 @@ jobs:
 
           {
             echo "## Coolify resource discovery (read-only)"
+            echo "### Coolify version"
+            jq -r 'if type=="string" then . else .version // "unknown" end' <<< "$version" | tr -cd '[:alnum:].-\n' | head -n 1
             echo "### Servers"
             jq -r 'if type=="array" then .[] | "- " + (.name // "unnamed") + " — UUID: " + (.uuid // "n/a") + " — " + (.ip // "IP hidden") else "Unexpected response shape" end' <<< "$servers"
             echo "### Projects"
@@ -54,6 +57,13 @@ jobs:
             jq -r 'if type=="array" then .[] | "- " + (.name // "unnamed") + " — UUID: " + (.uuid // "n/a") + " — status: " + (.status // "unknown") + " — branch: " + (.git_branch // "n/a") + " — domain: " + (.fqdn // "none") + " — server id: " + ((.server_id // "n/a")|tostring) + " — environment id: " + ((.environment_id // "n/a")|tostring) + " — port: " + (.ports_exposes // "n/a") + " — predefined network: " + ((.settings.connect_to_docker_network // false)|tostring) else "Unexpected response shape" end' <<< "$applications"
             echo "### Tasarlayalim Infra environments"
             jq -r 'if type=="array" then .[] | "- " + (.name // "unnamed") + " — UUID: " + (.uuid // "n/a") else "Unexpected response shape" end' <<< "$environments"
+            echo "### Application storage mounts (metadata only)"
+            while IFS= read -r app_uuid; do
+              [ -z "$app_uuid" ] && continue
+              storage="$(api_get "applications/$app_uuid/storages")"
+              echo "- Application $app_uuid"
+              jq -r '[(.persistent_storages // [])[] | "persistent " + (.name // "unnamed") + " → " + (.mount_path // "unknown"), (.file_storages // [])[] | "file → " + (.mount_path // "unknown")] | if length then .[] else "no Coolify storage mounts" end' <<< "$storage" | sed 's/^/  - /'
+            done < <(jq -r 'if type=="array" then .[].uuid else empty end' <<< "$applications")
             echo "### Existing services"
             jq -r 'if type=="array" then .[] | "- " + (.name // "unnamed") + " — UUID: " + (.uuid // "n/a") + " — status: " + (.status // "unknown") else "Unexpected response shape" end' <<< "$services"
             echo "Read-only Coolify API checks completed. No resources were created or changed."
