@@ -1,4 +1,11 @@
 import { nowIso, type MissionIntentProfile, type Project, type SpecialistRole } from './domain.js';
+import type { ProjectKnowledgeRecord } from './project-knowledge.js';
+import type { ProjectManifest } from './project-manifest.js';
+
+export interface MissionProjectContext {
+  manifest?: ProjectManifest;
+  knowledge?: ProjectKnowledgeRecord[];
+}
 
 function normalize(value: string) {
   return value.toLocaleLowerCase('tr-TR');
@@ -12,7 +19,66 @@ function unique<T>(values: T[]) {
   return [...new Set(values)];
 }
 
-export function deriveMissionIntentProfile(project: Project, objective: string): MissionIntentProfile {
+function redactContext(value: string) {
+  return value
+    .replace(/Bearer\s+\S+/gi, 'Bearer [redacted]')
+    .replace(/((?:api[_-]?key|token|password|secret|authorization)\s*[:=]\s*)[^\s,;]+/gi, '$1[redacted]')
+    .replace(/https?:\/\/[^\s:@]+:[^\s@]+@/gi, 'https://[redacted]@')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function objectiveTerms(objective: string) {
+  return [...new Set(normalize(objective).split(/[^\p{L}\p{N}_-]+/u).filter((term) => term.length >= 4))].slice(0, 32);
+}
+
+function knowledgeScore(record: ProjectKnowledgeRecord, terms: string[]) {
+  const haystack = normalize(`${record.title} ${record.body} ${record.tags.join(' ')}`);
+  const termScore = terms.reduce((score, term) => score + (haystack.includes(term) ? 3 : 0), 0);
+  const kindScore = record.kind === 'decision' || record.kind === 'runbook' ? 2 : 0;
+  return termScore + kindScore;
+}
+
+function buildProjectContext(objective: string, context?: MissionProjectContext) {
+  if (!context) return { lines: [] as string[], manifest: false, knowledgeRecords: 0, constraints: [] as string[] };
+  const lines: string[] = [];
+  const constraints: string[] = [];
+  const manifest = context.manifest;
+
+  if (manifest) {
+    const stack = [...manifest.languages, ...manifest.frameworks].filter(Boolean);
+    if (manifest.appType) lines.push(`Project app type: ${redactContext(manifest.appType)}`);
+    if (manifest.architecture) lines.push(`Project architecture: ${redactContext(manifest.architecture)}`);
+    if (stack.length) lines.push(`Project stack: ${stack.slice(0, 10).map(redactContext).join(', ')}`);
+    if (manifest.databases.length) lines.push(`Project databases: ${manifest.databases.slice(0, 6).map(redactContext).join(', ')}`);
+    if (manifest.protectedPaths.length) lines.push(`Protected paths: ${manifest.protectedPaths.slice(0, 10).map(redactContext).join(', ')}`);
+    constraints.push(...manifest.constraints.slice(0, 6).map((value) => `Project manifest: ${redactContext(value).slice(0, 500)}`));
+  }
+
+  const terms = objectiveTerms(objective);
+  const rankedKnowledge = [...(context.knowledge ?? [])]
+    .map((record) => ({ record, score: knowledgeScore(record, terms) }))
+    .sort((a, b) => b.score - a.score || b.record.updatedAt.localeCompare(a.record.updatedAt));
+  const relevant = rankedKnowledge.filter((item) => item.score > 0).slice(0, 6);
+  if (!relevant.length) {
+    relevant.push(...rankedKnowledge.filter((item) => item.record.kind === 'decision' || item.record.kind === 'runbook').slice(0, 2));
+  }
+
+  for (const { record } of relevant) {
+    const body = redactContext(record.body).slice(0, 520);
+    const title = redactContext(record.title).slice(0, 160);
+    lines.push(`Project knowledge [${record.kind}] ${title}: ${body}`);
+  }
+
+  return {
+    lines: unique(lines).slice(0, 10),
+    manifest: Boolean(manifest),
+    knowledgeRecords: relevant.length,
+    constraints: unique(constraints).filter(Boolean),
+  };
+}
+
+export function deriveMissionIntentProfile(project: Project, objective: string, context?: MissionProjectContext): MissionIntentProfile {
   const value = normalize(objective);
   const specialists: SpecialistRole[] = [];
   const skillHints: string[] = [];
@@ -91,6 +157,9 @@ export function deriveMissionIntentProfile(project: Project, objective: string):
   constraints.push('Do not widen mission scope during retry, repair or agent handoff.');
   constraints.push('High-impact actions remain subject to deterministic policy and human approval.');
 
+  const groundedContext = buildProjectContext(objective, context);
+  constraints.push(...groundedContext.constraints);
+
   if (!acceptanceHints.length) {
     acceptanceHints.push('The requested behavior must be implemented and verified by repository checks.');
     acceptanceHints.push('Existing behavior outside the mission scope must remain intact.');
@@ -109,7 +178,12 @@ export function deriveMissionIntentProfile(project: Project, objective: string):
     requiredSpecialists: unique(specialists),
     skillHints: unique(skillHints),
     acceptanceHints: unique(acceptanceHints).slice(0, 10),
-    constraints: unique(constraints).slice(0, 10),
+    constraints: unique(constraints).slice(0, 12),
+    projectContext: groundedContext.lines,
+    contextSources: {
+      manifest: groundedContext.manifest,
+      knowledgeRecords: groundedContext.knowledgeRecords,
+    },
     derivedAt: nowIso(),
   };
 }
