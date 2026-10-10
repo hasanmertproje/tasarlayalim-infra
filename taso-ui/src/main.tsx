@@ -10,6 +10,7 @@ import MissionControlV8 from './MissionControlV8';
 import MissionExecutionLive from './MissionExecutionLive';
 import MobileNavigationHub from './MobileNavigationHub';
 import MobileVoiceRouter from './MobileVoiceRouter';
+import OperationsCenterV10 from './OperationsCenterV10';
 import ProjectCenterV9 from './ProjectCenterV9';
 import SelfImprovementLane from './SelfImprovementLane';
 import TruthSurfaces from './TruthSurfaces';
@@ -42,6 +43,7 @@ import './command-center-v8.css';
 import './mission-control-v8.css';
 import './mission-intelligence-v8.css';
 import './operations-v9.css';
+import './operations-center-v10.css';
 
 const rootElement = document.getElementById('root')!;
 const requestedScreen = new URLSearchParams(window.location.search).get('screen');
@@ -67,7 +69,9 @@ function OperationsSurfaceBridge() {
   const hasDedicatedSurface = activeScreen === 'Command Center'
     || activeScreen === 'Projects'
     || activeScreen === 'Tasks'
-    || activeScreen === 'Approvals';
+    || activeScreen === 'Approvals'
+    || activeScreen === 'Deployments'
+    || activeScreen === 'Monitoring';
 
   return (
     <>
@@ -75,6 +79,8 @@ function OperationsSurfaceBridge() {
       {activeScreen === 'Projects' && <ProjectCenterV9 />}
       {activeScreen === 'Tasks' && <MissionControlV8 />}
       {activeScreen === 'Approvals' && <ApprovalCenterV9 />}
+      {activeScreen === 'Deployments' && <OperationsCenterV10 mode="deployments" />}
+      {activeScreen === 'Monitoring' && <OperationsCenterV10 mode="monitoring" />}
       {!hasDedicatedSurface && <AgentOpsDock mode={activeScreen === 'AI Agents' ? 'page' : 'dock'} />}
       {activeScreen === 'AI Agents' && <MissionExecutionLive expanded />}
       {activeScreen === 'Integrations' && <IntegrationsCenter />}
