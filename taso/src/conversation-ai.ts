@@ -21,7 +21,11 @@ function runtimeProvider(id:string):RuntimeConversationProvider|undefined{const 
 function normalized(input:string){return input.trim().toLocaleLowerCase('tr-TR')}
 function isRuntimeStatusQuestion(input:string){return /\b(sistem durumu|sistem ne durumda|sistem nasıl|core durumu|core ne durumda|durum ne|son durum|hangi aşama|ne yapıyorsun|status|health|agent durumu|agentlar|servisler)\b/i.test(normalized(input))}
 function isWebCapabilityQuestion(input:string){return /(web|internet).*(eriş|ara|okuy|bağlan)|internete.*(eriş|bağlan)|web erişimin/i.test(normalized(input))}
-export function wantsWebSearch(input:string){return /(?:^|[^\p{L}\p{N}_])(webde ara|internette ara|internetten araştır|web araştır|araştır ve bul|güncel|son gelişmeler|bugün|haberleri ara|internetten bak|şu an|hava durumu|döviz kuru|kaç tl)(?=$|[^\p{L}\p{N}_])/iu.test(normalized(input))}
+export function wantsWebSearch(input:string){
+ const value=normalized(input);
+ return /(?:^|[^\\p{L}\\p{N}_])(webde ara|internette ara|internetten araştır|web araştır|araştır ve bul|güncel|son gelişmeler|bugün|haberleri ara|internetten bak|şu an|şu anda|şimdi|hava durumu|hava nasıl|yağmur yağacak|kaç derece|döviz kuru|kaç tl|son dakika|son haberler|neler olmuş|ne olmuş|ne oldu|araştır|internette|webden|haberlerde|son durum)(?=$|[^\\p{L}\\p{N}_])/iu.test(value)
+  || /\\b(weather|forecast|latest news|breaking news|search the web|look up)\\b/i.test(input);
+}
 function isCreatorQuestion(input:string){return /\b(seni kim yaptı|seni kim geliştirdi|kim tarafından geliştirildin|yaratıcın kim)\b/i.test(normalized(input))}
 function isFounderQuestion(input:string){return /\b(tasarlayalım.*kurucu|tasarlayalim.*kurucu|kurucusu kim|tasarlayalım.*kim kurdu|tasarlayalim.*kim kurdu)\b/i.test(normalized(input))}
 function isSelfIdentityQuestion(input:string){return /\b(sen kimsin|sen nesin|kendinden bahset|taso kimsin|taso nedir)\b/i.test(normalized(input))}
@@ -61,10 +65,10 @@ export class ConversationAi{
     const userName=runtime.userName||requestIdentity.userName;
     const userEmail=runtime.userEmail||requestIdentity.userEmail;
     const personal=this.personalization.buildConversationContext(userId,userName||userEmail);
-    if(isRuntimeStatusQuestion(input))return deterministicStatus(project,runtime);
-    if(isCreatorQuestion(input))return `Beni ${personal.company.creatorName} geliştirdi. Ben Taso’yum.`;
+    if(isRuntimeStatusQuestion(input)&&!wantsWebSearch(input)&&!runtime.webSearch)return deterministicStatus(project,runtime);
+    if(isCreatorQuestion(input))return `Beni ${personal.company.creatorName} geliştirdi. Ben Taso’yum. ${personal.company.assistantOrigin}`;
     if(isFounderQuestion(input))return `${personal.company.companyName}’ın kurucusu ${personal.company.founderName}.`;
-    if(isSelfIdentityQuestion(input))return `Ben Taso’yum. ${personal.company.assistantOrigin} İstersen gündelik konuşuruz, araştırma yaparız ya da bir işi mission olarak yürütürüz.`;
+    if(isSelfIdentityQuestion(input))return `Ben Taso’yum. ${personal.company.assistantOrigin}${personal.company.trustedFacts.length ? ' ' + personal.company.trustedFacts.join(' ') : ''}`;
     if(isUserIdentityQuestion(input)){
       const name=personal.user.preferredName||userName||userEmail;
       return name?`Evet. Seni ${name} olarak tanıyorum. Profil ve konuşma tercihlerini de bu kimlikle ilişkilendiriyorum.`:'Seni oturum kimliğin üzerinden ayırt edebiliyorum ama henüz bana kullanmamı istediğin bir isim vermedin.';
