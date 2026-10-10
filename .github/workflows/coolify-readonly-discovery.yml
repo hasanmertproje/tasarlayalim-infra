@@ -62,7 +62,7 @@ jobs:
               [ -z "$app_uuid" ] && continue
               storage="$(api_get "applications/$app_uuid/storages")"
               echo "- Application $app_uuid"
-              jq -r '[(.persistent_storages // [])[] | "persistent " + (.name // "unnamed") + " → " + (.mount_path // "unknown"), (.file_storages // [])[] | "file → " + (.mount_path // "unknown")] | if length then .[] else "no Coolify storage mounts" end' <<< "$storage" | sed 's/^/  - /'
+              jq -r '[ ((.persistent_storages // [])[] | "persistent " + (.name // "unnamed") + " → " + (.mount_path // "unknown")), ((.file_storages // [])[] | "file → " + (.mount_path // "unknown")) ] | if length then .[] else "no Coolify storage mounts" end' <<< "$storage" | sed 's/^/  - /'
             done < <(jq -r 'if type=="array" then .[].uuid else empty end' <<< "$applications")
             echo "### Existing services"
             jq -r 'if type=="array" then .[] | "- " + (.name // "unnamed") + " — UUID: " + (.uuid // "n/a") + " — status: " + (.status // "unknown") else "Unexpected response shape" end' <<< "$services"
