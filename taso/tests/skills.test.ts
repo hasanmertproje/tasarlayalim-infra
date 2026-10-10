@@ -23,7 +23,9 @@ test('unknown skill hints are ignored instead of hallucinated', () => {
 test('rendered guidance carries rules, anti-patterns and acceptance evidence', () => {
   const guidance = renderSkillGuidance(['responsive-a11y']);
   assert.equal(guidance.length, 1);
-  assert.match(guidance[0], /rule=/);
-  assert.match(guidance[0], /avoid=/);
-  assert.match(guidance[0], /accept=/);
+  const first = guidance[0];
+  assert.ok(first);
+  assert.match(first, /rule=/);
+  assert.match(first, /avoid=/);
+  assert.match(first, /accept=/);
 });
