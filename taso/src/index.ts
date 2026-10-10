@@ -1,5 +1,6 @@
 import { registerAuthRoutes } from './auth.js';
 import { AuthServiceV18 } from './auth-v18.js';
+import { registerAuditHooks } from './audit-hooks.js';
 import { registerBrowserOperatorRoutes } from './browser-operator-routes.js';
 import { registerControlPlaneRoutes } from './control-plane-routes.js';
 import { ControlPlaneStore } from './control-plane-store.js';
@@ -16,5 +17,5 @@ import { registerWebResearchRoutes } from './web-research.js';
 
 const port=Number(process.env.PORT||3000);const host=process.env.HOST||'0.0.0.0';
 const app=buildServer();const identities=new IdentityStore(process.env.TASO_OWNER_EMAIL||'');const auth=new AuthServiceV18(identities);const controlPlane=new ControlPlaneStore();
-registerAuthRoutes(app,auth);registerRbacRoutes(app,auth,identities);registerControlPlaneRoutes(app,auth,identities,controlPlane);registerGatewayAuthorizer(app,auth,identities,controlPlane);registerVoiceRealtimeRoutes(app);registerLocalVoiceRoutes(app);registerWebResearchRoutes(app);registerBrowserOperatorRoutes(app);registerVisualQaRoutes(app);registerVerificationRoutes(app);registerHealthIncidentRoutes(app);
+registerAuditHooks(app,auth,controlPlane);registerAuthRoutes(app,auth);registerRbacRoutes(app,auth,identities);registerControlPlaneRoutes(app,auth,identities,controlPlane);registerGatewayAuthorizer(app,auth,identities,controlPlane);registerVoiceRealtimeRoutes(app);registerLocalVoiceRoutes(app);registerWebResearchRoutes(app);registerBrowserOperatorRoutes(app);registerVisualQaRoutes(app);registerVerificationRoutes(app);registerHealthIncidentRoutes(app);
 app.listen({port,host}).catch(error=>{app.log.error(error);process.exit(1)});
