@@ -60,6 +60,8 @@ import './auth-v17.css';
 import './command-center-v21.css';
 /* Voice Experience V22 is the final owner of cinematic live voice presentation. */
 import './voice-experience-v22.css';
+/* V23 unifies detailed Projects / Missions / Agents / Approvals surfaces. */
+import './operations-surfaces-v23.css';
 
 const rootElement = document.getElementById('root')!;
 const requestedScreen = new URLSearchParams(window.location.search).get('screen');

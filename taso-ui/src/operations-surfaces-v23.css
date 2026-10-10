@@ -1,0 +1,403 @@
+/* V23 — unified premium detail surfaces for Projects / Missions / Agents / Approvals */
+
+:root {
+  --v23-bg: color-mix(in srgb, var(--taso-bg, #07111a) 94%, transparent);
+  --v23-surface: color-mix(in srgb, var(--taso-surface, #0d1b27) 92%, transparent);
+  --v23-surface-strong: color-mix(in srgb, var(--taso-surface-strong, #122433) 96%, transparent);
+  --v23-line: color-mix(in srgb, var(--taso-line, #426179) 34%, transparent);
+  --v23-line-strong: color-mix(in srgb, var(--taso-line-strong, #6b9ab8) 52%, transparent);
+  --v23-text: var(--taso-text, #edf7fb);
+  --v23-muted: var(--taso-text-muted, #8ca5b3);
+  --v23-faint: var(--taso-text-faint, #657b89);
+  --v23-accent: var(--taso-accent, #72d8ef);
+  --v23-ok: #7dddb5;
+  --v23-warn: #e9c67c;
+  --v23-bad: #ec8b95;
+  --v23-shadow: 0 28px 80px rgba(0, 0, 0, .24);
+}
+
+:root[data-theme="light"] {
+  --v23-bg: #eef5f8;
+  --v23-surface: rgba(255,255,255,.9);
+  --v23-surface-strong: rgba(255,255,255,.98);
+  --v23-line: rgba(34,75,96,.11);
+  --v23-line-strong: rgba(34,75,96,.2);
+  --v23-text: #142834;
+  --v23-muted: #526b79;
+  --v23-faint: #708590;
+  --v23-shadow: 0 22px 60px rgba(34,75,96,.12);
+}
+
+.pc9-shell,
+.mc8-shell,
+.af11-shell,
+.ac9-shell {
+  color: var(--v23-text) !important;
+  background:
+    radial-gradient(circle at 82% 4%, color-mix(in srgb, var(--v23-accent) 10%, transparent), transparent 34%),
+    linear-gradient(180deg, var(--v23-bg), color-mix(in srgb, var(--v23-bg) 94%, #000 6%)) !important;
+}
+
+.pc9-shell::before,
+.mc8-shell::before,
+.af11-shell::before,
+.ac9-shell::before {
+  opacity: .1 !important;
+  background-image: linear-gradient(rgba(126,194,214,.025) 1px, transparent 1px), linear-gradient(90deg, rgba(126,194,214,.025) 1px, transparent 1px) !important;
+  background-size: 44px 44px !important;
+}
+
+.pc9-topbar,
+.mc8-header,
+.af11-topbar,
+.ac9-topbar {
+  margin-bottom: 24px !important;
+  align-items: flex-start !important;
+}
+
+.pc9-topbar h1,
+.mc8-header h1,
+.af11-topbar h1,
+.ac9-topbar h1 {
+  letter-spacing: -.045em !important;
+  line-height: .98 !important;
+}
+
+.pc9-topbar p,
+.mc8-header p,
+.af11-topbar p,
+.ac9-topbar p {
+  color: var(--v23-muted) !important;
+  line-height: 1.55 !important;
+}
+
+.pc9-kicker,
+.pc9-section-head span,
+.mc8-header > div:first-child span,
+.mc8-section-head span,
+.af11-kicker,
+.af11-section-head span,
+.ac9-kicker,
+.ac9-section-head span {
+  color: var(--v23-accent) !important;
+  letter-spacing: .16em !important;
+}
+
+.pc9-layout,
+.mc8-grid,
+.af11-layout,
+.ac9-layout {
+  gap: 20px !important;
+}
+
+.pc9-project-list,
+.pc9-hero,
+.pc9-surface,
+.pc9-create,
+.mc8-list,
+.mc8-hero,
+.mc8-surface,
+.mc8-truthbar,
+.af11-list,
+.af11-focus,
+.af11-surface,
+.ac9-list,
+.ac9-focus,
+.ac9-surface,
+.ac9-empty-state {
+  border-color: var(--v23-line) !important;
+  background: var(--v23-surface) !important;
+  box-shadow: var(--v23-shadow) !important;
+  backdrop-filter: blur(22px) saturate(120%) !important;
+}
+
+.pc9-project-list,
+.mc8-list,
+.af11-list,
+.ac9-list {
+  border-radius: 22px !important;
+}
+
+.pc9-hero,
+.mc8-hero,
+.af11-focus,
+.ac9-focus {
+  border-radius: 26px !important;
+}
+
+.pc9-surface,
+.mc8-surface,
+.af11-surface,
+.ac9-surface {
+  border-radius: 20px !important;
+}
+
+.pc9-project-list button,
+.mc8-list-scroll button,
+.af11-list button,
+.ac9-list button {
+  min-height: 58px !important;
+  border-color: color-mix(in srgb, var(--v23-line) 88%, transparent) !important;
+  transition: background .18s ease, border-color .18s ease, transform .18s ease !important;
+}
+
+.pc9-project-list button:hover,
+.mc8-list-scroll button:hover,
+.af11-list button:hover,
+.ac9-list button:hover {
+  background: color-mix(in srgb, var(--v23-accent) 5%, transparent) !important;
+}
+
+.pc9-project-list button.active,
+.mc8-list-scroll button.active,
+.af11-list button.active,
+.ac9-list button.active {
+  background: linear-gradient(90deg, color-mix(in srgb, var(--v23-accent) 11%, transparent), transparent) !important;
+  box-shadow: inset 2px 0 var(--v23-accent) !important;
+}
+
+.pc9-status-strip,
+.mc8-truthbar,
+.af11-truthbar,
+.ac9-facts {
+  border-color: var(--v23-line) !important;
+  background: color-mix(in srgb, var(--v23-surface-strong) 72%, transparent) !important;
+}
+
+.pc9-status-strip > div,
+.mc8-truthbar > div,
+.af11-truthbar > div,
+.ac9-facts > div {
+  border-color: var(--v23-line) !important;
+}
+
+.pc9-status-strip span,
+.mc8-truthbar span,
+.af11-truthbar span,
+.ac9-facts span,
+.pc9-section-head small,
+.mc8-section-head small,
+.af11-section-head small,
+.ac9-section-head small {
+  color: var(--v23-faint) !important;
+}
+
+.pc9-actions button,
+.pc9-primary,
+.pc9-link,
+.mc8-actions button,
+.af11-actions button,
+.ac9-actions button,
+.ac9-decision button {
+  min-height: 42px !important;
+  border-radius: 14px !important;
+  border: 1px solid var(--v23-line-strong) !important;
+  background: color-mix(in srgb, var(--v23-surface-strong) 86%, transparent) !important;
+  color: var(--v23-text) !important;
+}
+
+.pc9-actions button.accent,
+.pc9-primary,
+.ac9-decision button.approve {
+  background: linear-gradient(135deg, color-mix(in srgb, var(--v23-accent) 22%, var(--v23-surface)), color-mix(in srgb, var(--v23-ok) 12%, var(--v23-surface))) !important;
+  border-color: color-mix(in srgb, var(--v23-accent) 45%, transparent) !important;
+}
+
+.pc9-mission-progress,
+.mc8-progress,
+.mc8-step-progress,
+.af11-progress {
+  background: color-mix(in srgb, var(--v23-accent) 9%, transparent) !important;
+}
+
+.pc9-mission-progress i,
+.mc8-progress i,
+.mc8-step-progress i,
+.af11-progress i {
+  background: linear-gradient(90deg, var(--v23-accent), var(--v23-ok)) !important;
+}
+
+.mc8-step,
+.af11-agent,
+.ac9-reason,
+.pc9-manifest > div,
+.pc9-knowledge-list article,
+.pc9-mission-row {
+  border-color: var(--v23-line) !important;
+  background: color-mix(in srgb, var(--v23-surface-strong) 54%, transparent) !important;
+  border-radius: 14px !important;
+}
+
+.state-running,
+.state-testing,
+.state-planning,
+.pc9-shell .state-running,
+.pc9-shell .state-testing,
+.pc9-shell .state-planning {
+  color: var(--v23-accent) !important;
+}
+
+.state-completed,
+.state-preview_ready {
+  color: var(--v23-ok) !important;
+}
+
+.state-waiting_approval {
+  color: var(--v23-warn) !important;
+}
+
+.state-failed {
+  color: var(--v23-bad) !important;
+}
+
+.pc9-empty,
+.mc8-empty,
+.af11-empty,
+.ac9-empty {
+  color: var(--v23-faint) !important;
+}
+
+@media (max-width: 1180px) {
+  .pc9-layout,
+  .mc8-grid,
+  .af11-layout,
+  .ac9-layout {
+    grid-template-columns: 250px minmax(0, 1fr) !important;
+  }
+}
+
+@media (max-width: 820px) {
+  .pc9-shell,
+  .mc8-shell,
+  .af11-shell,
+  .ac9-shell {
+    inset: 0 !important;
+    padding: max(18px, env(safe-area-inset-top)) 14px calc(120px + env(safe-area-inset-bottom)) !important;
+    overflow-x: hidden !important;
+  }
+
+  .pc9-shell::before,
+  .mc8-shell::before,
+  .af11-shell::before,
+  .ac9-shell::before {
+    inset: 0 !important;
+  }
+
+  .pc9-topbar,
+  .mc8-header,
+  .af11-topbar,
+  .ac9-topbar {
+    display: grid !important;
+    gap: 14px !important;
+  }
+
+  .pc9-layout,
+  .mc8-grid,
+  .af11-layout,
+  .ac9-layout {
+    grid-template-columns: 1fr !important;
+    gap: 14px !important;
+  }
+
+  .pc9-project-list,
+  .mc8-list,
+  .af11-list,
+  .ac9-list {
+    position: relative !important;
+    top: auto !important;
+    max-height: none !important;
+  }
+
+  .pc9-list-scroll,
+  .mc8-list-scroll,
+  .af11-list-scroll,
+  .ac9-list-scroll {
+    max-height: 260px !important;
+  }
+
+  .pc9-grid,
+  .mc8-content-grid,
+  .af11-content-grid,
+  .ac9-content-grid,
+  .mc8-focus-row,
+  .pc9-status-strip,
+  .mc8-truthbar,
+  .af11-truthbar,
+  .ac9-facts {
+    grid-template-columns: 1fr !important;
+  }
+
+  .pc9-status-strip > div,
+  .mc8-truthbar > div,
+  .af11-truthbar > div,
+  .ac9-facts > div {
+    border-right: 0 !important;
+    border-bottom: 1px solid var(--v23-line) !important;
+  }
+
+  .pc9-status-strip > div:last-child,
+  .mc8-truthbar > div:last-child,
+  .af11-truthbar > div:last-child,
+  .ac9-facts > div:last-child {
+    border-bottom: 0 !important;
+  }
+
+  .pc9-title-row,
+  .mc8-hero-top,
+  .af11-focus-head,
+  .ac9-focus-head {
+    display: grid !important;
+    gap: 12px !important;
+  }
+
+  .pc9-actions,
+  .mc8-actions,
+  .af11-actions,
+  .ac9-actions,
+  .ac9-decision {
+    width: 100% !important;
+    display: grid !important;
+    grid-template-columns: 1fr 1fr !important;
+    gap: 8px !important;
+  }
+}
+
+@media (max-width: 390px) {
+  .pc9-shell,
+  .mc8-shell,
+  .af11-shell,
+  .ac9-shell {
+    padding-left: 10px !important;
+    padding-right: 10px !important;
+  }
+
+  .pc9-hero,
+  .mc8-hero,
+  .af11-focus,
+  .ac9-focus,
+  .pc9-surface,
+  .mc8-surface,
+  .af11-surface,
+  .ac9-surface {
+    border-radius: 18px !important;
+  }
+
+  .pc9-actions,
+  .mc8-actions,
+  .af11-actions,
+  .ac9-actions,
+  .ac9-decision {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pc9-shell *,
+  .mc8-shell *,
+  .af11-shell *,
+  .ac9-shell * {
+    scroll-behavior: auto !important;
+    transition-duration: .001ms !important;
+    animation-duration: .001ms !important;
+  }
+}
