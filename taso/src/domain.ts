@@ -77,6 +77,20 @@ export interface AgentHandoff {
   createdAt: string;
 }
 
+export interface WorkspaceCheckpointFile {
+  path: string;
+  content: string;
+  producedByStepId: string;
+  updatedAt: string;
+}
+
+export interface MissionWorkspaceCheckpoint {
+  version: 1;
+  files: WorkspaceCheckpointFile[];
+  completedStepIds: string[];
+  updatedAt: string;
+}
+
 export type StackMode = 'auto' | 'preserve' | 'pinned';
 export type ArchitectureMode =
   | 'professional_best_fit'
@@ -146,6 +160,7 @@ export interface MissionExecution {
   workPlan?: MissionStep[];
   artifacts?: MissionArtifact[];
   handoffs?: AgentHandoff[];
+  workspaceCheckpoint?: MissionWorkspaceCheckpoint;
 }
 
 export interface Mission {
