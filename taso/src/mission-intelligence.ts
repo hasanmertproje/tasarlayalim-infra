@@ -30,7 +30,8 @@ export function deriveMissionIntentProfile(project: Project, objective: string):
     'database', 'veritaban', 'sql', 'postgres', 'mysql', 'mariadb', 'schema', 'migration', 'tablo',
   ]);
   const security = includesAny(value, [
-    'security', 'güvenlik', 'guvenlik', 'auth', 'login', 'oturum', 'permission', 'yetki', 'token', 'secret', 'kvkk',
+    'security', 'güvenlik', 'guvenlik', 'güvenli', 'guvenli', 'güvenliğ', 'guvenlig',
+    'auth', 'login', 'oturum', 'permission', 'yetki', 'token', 'secret', 'kvkk',
   ]);
   const infrastructure = includesAny(value, [
     'deploy', 'deployment', 'docker', 'coolify', 'ci', 'pipeline', 'infrastructure', 'infra', 'vps', 'production', 'canlıya', 'canliya',
