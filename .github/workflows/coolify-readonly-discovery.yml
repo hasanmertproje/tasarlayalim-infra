@@ -1,0 +1,43 @@
+name: Coolify Read-Only Discovery
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Inspect Coolify resources (read-only)
+        env:
+          COOLIFY_API_TOKEN: ${{ secrets.COOLIFY_API_TOKEN }}
+          COOLIFY_BASE_URL: https://coolify.tasarlayalim.com
+        run: |
+          set -euo pipefail
+          if [ -z "$COOLIFY_API_TOKEN" ]; then
+            echo "::error::COOLIFY_API_TOKEN repository secret is missing"
+            exit 1
+          fi
+
+          api_get() {
+            curl --silent --show-error --fail-with-body \
+              --header "Authorization: Bearer $COOLIFY_API_TOKEN" \
+              --header "Accept: application/json" \
+              "$COOLIFY_BASE_URL/api/v1/$1"
+          }
+
+          servers="$(api_get servers)"
+          projects="$(api_get projects)"
+          services="$(api_get services)"
+
+          echo "## Coolify resource discovery (read-only)" >> "$GITHUB_STEP_SUMMARY"
+          echo "### Servers" >> "$GITHUB_STEP_SUMMARY"
+          jq -r 'if type=="array" then .[] | "- " + (.name // "unnamed") + " — UUID: " + (.uuid // "n/a") + " — " + (.ip // "IP hidden") else "Unexpected response shape" end' <<< "$servers" >> "$GITHUB_STEP_SUMMARY"
+          echo "### Projects" >> "$GITHUB_STEP_SUMMARY"
+          jq -r 'if type=="array" then .[] | "- " + (.name // "unnamed") + " — UUID: " + (.uuid // "n/a") else "Unexpected response shape" end' <<< "$projects" >> "$GITHUB_STEP_SUMMARY"
+          echo "### Existing services" >> "$GITHUB_STEP_SUMMARY"
+          jq -r 'if type=="array" then .[] | "- " + (.name // "unnamed") + " — UUID: " + (.uuid // "n/a") + " — status: " + (.status // "unknown") else "Unexpected response shape" end' <<< "$services" >> "$GITHUB_STEP_SUMMARY"
+          echo "Read-only Coolify API checks completed. No resources were created or changed."
