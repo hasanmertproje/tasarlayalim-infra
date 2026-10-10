@@ -16,11 +16,12 @@ import type { ProjectRegistry } from './project-registry.js';
 import type { TaskEngine } from './task-engine.js';
 import { MultiProviderPlanner } from './multi-provider-planner.js';
 import { defaultProviders } from './provider-router.js';
-import { GitHubTools } from './github-tools.js';
+import { GitHubTools, type CiFailureDiagnostics } from './github-tools.js';
 import { CoolifyTools } from './coolify-tools.js';
 
 const MAX_CHECKPOINT_FILES = 100;
 const MAX_CHECKPOINT_BYTES = 8 * 1024 * 1024;
+const MAX_REPAIR_CONTEXT_FILES = 12;
 
 function assertRepository(repository: string) {
   if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository)) {
@@ -110,6 +111,7 @@ export type MissionExecutorOptions = {
   retryBaseDelayMs?: number;
   watchdogGraceMs?: number;
   stepMaxAttempts?: number;
+  ciRepairMaxAttempts?: number;
 };
 
 export class MissionExecutor {
@@ -121,6 +123,7 @@ export class MissionExecutor {
   private readonly retryBaseDelayMs: number;
   private readonly watchdogGraceMs: number;
   private readonly stepMaxAttempts: number;
+  private readonly maxCiRepairAttempts: number;
 
   constructor(
     private readonly tasks: TaskEngine,
@@ -138,6 +141,8 @@ export class MissionExecutor {
       ?? boundedEnvMs('TASO_PLANNING_WATCHDOG_GRACE_MS', 15_000, 0, 120_000);
     this.stepMaxAttempts = options.stepMaxAttempts
       ?? boundedEnvInt('TASO_STEP_MAX_ATTEMPTS', 2, 1, 3);
+    this.maxCiRepairAttempts = options.ciRepairMaxAttempts
+      ?? boundedEnvInt('TASO_CI_REPAIR_ATTEMPTS', 2, 0, 3);
 
     queueMicrotask(() => {
       for (const mission of this.tasks.listMissions()) {
@@ -159,6 +164,7 @@ export class MissionExecutor {
       activeMissionIds: [...this.active],
       planningTimeoutMs: this.planningTimeoutMs,
       stepMaxAttempts: this.stepMaxAttempts,
+      maxCiRepairAttempts: this.maxCiRepairAttempts,
     };
   }
 
@@ -516,7 +522,6 @@ export class MissionExecutor {
         pending.delete(result.step.id);
         completed.add(result.step.id);
       }
-
       this.persistCheckpoint(mission, changedFiles, producerByPath, completed);
     }
 
@@ -531,29 +536,184 @@ export class MissionExecutor {
     };
   }
 
+  private repairScope(mission: Mission, diagnostics: CiFailureDiagnostics): string[] {
+    const checkpointPaths = [...new Set((mission.execution?.workspaceCheckpoint?.files ?? []).map((file) => file.path))];
+    const evidence = JSON.stringify(diagnostics).toLowerCase();
+    return checkpointPaths
+      .sort((a, b) => Number(evidence.includes(b.toLowerCase())) - Number(evidence.includes(a.toLowerCase())))
+      .slice(0, MAX_REPAIR_CONTEXT_FILES);
+  }
+
+  private refreshCheckpointAfterRepair(mission: Mission, plan: ChangePlan) {
+    const checkpoint = mission.execution?.workspaceCheckpoint;
+    if (!checkpoint) return;
+    const replacements = new Map(plan.files.map((file) => [file.path, file.content]));
+    const updatedAt = nowIso();
+    const next: MissionWorkspaceCheckpoint = {
+      ...checkpoint,
+      files: checkpoint.files.map((file) => replacements.has(file.path)
+        ? { ...file, content: replacements.get(file.path)!, updatedAt }
+        : file),
+      updatedAt,
+    };
+    this.patchExecution(mission, { workspaceCheckpoint: next });
+  }
+
   private async verifyPublishedMission(project: Project, mission: Mission): Promise<Mission> {
-    const commitSha = mission.execution?.commitSha;
+    let commitSha = mission.execution?.commitSha;
     const pullRequestUrl = mission.execution?.pullRequestUrl;
     const pullRequestNumber = mission.execution?.pullRequestNumber;
+    const branch = mission.execution?.branch;
     if (!commitSha || !pullRequestUrl) throw new Error('Published mission resume requires commit SHA and pull request URL.');
+    if (!branch) throw new Error('Published mission verification requires the existing pull request branch.');
 
-    this.tasks.transitionMission(mission.id, 'testing', 'Resuming verification for the existing published change.', { pullRequest: pullRequestUrl }, {
-      progressPercent: 72,
-      resumeAfterRestart: false,
+    let repairAttempts = Math.max(0, mission.execution?.ciRepairAttempts ?? 0);
+    this.patchExecution(mission, {
+      maxCiRepairAttempts: this.maxCiRepairAttempts,
+      ciRepairAttempts: repairAttempts,
     });
-    const checkState = await this.runAgent(
-      mission,
-      'verifier',
-      'Resuming repository checks for the existing generated commit.',
-      74,
-      86,
-      () => this.github!.waitForChecks(project.repository, commitSha),
-      'Repository checks finished.',
-    );
-    this.addArtifact(mission, { type: 'ci', label: `CI ${checkState}`, url: pullRequestUrl, summary: `Checks for ${commitSha.slice(0, 8)} finished with state ${checkState}.` });
-    if (checkState !== 'success') {
-      const reason = checkState === 'failed' ? 'CI checks failed.' : checkState === 'missing' ? 'No CI checks were detected for the generated commit.' : 'CI checks did not complete before timeout.';
-      return this.tasks.transitionMission(mission.id, 'failed', reason, { checkState }, { checkState, blockedReason: reason, lastFailure: reason });
+
+    let checkState: 'success' | 'failed' | 'pending' | 'missing' = 'pending';
+    while (true) {
+      this.tasks.transitionMission(mission.id, 'testing', repairAttempts > 0
+        ? `Verifying CI repair ${repairAttempts}/${this.maxCiRepairAttempts} on the existing pull request.`
+        : 'Verifying the published mission through repository checks.', { pullRequest: pullRequestUrl, commitSha }, {
+        progressPercent: repairAttempts > 0 ? 82 : 72,
+        resumeAfterRestart: false,
+        commitSha,
+        ciRepairAttempts: repairAttempts,
+        maxCiRepairAttempts: this.maxCiRepairAttempts,
+      });
+
+      checkState = await this.runAgent(
+        mission,
+        'verifier',
+        repairAttempts > 0 ? `Waiting for checks after CI repair ${repairAttempts}.` : 'Waiting for repository checks and verifying the generated commit.',
+        repairAttempts > 0 ? 84 : 74,
+        86,
+        () => this.github!.waitForChecks(project.repository, commitSha!),
+        'Repository checks finished.',
+      );
+      this.addArtifact(mission, {
+        type: 'ci',
+        label: `CI ${checkState} · ${commitSha.slice(0, 8)}`,
+        url: pullRequestUrl,
+        summary: `Checks for ${commitSha.slice(0, 8)} finished with state ${checkState}.`,
+      });
+
+      if (checkState === 'success') break;
+      if (checkState !== 'failed') {
+        const reason = checkState === 'missing'
+          ? 'No CI checks were detected for the generated commit.'
+          : 'CI checks did not complete before timeout.';
+        return this.tasks.transitionMission(mission.id, 'failed', reason, { checkState }, {
+          checkState,
+          blockedReason: reason,
+          lastFailure: reason,
+        });
+      }
+
+      const diagnostics = await this.github.getFailureDiagnostics(project.repository, commitSha);
+      this.patchExecution(mission, {
+        checkState: 'failed',
+        lastCiFailureSummary: diagnostics.summary,
+        currentAction: `CI failed on ${commitSha.slice(0, 8)}. Diagnosing bounded repair scope.`,
+      }, 'CI failure diagnostics collected for bounded self-healing.', {
+        commitSha,
+        repairAttempts,
+        summary: diagnostics.summary,
+        failedChecks: diagnostics.failedChecks.map((item) => item.name),
+        failedJobs: diagnostics.failedJobs.map((item) => item.name),
+      });
+      this.addArtifact(mission, {
+        type: 'ci-diagnostic',
+        label: `CI diagnostic · ${commitSha.slice(0, 8)}`,
+        url: pullRequestUrl,
+        summary: diagnostics.summary,
+      });
+
+      if (repairAttempts >= this.maxCiRepairAttempts) {
+        const reason = `CI checks failed after ${repairAttempts} automatic repair attempt(s): ${diagnostics.summary}`;
+        return this.tasks.transitionMission(mission.id, 'failed', reason, { checkState: 'failed' }, {
+          checkState: 'failed',
+          blockedReason: reason,
+          lastFailure: reason,
+          lastCiFailureSummary: diagnostics.summary,
+        });
+      }
+
+      const allowedPaths = this.repairScope(mission, diagnostics);
+      if (!allowedPaths.length) {
+        const reason = `CI failed, but no durable mission-scoped files are available for safe repair: ${diagnostics.summary}`;
+        return this.tasks.transitionMission(mission.id, 'failed', reason, { checkState: 'failed' }, {
+          checkState: 'failed',
+          blockedReason: reason,
+          lastFailure: reason,
+          lastCiFailureSummary: diagnostics.summary,
+        });
+      }
+      const repairFiles = await this.github.readFiles(project.repository, branch, allowedPaths);
+      const repairAllowedPaths = repairFiles.map((file) => file.path);
+      if (!repairAllowedPaths.length) {
+        const reason = 'CI self-heal could not read any current mission-scoped files from the pull request branch.';
+        return this.tasks.transitionMission(mission.id, 'failed', reason, { checkState: 'failed' }, {
+          checkState: 'failed',
+          blockedReason: reason,
+          lastFailure: reason,
+        });
+      }
+
+      const nextAttempt = repairAttempts + 1;
+      const repairPlan = await this.runAgent(
+        mission,
+        'builder',
+        `CI Repair Engineer is fixing failed checks inside ${repairAllowedPaths.length} mission-scoped file(s).`,
+        78,
+        82,
+        async (runId) => {
+          const plan = await this.planner!.planCiRepair(project, mission, repairFiles, diagnostics, repairAllowedPaths);
+          const scope = new Set(repairAllowedPaths);
+          const outOfScope = plan.files.find((file) => !scope.has(file.path));
+          if (outOfScope) throw new Error(`CI repair attempted out-of-scope path: ${outOfScope.path}`);
+          const manifest = this.projects.getManifest(project.id);
+          assertSafeChanges(mission, plan.files.map((file) => file.path), manifest?.protectedPaths ?? []);
+          this.tasks.updateAgent(mission.id, runId, `CI repair ${nextAttempt} prepared ${plan.files.length} scoped file change(s).`, 81, plan.summary);
+          return plan;
+        },
+        `CI repair ${nextAttempt} plan completed.`,
+        { label: 'CI Repair Engineer', specialist: 'qa' },
+      );
+
+      const repairedSha = await this.runAgent(
+        mission,
+        'builder',
+        `Committing CI repair ${nextAttempt}/${this.maxCiRepairAttempts} to the existing pull request branch.`,
+        82,
+        84,
+        () => this.github!.commitChanges(project.repository, branch, repairPlan.files, repairPlan.commitMessage || `Taso CI repair ${nextAttempt}`),
+        `CI repair ${nextAttempt} committed to the existing pull request.`,
+        { label: 'Repair Publisher', specialist: 'repository-publisher' },
+      );
+
+      repairAttempts = nextAttempt;
+      commitSha = repairedSha;
+      this.refreshCheckpointAfterRepair(mission, repairPlan);
+      this.patchExecution(mission, {
+        commitSha: repairedSha,
+        checkState: 'pending',
+        ciRepairAttempts: repairAttempts,
+        maxCiRepairAttempts: this.maxCiRepairAttempts,
+        currentAction: `CI repair ${repairAttempts}/${this.maxCiRepairAttempts} committed. Waiting for new checks.`,
+      }, `CI repair ${repairAttempts} committed to the existing PR branch.`, {
+        commitSha: repairedSha,
+        repairedPaths: repairPlan.files.map((file) => file.path),
+      });
+      this.addArtifact(mission, {
+        type: 'repair-commit',
+        label: `CI repair #${repairAttempts} · ${repairedSha.slice(0, 8)}`,
+        url: pullRequestUrl,
+        summary: repairPlan.summary,
+      });
     }
 
     if (mission.autonomous.previewRequired) {
@@ -561,7 +721,7 @@ export class MissionExecutor {
         const reason = 'CI passed, but a Coolify resource is not configured for this project, so preview could not be verified.';
         return this.tasks.transitionMission(mission.id, 'failed', reason, { checkState }, { checkState, blockedReason: reason, lastFailure: reason });
       }
-      if (!pullRequestNumber) throw new Error('Preview resume requires the existing pull request number.');
+      if (!pullRequestNumber) throw new Error('Preview verification requires the existing pull request number.');
       const preview = await this.runAgent(
         mission,
         'release',
@@ -574,13 +734,20 @@ export class MissionExecutor {
       this.addArtifact(mission, { type: 'preview', label: 'Verified preview', url: preview.url, summary: `Coolify deployment ${preview.deploymentUuid}` });
       return this.tasks.transitionMission(mission.id, 'preview_ready', 'CI passed and Coolify preview deployment completed.', { deploymentUuid: preview.deploymentUuid }, {
         checkState,
+        commitSha,
         previewDeploymentUuid: preview.deploymentUuid,
         previewUrl: preview.url,
         progressPercent: 100,
       });
     }
 
-    return this.tasks.transitionMission(mission.id, 'completed', 'CI passed. Resumed mission completed without a preview requirement.', undefined, { checkState, progressPercent: 100 });
+    return this.tasks.transitionMission(mission.id, 'completed', repairAttempts > 0
+      ? `CI passed after ${repairAttempts} automatic repair attempt(s). Mission completed.`
+      : 'CI passed. Mission completed without a preview requirement.', undefined, {
+      checkState,
+      commitSha,
+      progressPercent: 100,
+    });
   }
 
   private async executeRepositoryMission(project: Project, mission: Mission): Promise<Mission> {
@@ -607,6 +774,9 @@ export class MissionExecutor {
       handoffs: [],
       workspaceCheckpoint: undefined,
       resumeAfterRestart: false,
+      ciRepairAttempts: 0,
+      maxCiRepairAttempts: this.maxCiRepairAttempts,
+      lastCiFailureSummary: undefined,
     });
 
     const deadline = Date.now() + this.planningTimeoutMs;
@@ -641,6 +811,7 @@ export class MissionExecutor {
       retryCount: mission.execution?.retryCount ?? 0,
       maxRetries: mission.autonomous.maxRetries,
       stepMaxAttempts: this.stepMaxAttempts,
+      maxCiRepairAttempts: this.maxCiRepairAttempts,
       resumable,
     });
 
@@ -776,7 +947,7 @@ export class MissionExecutor {
             `Risk: \`${mission.riskLevel}\``,
             `Specialist workers: \`${orchestrationSteps.map((step) => step.specialist).join(', ')}\``,
             '',
-            'Generated by Taso Mission Orchestrator V4 with durable checkpoints and restart-safe resume. CI and preview gates must pass before merge.',
+            'Generated by Taso Mission Orchestrator V5 with durable checkpoints, restart-safe resume and bounded CI self-healing. CI and preview gates must pass before merge.',
           ].join('\n'),
         }),
         'Durable unified changes committed and pull request opened.',
@@ -788,6 +959,8 @@ export class MissionExecutor {
         pullRequestNumber: result.number,
         pullRequestUrl: result.url,
         progressPercent: 72,
+        ciRepairAttempts: 0,
+        maxCiRepairAttempts: this.maxCiRepairAttempts,
       }, `Published checkpoint as PR #${result.number}; durable verification state saved.`, { pullRequest: result.url, commitSha: result.commitSha });
       this.addArtifact(mission, { type: 'pull-request', label: `PR #${result.number}`, url: result.url, summary: plan.summary });
 
