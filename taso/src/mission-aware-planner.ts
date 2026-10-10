@@ -15,7 +15,8 @@ function intelligenceContext(mission: Mission) {
     `Mission goal: ${profile.goal}`,
     `Mission mode: ${profile.mode}`,
     profile.requiredSpecialists.length ? `Expected specialist capabilities: ${profile.requiredSpecialists.join(', ')}` : '',
-    ...boundedLines(profile.constraints, 8).map((value) => `Constraint: ${value}`),
+    ...boundedLines(profile.projectContext, 10).map((value) => `Grounded project context: ${value}`),
+    ...boundedLines(profile.constraints, 10).map((value) => `Constraint: ${value}`),
     ...boundedLines(profile.acceptanceHints, 8).map((value) => `Acceptance hint: ${value}`),
     ...skillGuidance.map((value) => `Skill guidance: ${value}`),
   ].filter(Boolean).join('\n');
@@ -74,7 +75,7 @@ export class MissionAwarePlanner extends MultiProviderPlanner {
             '',
             'Durable mission alignment (must remain in scope during implementation and retry):',
             context,
-          ].join('\n').slice(0, 7000),
+          ].join('\n').slice(0, 9000),
         }
       : step;
     return super.planStepChanges(project, mission, files, enrichedStep, handoffContext, signal);
