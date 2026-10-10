@@ -76,15 +76,18 @@ export class PersonalizationStore {
   private readonly path = filePath();
   private snapshot: PersonalizationSnapshot = this.load();
 
-  getCompany(){ return JSON.parse(JSON.stringify(this.snapshot.company)) as CompanyIdentity; }
-  getDefaults(){ return { ...this.snapshot.defaults }; }
+  getCompany(){ this.refresh(); return JSON.parse(JSON.stringify(this.snapshot.company)) as CompanyIdentity; }
+  getDefaults(){ this.refresh(); return { ...this.snapshot.defaults }; }
   getUser(userId: string, fallbackName?: string): UserPersonalization {
+    this.refresh();
     const existing = this.snapshot.users[userId];
     if (existing) return JSON.parse(JSON.stringify(existing)) as UserPersonalization;
     return { userId, preferredName: sanitizeText(fallbackName,80), mode:'normal', personality:{...this.snapshot.defaults}, updatedAt:isoNow() };
   }
   updateUser(userId: string, input: Partial<Omit<UserPersonalization,'userId'|'updatedAt'>>, fallbackName?: string){
-    const current = this.getUser(userId, fallbackName);
+    this.refresh();
+    const existing=this.snapshot.users[userId];
+    const current = existing ? JSON.parse(JSON.stringify(existing)) as UserPersonalization : { userId, preferredName:sanitizeText(fallbackName,80), mode:'normal' as const, personality:{...this.snapshot.defaults}, updatedAt:isoNow() };
     const next: UserPersonalization = {
       ...current,
       preferredName: input.preferredName === undefined ? current.preferredName : sanitizeText(input.preferredName,80),
@@ -94,18 +97,18 @@ export class PersonalizationStore {
       personality: normalizePersonality(input.personality, current.personality),
       updatedAt: isoNow(),
     };
-    this.snapshot.users[userId] = next; this.persist(); return this.getUser(userId);
+    this.snapshot.users[userId] = next; this.persist(); return JSON.parse(JSON.stringify(next)) as UserPersonalization;
   }
   updateCompany(input: Partial<Omit<CompanyIdentity,'updatedAt'>>){
-    const c = this.snapshot.company;
+    this.refresh(); const c = this.snapshot.company;
     if(input.companyName !== undefined) c.companyName = sanitizeText(input.companyName,80) || c.companyName;
     if(input.creatorName !== undefined) c.creatorName = sanitizeText(input.creatorName,120) || c.creatorName;
     if(input.founderName !== undefined) c.founderName = sanitizeText(input.founderName,120) || c.founderName;
     if(input.assistantOrigin !== undefined) c.assistantOrigin = sanitizeText(input.assistantOrigin,600) || c.assistantOrigin;
     if(Array.isArray(input.trustedFacts)) c.trustedFacts = [...new Set(input.trustedFacts.map(v=>sanitizeText(v,300)).filter((v):v is string=>Boolean(v)))].slice(0,50);
-    c.updatedAt = isoNow(); this.persist(); return this.getCompany();
+    c.updatedAt = isoNow(); this.persist(); return JSON.parse(JSON.stringify(c)) as CompanyIdentity;
   }
-  updateDefaults(input: Partial<TasoPersonality>){ this.snapshot.defaults = normalizePersonality(input,this.snapshot.defaults); this.persist(); return this.getDefaults(); }
+  updateDefaults(input: Partial<TasoPersonality>){ this.refresh(); this.snapshot.defaults = normalizePersonality(input,this.snapshot.defaults); this.persist(); return { ...this.snapshot.defaults }; }
 
   buildConversationContext(userId: string, fallbackName?: string){
     const user=this.getUser(userId,fallbackName); const company=this.getCompany();
@@ -138,6 +141,7 @@ export class PersonalizationStore {
       'Kendinden bahsederken sürekli workspace veya operasyon asistanı kalıbını tekrarlama. Sorunun bağlamına göre doğal konuş.',
     ].filter(Boolean).join('\n');
   }
+  private refresh(){ if(this.path) this.snapshot=this.load(); }
   private load():PersonalizationSnapshot{
     const fallback:PersonalizationSnapshot={version:1,company:defaultCompany(),defaults:defaultPersonality(),users:{}};
     if(!this.path) return fallback;
