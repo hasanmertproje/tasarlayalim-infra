@@ -39,13 +39,18 @@ jobs:
           envs="$(api_get "applications/$uuid/envs")"
           deployments="$(api_get "deployments/applications/$uuid?skip=0&take=10")"
           deployment_summary="$(jq -c '[.. | objects | select(has("created_at") and (has("deployment_uuid") or has("uuid")))] | sort_by(.created_at // "") | reverse | .[0] // {}' <<<"$deployments")"
-          raw_logs="$(jq -r '.logs // ""' <<<"$deployment_summary")"
+          deployment_uuid="$(jq -r '.deployment_uuid // .uuid // empty' <<<"$deployment_summary")"
+          [[ -n "$deployment_uuid" ]] || { echo '::error::Latest browser deployment UUID is unavailable.'; exit 1; }
+          deployment_detail="$(api_get "deployments/$deployment_uuid")"
+          raw_logs="$(jq -r '.logs // .deployment_logs // empty' <<<"$deployment_detail")"
+          [[ -n "$raw_logs" ]] || raw_logs="$(jq -r '.logs // .deployment_logs // empty' <<<"$deployment_summary")"
           safe_logs="$(printf '%s\n' "$raw_logs" \
             | sed -E \
               -e 's/([Aa]uthorization:[[:space:]]*[Bb]earer[[:space:]]+)[^[:space:]]+/\1[REDACTED]/g' \
               -e 's/((SECRET|TOKEN|PASSWORD|API_KEY)[=:][[:space:]]*)[^[:space:]]+/\1[REDACTED]/Ig' \
               -e 's/\b[0-9A-Fa-f]{32,}\b/[REDACTED-LONG-HEX]/g' \
-            | tail -n 200)"
+            | tail -n 240)"
+          detail_keys="$(jq -r 'keys | map(select(test("secret|token|password|credential|key";"i")|not)) | join(", ")' <<<"$deployment_detail")"
 
           {
             echo '## TASO browser production deployment discovery'
@@ -53,6 +58,8 @@ jobs:
             echo '- env key presence:'
             jq -r '["PORT","TASO_BROWSER_WORKER_SECRET","TASO_BROWSER_ALLOWED_HOSTS"][] as $k | "  - " + $k + ": " + (any(.[];.key==$k)|tostring)' <<<"$envs"
             jq -r '"- latest deployment UUID: \(.deployment_uuid // .uuid // "n/a")\n- latest deployment status: \(.status // "unknown")\n- latest deployment commit: \(.commit // .git_commit_sha // "n/a")"' <<<"$deployment_summary"
+            jq -r '"- exact deployment status: \(.status // "unknown")\n- exact deployment created_at: \(.created_at // "n/a")\n- exact deployment finished_at: \(.finished_at // .updated_at // "n/a")"' <<<"$deployment_detail"
+            echo "- exact deployment non-sensitive fields: $detail_keys"
             echo '- sanitized deployment logs:'
             echo '```text'
             if [[ -n "$safe_logs" ]]; then printf '%s\n' "$safe_logs"; else echo '[no logs returned]'; fi
@@ -61,4 +68,4 @@ jobs:
             echo 'Read-only diagnostic: no Coolify resource was changed; secret-like values were redacted before output.'
           } | tee -a "$GITHUB_STEP_SUMMARY"
 
-          [[ -n "$raw_logs" ]] || { echo '::error::Latest browser deployment returned no logs.'; exit 1; }
+          [[ -n "$raw_logs" ]] || { echo '::error::Exact browser deployment returned no logs.'; exit 1; }
