@@ -19,21 +19,23 @@ Last updated: 2026-10-12
 - `/api/auth/session` production gate passed with the expected unauthenticated state (`configured=true`, `authenticated=false`).
 
 ## Production deployment evidence
-- Search deployment finished: `25nbsdqevapq2i8rhc3moarl`.
-- Browser deployment finished: `wxh5a42zvmbzhk3fwap9233i`.
+- Search deployment finished: `25nbsdqevapq2i8rhc3moarl`, commit `5aa4035387b82e934005e9fc85bf2d2f3d6a1466`.
+- Browser deployment finished: `wxh5a42zvmbzhk3fwap9233i`, commit `5aa4035387b82e934005e9fc85bf2d2f3d6a1466`.
 - Speaker rebuild was intentionally skipped because its source path was unchanged and the existing runtime was already running.
 - Voice rebuild was intentionally skipped for the same reason.
 - Core performed the one-time owner credential migration without exposing the plaintext value to CI, removed the plaintext owner credential from Coolify configuration, and then redeployed to prove restart from the persisted hash only.
-- Final hash-only Core deployment finished: `r7yhxsqeef4jpjkrlydypbbm`; runtime: `running:healthy`.
-- UI deployment finished in the same successful production run; runtime: `running:healthy`.
+- Final hash-only Core deployment finished: `r7yhxsqeef4jpjkrlydypbbm`, commit `5aa4035387b82e934005e9fc85bf2d2f3d6a1466`; runtime: `running:healthy`.
+- UI deployment finished: `obsqexcobmp446wzeli8rq0m`, commit `5aa4035387b82e934005e9fc85bf2d2f3d6a1466`; runtime: `running:healthy`.
+- A post-deploy read-only Coolify snapshot independently reconfirmed the UI deployment UUID, commit SHA, finished status, production FQDN, and healthy runtime.
 - Off-site S3 backup remains pending; daily local backup fallback remains configured.
 
 ## Live verification boundary
 - **IMPLEMENTED:** yes.
 - **MERGED:** yes.
-- **DEPLOYED:** yes for the production stack acceptance represented by run #14.
-- **LIVE VERIFIED:** yes for public dashboard routing, UI/Core health, unique production-domain ownership, removal of outer Basic Auth, and the unauthenticated session gate.
-- Exact live runtime SHA is still **not independently exposed by a runtime build/SHA signal**. The production run itself was anchored to main SHA `5aa4035387b82e934005e9fc85bf2d2f3d6a1466`, but do not substitute that for a runtime-reported SHA.
+- **DEPLOYED:** yes.
+- **LIVE VERIFIED:** yes for public dashboard routing, UI/Core health, unique production-domain ownership, removal of outer Basic Auth, the unauthenticated session gate, and exact deployed UI commit SHA.
+- **Exact live UI deployment SHA:** `5aa4035387b82e934005e9fc85bf2d2f3d6a1466`, proven by Coolify deployment history for `taso-ui-prod` (`obsqexcobmp446wzeli8rq0m`) after production run #14.
+- A dedicated application-level `/version` or build-info endpoint is still desirable, but exact deployed UI SHA is no longer UNKNOWN because Coolify deployment history now provides independent post-deploy evidence.
 - Production authenticated login/TOTP, real AI conversation, sourced web research, voice web parity, and transport-drop fault injection are separate acceptance scenarios and are not upgraded to LIVE VERIFIED by the health/session checks above.
 
 ## Completed Package A work
@@ -56,7 +58,7 @@ Last updated: 2026-10-12
 - Active health-state truthfulness across all product surfaces.
 - Production authenticated login/TOTP + real AI/web-search acceptance.
 - Off-site S3 backup target.
-- Runtime build/SHA endpoint or equivalent non-secret signal.
+- Optional application-level runtime build/version endpoint for simpler future diagnostics.
 
 ## Architecture decisions
 - Normal conversation must never auto-start a Mission.
