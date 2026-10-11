@@ -19,7 +19,7 @@ jobs:
       COOLIFY_API_TOKEN: ${{ secrets.COOLIFY_API_TOKEN }}
       URGENT_CORE_UUID: 3slhlwoxz7bwdlnjpl7viw0f
     steps:
-      - name: Compare Core metadata and env key names only
+      - name: Compare Core metadata and safe env visibility only
         run: |
           set -Eeuo pipefail
           set +x
@@ -35,7 +35,7 @@ jobs:
           legacy_uuid="$(jq -r '.[]|select(.name=="taso-core-v2")|.uuid' <<<"$apps" | head -n1)"
           prod_uuid="$(jq -r '.[]|select(.name=="taso-core-prod")|.uuid' <<<"$apps" | head -n1)"
           {
-            echo '## TASO Core source discovery — safe metadata only'
+            echo '## TASO Core source discovery — safe metadata / visibility only'
             for item in "urgent:$URGENT_CORE_UUID" "legacy:$legacy_uuid" "production:$prod_uuid"; do
               label="${item%%:*}"
               uuid="${item#*:}"
@@ -47,15 +47,21 @@ jobs:
               detail="$(api_get "applications/$uuid")"
               envs="$(api_get "applications/$uuid/envs")"
               jq -r '"- UUID: \(.uuid // "n/a")\n- name: \(.name // "n/a")\n- repo: \(.git_repository // "n/a")\n- branch: \(.git_branch // "n/a")\n- environment id: \((.environment_id // "n/a")|tostring)\n- status: \(.status // "unknown")\n- fqdn: \(.fqdn // "none")\n- base directory: \(.base_directory // "n/a")"' <<<"$detail"
-              echo '- env keys:'
-              jq -r 'if type=="array" then ([.[].key // empty] | unique | sort | .[] | "  - " + .) else "  - unexpected response shape" end' <<<"$envs"
-              echo '- required-key presence:'
+              echo '- env object fields (names only):'
+              jq -r 'if type=="array" and length>0 then ([.[0] | keys[]] | sort | .[] | "  - " + .) else "  - none" end' <<<"$envs"
+              echo '- required-key presence / safe value visibility:'
               jq -r '
-                def has($k): any(.[]; .key==$k);
-                ["TASO_OWNER_EMAIL","TASO_OWNER_PASSWORD_HASH","TASO_OWNER_PASSWORD","TASO_PROVIDER_NVIDIA_API_KEY","TASO_GITHUB_TOKEN","TASO_GATEWAY_SECRET","TASO_AUTH_ENCRYPTION_KEY"][] as $k |
-                "  - " + $k + ": " + (has($k)|tostring)
+                def row($k):
+                  ([.[]|select(.key==$k)][0] // {}) as $e |
+                  "  - " + $k +
+                  ": present=" + (($e|length>0)|tostring) +
+                  ", value_nonempty=" + (((($e.value // "")|tostring|length)>0)|tostring) +
+                  ", real_value_nonempty=" + (((($e.real_value // "")|tostring|length)>0)|tostring) +
+                  ", preview=" + (($e.is_preview // false)|tostring) +
+                  ", shown_once=" + (($e.is_shown_once // false)|tostring);
+                ["TASO_OWNER_EMAIL","TASO_OWNER_PASSWORD_HASH","TASO_OWNER_PASSWORD","TASO_PROVIDER_NVIDIA_API_KEY","TASO_GITHUB_TOKEN","TASO_GATEWAY_SECRET","TASO_AUTH_ENCRYPTION_KEY"][] as $k | row($k)
               ' <<<"$envs"
             done
             echo
-            echo 'No environment values or real_value fields were printed. No Coolify resource was changed.'
+            echo 'No environment values, lengths, hashes, tokens, passwords, or real_value contents were printed. No Coolify resource was changed.'
           } | tee -a "$GITHUB_STEP_SUMMARY"
