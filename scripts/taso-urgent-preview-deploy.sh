@@ -34,8 +34,9 @@ for kv in "NODE_ENV|production" "TASO_DEPLOYMENT_ENV|preview" "TASO_AUTH_ALLOW_I
 put "$search" PORT 8080;put "$ui" TASO_CORE_UPSTREAM http://taso-urgent-core:3000;put "$ui" TASO_GATEWAY_SECRET "$gateway"
 for app in "$search" "$core" "$ui";do api PATCH "applications/$app" "$(jq -nc --arg branch "$TASO_PREVIEW_BRANCH" '{git_branch:$branch,connect_to_docker_network:true}')">/dev/null;done
 for tuple in "search:$search" "core:$core" "ui:$ui";do name="${tuple%%:*}";uuid="${tuple#*:}";queued="$(api POST "deploy?uuid=$uuid")";jq -e --arg u "$uuid" '(.deployments//[])|any(.resource_uuid==$u)'<<<"$queued">/dev/null||{ echo "::error::$name deploy was not queued";exit 1;};done
-wait_running(){ local uuid="$1" label="$2" status;for _ in $(seq 1 90);do status="$(api GET "applications/$uuid"|jq -r '.status//"unknown"')";[[ "$status" == running:healthy ]]&&return 0;[[ "$status" == exited*||"$status" == degraded* ]]&&{ echo "::error::$label entered $status";return 1;};sleep 5;done;echo "::error::$label did not become healthy";return 1;}
+wait_running(){ local uuid="$1" label="$2" status;for _ in $(seq 1 90);do status="$(api GET "applications/$uuid"|jq -r '.status//"unknown"')";[[ "$status" == running:* || "$status" == running ]]&&{ echo "$label runtime state: $status";return 0;};[[ "$status" == exited*||"$status" == degraded*||"$status" == stopped* ]]&&{ echo "::error::$label entered $status";return 1;};sleep 5;done;echo "::error::$label did not enter a running state";return 1;}
 wait_running "$search" search;wait_running "$core" core;wait_running "$ui" ui
+# Coolify may report running:unknown when an image has no platform healthcheck. Do not call the preview ready from that metadata alone: the public UI health, auth gate, real AI turn, and sourced web-search probes below are authoritative acceptance checks.
 for _ in $(seq 1 24);do curl -fsS "https://$TASO_PREVIEW_DOMAIN/health">/dev/null&&break;sleep 5;done
 curl -fsS "https://$TASO_PREVIEW_DOMAIN/health">/dev/null
 session="$(curl -fsS "https://$TASO_PREVIEW_DOMAIN/api/auth/session")";jq -e '.configured==true and .authenticated==false'<<<"$session">/dev/null
