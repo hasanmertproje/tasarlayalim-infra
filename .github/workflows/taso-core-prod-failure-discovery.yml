@@ -1,0 +1,147 @@
+name: Taso Core Production Failure Discovery
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/taso-core-prod-failure-discovery.yml
+      - scripts/taso-production-core-clone-compat.sh
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    env:
+      COOLIFY_BASE_URL: https://coolify.tasarlayalim.com
+      COOLIFY_API_TOKEN: ${{ secrets.COOLIFY_API_TOKEN }}
+      CORE_UUID: hgqndeyja2gvb5by2meypl6b
+      DEPLOYMENT_UUID: xg2n0gxkc22pxlzvnc7eilbs
+    steps:
+      - name: Checkout repository history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Inspect failed Core deployment safely
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          set +x
+          : "${COOLIFY_API_TOKEN:?COOLIFY_API_TOKEN repository secret is required}"
+
+          api_get() {
+            curl --silent --show-error --fail-with-body \
+              --connect-timeout 15 --max-time 60 \
+              --header "Authorization: Bearer $COOLIFY_API_TOKEN" \
+              --header 'Accept: application/json' \
+              "$COOLIFY_BASE_URL/api/v1/$1"
+          }
+
+          detail="$(api_get "applications/$CORE_UUID")"
+          storages="$(api_get "applications/$CORE_UUID/storages")"
+          envs="$(api_get "applications/$CORE_UUID/envs")"
+          deployment="$(api_get "deployments/$DEPLOYMENT_UUID")"
+          history="$(api_get "deployments/applications/$CORE_UUID?take=20")"
+
+          deployment_record="$(jq -c '[.. | objects | select((.deployment_uuid // .uuid // "") == env.DEPLOYMENT_UUID)] | .[0] // (if type=="object" then . else {} end)' <<<"$deployment")"
+          failed_commit="$(jq -r '.commit // .git_commit_sha // empty' <<<"$deployment_record")"
+          failed_config="$(jq -r '.configuration_hash // empty' <<<"$deployment_record")"
+          [[ -n "$failed_commit" ]] || { echo '::error::Failed deployment commit is unavailable.'; exit 1; }
+
+          history_rows="$(jq -c 'if type=="array" then . elif (.deployments|type)=="array" then .deployments else [.. | arrays] | first // [] end' <<<"$history")"
+          predecessor="$(jq -c --arg failed "$DEPLOYMENT_UUID" '[.[] | select((.deployment_uuid // .uuid // "") != $failed and (.status // "") == "finished")] | sort_by(.updated_at // .created_at // "") | reverse | .[0] // {}' <<<"$history_rows")"
+          predecessor_uuid="$(jq -r '.deployment_uuid // .uuid // empty' <<<"$predecessor")"
+          predecessor_commit="$(jq -r '.commit // .git_commit_sha // empty' <<<"$predecessor")"
+          predecessor_config="$(jq -r '.configuration_hash // empty' <<<"$predecessor")"
+          [[ -n "$predecessor_uuid" && -n "$predecessor_commit" ]] || { echo '::error::No successful predecessor Core deployment was found.'; exit 1; }
+
+          config_same=false
+          if [[ -n "$failed_config" && -n "$predecessor_config" && "$failed_config" == "$predecessor_config" ]]; then
+            config_same=true
+          fi
+
+          git cat-file -e "$failed_commit^{commit}" 2>/dev/null || git fetch --no-tags --depth=1 origin "$failed_commit"
+          git cat-file -e "$predecessor_commit^{commit}" 2>/dev/null || git fetch --no-tags --depth=1 origin "$predecessor_commit"
+          core_tree_same=false
+          if git diff --quiet "$predecessor_commit" "$failed_commit" -- taso; then
+            core_tree_same=true
+          fi
+
+          response_keys="$(jq -r 'if type=="object" then (keys|join(",")) elif type=="array" then "array-length=" + (length|tostring) else type end' <<<"$deployment")"
+          raw_logs="$(jq -r '[.. | objects | .logs? | select(type=="string" and length>0)] | .[0] // ""' <<<"$deployment")"
+          logs_available=false
+          [[ -n "$raw_logs" ]] && logs_available=true
+          safe_error_lines="$(printf '%s\n' "$raw_logs" \
+            | grep -Eai 'error|failed|failure|exit code|exited|enoent|eacces|cannot|unable|invalid|missing|not found|npm|node|docker|health|scrypt|owner credential|hash file|permission|module|compile|build' \
+            | grep -Evai 'authorization|bearer|password|secret|token|api[_-]?key|private[_-]?key|totp|cookie|set-cookie' \
+            | sed -E \
+              -e 's#https?://[^[:space:]]+#[URL-REDACTED]#g' \
+              -e 's/\b[0-9A-Fa-f]{32,}\b/[REDACTED-LONG-HEX]/g' \
+              -e 's/([A-Za-z0-9_+=\/.:-]{48,})/[REDACTED-LONG-VALUE]/g' \
+            | tail -n 140 || true)"
+
+          app_healthy=false
+          app_status="$(jq -r '.status // "unknown"' <<<"$detail")"
+          case "$app_status" in running:healthy|running) app_healthy=true ;; esac
+
+          data_storage=false
+          jq -e 'any(.persistent_storages[]?;.mount_path=="/data")' <<<"$storages" >/dev/null && data_storage=true
+
+          credential_shape=false
+          if jq -e '
+            any(.[];.key=="TASO_OWNER_EMAIL") and
+            any(.[];.key=="TASO_OWNER_PASSWORD_HASH_FILE") and
+            all(.[];.key!="TASO_OWNER_PASSWORD") and
+            all(.[];.key!="TASO_AUTH_MIGRATE_OWNER_PASSWORD") and
+            any(.[];.key=="TASO_PROVIDER_NVIDIA_API_KEY") and
+            any(.[];.key=="TASO_GITHUB_TOKEN")
+          ' <<<"$envs" >/dev/null; then
+            credential_shape=true
+          fi
+
+          current_session="$(curl --silent --show-error --fail-with-body --connect-timeout 10 --max-time 20 https://taso.tasarlayalim.com/api/auth/session)"
+          session_gate=false
+          jq -e '.configured==true and .authenticated==false' <<<"$current_session" >/dev/null && session_gate=true
+
+          evidence_consistent=false
+          if [[ "$app_healthy" == true && "$data_storage" == true && "$credential_shape" == true && "$session_gate" == true && "$core_tree_same" == true ]]; then
+            evidence_consistent=true
+          fi
+
+          {
+            echo '## TASO Core production failure discovery'
+            echo "- current Core status: $app_status"
+            echo "- persistent /data present: $data_storage"
+            echo "- production credential/provider key shape valid (presence only): $credential_shape"
+            echo "- public unauthenticated session gate configured: $session_gate"
+            echo "- failed deployment UUID: $DEPLOYMENT_UUID"
+            echo "- failed deployment status: $(jq -r '.status // "unknown"' <<<"$deployment_record")"
+            echo "- failed deployment commit: $failed_commit"
+            echo "- successful predecessor UUID: $predecessor_uuid"
+            echo "- successful predecessor commit: $predecessor_commit"
+            echo "- Coolify configuration hash unchanged: $config_same"
+            echo '- note: Coolify configuration snapshots include git_commit_sha, so a hash change across commits is informational and is not used as evidence of a Core configuration regression.'
+            echo "- /taso source tree unchanged between predecessor and failed commit: $core_tree_same"
+            echo "- deployment response exposes log field: $logs_available"
+            echo "- deployment response keys/shape: $response_keys"
+            if [[ "$logs_available" != true ]]; then
+              echo '- note: deployment logs are omitted by this API token/response; no secret-bearing permission was added or bypassed.'
+            fi
+            echo '- sanitized error-focused deployment log lines:'
+            echo '```text'
+            if [[ -n "$safe_error_lines" ]]; then printf '%s\n' "$safe_error_lines"; else echo '[no safe deployment log lines available]'; fi
+            echo '```'
+            if [[ "$evidence_consistent" == true ]]; then
+              echo '- classification: the failed deployment rebuilt an unchanged Core while the last successful Core remained healthy with persisted auth intact. The release should preserve that Core instead of forcing an unnecessary rebuild.'
+            else
+              echo '- classification: evidence is not sufficient to preserve the existing Core; keep production blocked.'
+            fi
+            echo 'Read-only diagnostic. No Coolify resource was changed and no secret value was printed.'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
+          [[ "$(jq -r '.status // empty' <<<"$deployment_record")" == failed ]] || { echo '::error::Target deployment is not failed.'; exit 1; }
+          [[ "$evidence_consistent" == true ]] || { echo '::error::Core failure evidence is inconsistent; production remains blocked.'; exit 1; }

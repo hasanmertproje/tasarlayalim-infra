@@ -140,7 +140,14 @@ replace_once(
 '''deploy taso-core-prod "$core"
 deploy taso-ui-prod "$ui"
 ''',
-'''deploy taso-core-prod "$core"
+'''deploy_core_for_release() {
+  if [[ "${owner_credential_mode:-}" == persisted ]] && heavy_worker_unchanged_and_running "$core" taso; then
+    echo "Skipping taso-core-prod rebuild: 'taso' source is unchanged since the latest successful Core deployment, persisted auth is already proven, and the current runtime is healthy."
+    return 0
+  fi
+  deploy taso-core-prod "$core"
+}
+deploy_core_for_release
 if [[ "${owner_credential_mode:-hash}" == migrate ]]; then
   echo "Removing one-time plaintext owner credential from Coolify production configuration."
   core_envs="$(api GET "applications/$core/envs")"
@@ -161,7 +168,7 @@ if [[ "${owner_credential_mode:-hash}" == migrate ]]; then
   echo "One-time plaintext owner credential removed; redeploying Core to prove persisted hash restart."
   deploy taso-core-prod "$core"
 elif [[ "${owner_credential_mode:-}" == persisted ]]; then
-  echo "Production Core will prove the persisted hash again by completing this normal deployment with no plaintext owner credential configured."
+  echo "Production Core persisted auth boundary remains in force with no plaintext owner credential configured."
 fi
 deploy taso-ui-prod "$ui"
 ''',
