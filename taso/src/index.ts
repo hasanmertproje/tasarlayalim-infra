@@ -8,6 +8,7 @@ import { ControlPlaneStore } from './control-plane-store.js';
 import { registerGatewayAuthorizer } from './gateway-authorizer.js';
 import { registerHealthIncidentRoutes } from './health-incidents.js';
 import { IdentityStore } from './identity-store.js';
+import { prepareProductionOwnerCredential } from './owner-credential-bootstrap.js';
 import { registerPersonalizationRoutes } from './personalization-routes.js';
 import { initializePreviewQa } from './preview-qa.js';
 import { PersonalizationStore } from './personalization-store.js';
@@ -21,9 +22,9 @@ import { registerVisualQaRoutes } from './visual-qa.js';
 import { registerVoiceRealtimeRoutes } from './voice-realtime-routes.js';
 import { registerWebResearchRoutes } from './web-research.js';
 
+prepareProductionOwnerCredential();
 const port=Number(process.env.PORT||3000);const host=process.env.HOST||'0.0.0.0';
 const app=buildServer();const identities=new IdentityStore(process.env.TASO_OWNER_EMAIL||'');const auth=new AuthServiceV18(identities);const controlPlane=new ControlPlaneStore();const personalization=new PersonalizationStore();
 const stopPreviewQa=initializePreviewQa(identities);app.addHook('onClose',async()=>stopPreviewQa());
 registerRequestIdentityContext(app);registerAuditHooks(app,auth,controlPlane);registerAuthRoutes(app,auth);registerRbacRoutes(app,auth,identities);registerControlPlaneRoutes(app,auth,identities,controlPlane);registerGatewayAuthorizer(app,auth,identities,controlPlane);registerPersonalizationRoutes(app,personalization);registerSpeakerRecognitionRoutes(app);registerCapabilityRoutes(app);registerVoiceRealtimeRoutes(app);registerLocalVoiceRoutes(app);registerWebResearchRoutes(app);registerBrowserOperatorRoutes(app);registerVisualQaRoutes(app);registerVerificationRoutes(app);registerHealthIncidentRoutes(app);
 app.listen({port,host}).catch(error=>{app.log.error(error);process.exit(1)});
-
