@@ -18,18 +18,33 @@ jobs:
       COOLIFY_BASE_URL: https://coolify.tasarlayalim.com
       COOLIFY_API_TOKEN: ${{ secrets.COOLIFY_API_TOKEN }}
     steps:
-      - name: Read non-secret production service state
+      - name: Read non-secret production service and deployment state
         shell: bash
         run: |
           set -Eeuo pipefail
-          tmp="$(mktemp)"
-          trap 'rm -f "$tmp"' EXIT
-          code="$(curl --silent --show-error --connect-timeout 15 --max-time 60 --output "$tmp" --write-out '%{http_code}' \
-            --header "Authorization: Bearer $COOLIFY_API_TOKEN" --header 'Accept: application/json' \
-            "$COOLIFY_BASE_URL/api/v1/applications")"
-          [[ "$code" =~ ^2 ]] || { echo "::error::Coolify applications snapshot failed (HTTP $code)."; exit 1; }
-          jq -r '
-            ["taso-search-prod","taso-browser-prod","taso-speaker-prod","taso-voice-prod","taso-core-prod","taso-ui-prod"] as $names
-            | .[] | select(.name as $n | $names | index($n))
-            | "STACK name=\(.name) uuid=\(.uuid) status=\(.status//"unknown") fqdn=\(.fqdn//"") branch=\(.git_branch//"") base=\(.base_directory//"")"
-          ' "$tmp" | sort
+          tmp="$(mktemp -d)"
+          trap 'rm -rf "$tmp"' EXIT
+          api_get() {
+            local path="$1" out="$2" code="" rc=0 attempt=1
+            while ((attempt<=4)); do
+              rc=0
+              code="$(curl --silent --show-error --connect-timeout 15 --max-time 60 --output "$out" --write-out '%{http_code}' \
+                --header "Authorization: Bearer $COOLIFY_API_TOKEN" --header 'Accept: application/json' \
+                "$COOLIFY_BASE_URL/api/v1/$path")" || rc=$?
+              if ((rc==0)) && [[ "$code" =~ ^2 ]]; then return 0; fi
+              if ((attempt<4)) && { ((rc!=0)) || [[ "$code" == 408 || "$code" == 429 || "$code" =~ ^5 ]]; }; then sleep $((attempt*2)); ((attempt+=1)); continue; fi
+              echo "::error::Coolify GET $path failed (curl=$rc HTTP=${code:-000})."; return 1
+            done
+          }
+          api_get applications "$tmp/apps.json"
+          jq -c '[.[] | select(.name|IN("taso-search-prod","taso-browser-prod","taso-speaker-prod","taso-voice-prod","taso-core-prod","taso-ui-prod"))] | sort_by(.name)[]' "$tmp/apps.json" > "$tmp/apps.ndjson"
+          while IFS= read -r app; do
+            name="$(jq -r '.name' <<<"$app")"
+            uuid="$(jq -r '.uuid' <<<"$app")"
+            status="$(jq -r '.status//"unknown"' <<<"$app")"
+            fqdn="$(jq -r '.fqdn//""' <<<"$app")"
+            echo "STACK name=$name uuid=$uuid status=$status fqdn=$fqdn"
+            api_get "deployments/applications/$uuid?skip=0&take=5" "$tmp/deployments.json"
+            latest="$(jq -c '[.. | objects | select(has("created_at") and (has("deployment_uuid") or has("uuid")))] | sort_by(.created_at//"") | reverse | .[0]//{}' "$tmp/deployments.json")"
+            echo "DEPLOY name=$name uuid=$(jq -r '.deployment_uuid//.uuid//"none"' <<<"$latest") status=$(jq -r '.status//"unknown"' <<<"$latest") created=$(jq -r '.created_at//"unknown"' <<<"$latest") commit=$(jq -r '.commit//.git_commit_sha//"unknown"' <<<"$latest")"
+          done < "$tmp/apps.ndjson"
