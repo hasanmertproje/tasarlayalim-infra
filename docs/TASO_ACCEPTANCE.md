@@ -38,6 +38,7 @@ A scenario is PASS only with executable evidence: CI/test log, runtime response,
 ### Main/deploy identity
 - Current production deployment run was triggered from main SHA `5aa4035387b82e934005e9fc85bf2d2f3d6a1466` (PR #143 merge).
 - `Taso Production Deploy` run #14, run ID `38178848246`: **PASS**.
+- Post-deploy read-only Coolify snapshot: **PASS**.
 
 ### Production routing and auth boundary
 - DNS preflight: PASS.
@@ -47,19 +48,20 @@ A scenario is PASS only with executable evidence: CI/test log, runtime response,
 - `/api/auth/session` unauthenticated gate: PASS (`configured=true`, `authenticated=false`).
 
 ### Production service deployment evidence
-- Search exact deployment completion: PASS — `25nbsdqevapq2i8rhc3moarl`.
-- Browser exact deployment completion: PASS — `wxh5a42zvmbzhk3fwap9233i`.
+- Search exact deployment completion: PASS — `25nbsdqevapq2i8rhc3moarl`, commit `5aa4035387b82e934005e9fc85bf2d2f3d6a1466`.
+- Browser exact deployment completion: PASS — `wxh5a42zvmbzhk3fwap9233i`, commit `5aa4035387b82e934005e9fc85bf2d2f3d6a1466`.
 - Speaker source-aware skip: PASS — unchanged source + existing running runtime; no unnecessary rebuild.
 - Voice source-aware skip: PASS — unchanged source + existing running runtime; no unnecessary rebuild.
 - First Core migration boot: PASS; runtime became healthy.
 - One-time plaintext owner credential removal from Coolify configuration: PASS without exposing the secret to CI.
-- Second hash-only Core restart/deploy: PASS — `r7yhxsqeef4jpjkrlydypbbm`, runtime `running:healthy`.
-- UI deployment completion: PASS; runtime `running:healthy`.
+- Second hash-only Core restart/deploy: PASS — `r7yhxsqeef4jpjkrlydypbbm`, commit `5aa4035387b82e934005e9fc85bf2d2f3d6a1466`, runtime `running:healthy`.
+- UI deployment completion: PASS — `obsqexcobmp446wzeli8rq0m`, commit `5aa4035387b82e934005e9fc85bf2d2f3d6a1466`, runtime `running:healthy`.
+- Post-deploy snapshot reconfirmed UI FQDN `https://taso.tasarlayalim.com`, deployment status `finished`, exact commit SHA, and healthy runtime: PASS.
 - Final public UI/Core health: PASS.
 - Final production unauthenticated session gate: PASS.
 
 ### Production acceptance boundary
-The production dashboard route and unauthenticated security boundary are LIVE VERIFIED. The following were not exercised by production run #14 and therefore remain separate acceptance work:
+The production dashboard route, unauthenticated security boundary, and exact deployed UI commit SHA are LIVE VERIFIED. The following were not exercised by production run #14 and therefore remain separate acceptance work:
 - authenticated owner login,
 - TOTP enrollment/verification after production restart,
 - real AI conversation on production,
@@ -67,7 +69,7 @@ The production dashboard route and unauthenticated security boundary are LIVE VE
 - voice-originated web research,
 - production transport-drop recovery fault injection.
 
-The exact live runtime SHA is still not independently reported by a runtime build/SHA endpoint. Do not infer it solely from the workflow checkout SHA.
+A dedicated application-level `/version` or build-info endpoint would make future diagnostics simpler, but the exact deployed UI SHA is no longer UNKNOWN because Coolify deployment history independently reports the finished UI deployment commit.
 
 ## Production hardening gates
 - Production patch-chain no-mutation CI: PASS on PR #143.
@@ -88,7 +90,7 @@ The exact live runtime SHA is still not independently reported by a runtime buil
 - 2FA persistence across deploy/restart: PARTIAL CI COVERAGE EXISTS; production restart/deploy persistence still NOT VERIFIED.
 - Active health-state truthfulness: NOT VERIFIED as a dedicated slice.
 - Off-site S3 backup: PENDING.
-- Runtime build/SHA signal: PENDING.
+- Application-level build/version endpoint: OPTIONAL HARDENING / PENDING.
 
 ## Next slice acceptance target — voice web parity / final transcript
 1. Interim speech transcript is displayed only and does not call the conversation POST endpoint — REQUIRED.
@@ -114,4 +116,4 @@ Still required before v1.0 can be called complete:
 - no fake preview or fake ready states.
 
 ## Do not convert UNKNOWN into PASS
-If deployment, runtime SHA, authenticated production behavior, search-provider readiness, multi-agent runtime behavior, or security checks cannot be directly verified, record them as NOT RUN / NOT VERIFIED / UNKNOWN.
+If deployment, authenticated production behavior, search-provider readiness, multi-agent runtime behavior, or security checks cannot be directly verified, record them as NOT RUN / NOT VERIFIED / UNKNOWN.
