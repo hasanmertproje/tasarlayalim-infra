@@ -15,38 +15,57 @@ Last updated: 2026-10-11
 - `Taso CI` run for that main SHA completed successfully.
 - Open PRs observed at package start: #62, #60, #16.
 
+## Current Package A branch
+- Pull request: **#119 — `fix: Package A conversation recovery parity`**.
+- Verified pre-merge head before this state-record update: `e35db28cf69eff8cee37563285e2ea6afde0b092`.
+- `Taso CI` run **621**: SUCCESS.
+- `Taso Browser CI` run **104**: SUCCESS.
+- `Taso Urgent Preview` run **20**: SUCCESS.
+- The preview acceptance run verified exact Coolify deployment completion before probing runtime, public UI health, unauthenticated session gate, temporary preview QA login, TOTP enrollment, authenticated project access, direct search provider access, real AI chat, and sourced web-search flow.
+
 ## Live verification
 - Active user URL per TASO v1 specification: `https://taso-v2.demo.tasarlayalim.com`.
 - Last live verified SHA: **UNKNOWN / NOT YET PROVEN FROM A RUNTIME SHA SIGNAL**.
-- Browser probe from the current agent environment could not directly access the authenticated live URL; do not infer deployment from merge or CI alone.
+- Preview acceptance is not evidence that the active user URL serves the same SHA.
+- Do not infer production deployment from PR CI, preview success, or merge alone.
 
 ## Current package status
-- IMPLEMENTED: response recovery parity added on the Package A feature branch for `ConversationBridgeV2` so both typed and voice-originated turns can recover a completed server-side answer after a client transport drop.
+- IMPLEMENTED: yes — response recovery parity is implemented for `ConversationBridgeV2`; typed and voice-originated turns use the same bounded persisted-history recovery path after transport failure.
+- PRE-MERGE VERIFIED: yes — CI, browser acceptance, auth/security smoke, isolated preview deployment, real AI chat, and sourced web search are green on the verified branch head above.
 - MERGED: no.
 - DEPLOYED: no.
 - LIVE VERIFIED: no.
 
 ## Completed
-- Verified repository/default branch.
-- Verified main head SHA.
-- Verified open PR set.
-- Verified latest main CI success.
+- Verified repository/default branch and package-start main SHA.
 - Verified PR #118 only changed `DashboardChat.tsx`, leaving `ConversationBridgeV2.tsx` without equivalent recovery logic.
-- Created Package A branch from the verified main SHA.
+- Added bounded history-based recovery to `ConversationBridgeV2` without blind turn resubmission.
+- Preserved the shared text/voice conversation path.
+- Repaired the isolated preview acceptance path without weakening login/2FA:
+  - portable Coolify destination lookup,
+  - exact deployment UUID completion wait,
+  - truthful handling of `running:unknown` search metadata,
+  - explicit preview-only SearXNG secret,
+  - direct search-provider acceptance probe,
+  - natural-language web search query normalization.
+- Verified Core tests, UI build/container, browser worker/visual acceptance, TOTP/trusted-device/gateway smoke, direct unauthenticated Core rejection, real preview AI chat, and sourced web research.
 
 ## Open blockers
-- Need CI on the new PR.
-- Need merge only after CI/security checks are green.
-- Need post-merge deployment evidence and live acceptance.
-- Need a reliable runtime build/SHA signal before claiming exact live SHA.
+- PR #119 must still pass the required gates after this documentation-only state update.
+- PR #119 must then be merged before any deployment claim.
+- Need post-merge deployment evidence and active-URL acceptance before marking DEPLOYED or LIVE VERIFIED.
+- Need a reliable runtime build/SHA signal before claiming an exact live SHA.
 
 ## Operator actions required
-- None for this low-risk package unless a HIGH_IMPACT boundary is discovered.
+- None for the current pre-merge work.
+- If a later step requires a HIGH_IMPACT production action, request approval immediately before that action.
 
 ## Architecture decisions
-- Text and voice recovery must share the same conversation persistence path.
-- Recovery is bounded and reads authoritative conversation history; it does not re-submit the user turn automatically.
-- No secret, auth, DNS, migration, billing, or production-data behavior is changed by this slice.
+- Text and voice recovery share the same conversation persistence path.
+- Recovery is bounded and reads authoritative project-scoped conversation history; it does not automatically re-submit the user turn.
+- Search-provider deployment metadata alone is not readiness evidence; direct provider and end-to-end sourced-search probes are required.
+- Preview authentication remains real login + TOTP. Acceptance tooling must not bypass or weaken auth.
+- No secret, DNS, migration, billing, or production-data behavior is changed by this slice.
 
 ## Security invariants
 - No auth/2FA bypass.
@@ -54,9 +73,10 @@ Last updated: 2026-10-11
 - No destructive migration or data deletion.
 - Project-scoped conversation history remains the recovery source.
 - A client transport failure must not be reported as a server failure until bounded recovery is attempted.
+- Preview-only credentials are temporary and must never enable/re-enable an existing production identity.
 
 ## Next package
-After this slice is LIVE VERIFIED, continue Package A with the next smallest verified gap among:
+After this slice is MERGED, DEPLOYED, and LIVE VERIFIED, continue Package A with the next smallest verified gap among:
 1. voice web parity / final-transcript behavior,
 2. voice history/thread and reopen behavior,
 3. safe markdown rendering,
