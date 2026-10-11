@@ -1,0 +1,61 @@
+name: Taso Core Source Discovery
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/taso-core-source-discovery.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      COOLIFY_BASE_URL: https://coolify.tasarlayalim.com
+      COOLIFY_API_TOKEN: ${{ secrets.COOLIFY_API_TOKEN }}
+      URGENT_CORE_UUID: 3slhlwoxz7bwdlnjpl7viw0f
+    steps:
+      - name: Compare Core metadata and env key names only
+        run: |
+          set -Eeuo pipefail
+          set +x
+          : "${COOLIFY_API_TOKEN:?COOLIFY_API_TOKEN repository secret is required}"
+          api_get() {
+            curl --silent --show-error --fail-with-body \
+              --connect-timeout 15 --max-time 60 \
+              --header "Authorization: Bearer $COOLIFY_API_TOKEN" \
+              --header 'Accept: application/json' \
+              "$COOLIFY_BASE_URL/api/v1/$1"
+          }
+          apps="$(api_get applications)"
+          legacy_uuid="$(jq -r '.[]|select(.name=="taso-core-v2")|.uuid' <<<"$apps" | head -n1)"
+          prod_uuid="$(jq -r '.[]|select(.name=="taso-core-prod")|.uuid' <<<"$apps" | head -n1)"
+          {
+            echo '## TASO Core source discovery — safe metadata only'
+            for item in "urgent:$URGENT_CORE_UUID" "legacy:$legacy_uuid" "production:$prod_uuid"; do
+              label="${item%%:*}"
+              uuid="${item#*:}"
+              echo "### $label"
+              if [[ -z "$uuid" ]]; then
+                echo '- application not found'
+                continue
+              fi
+              detail="$(api_get "applications/$uuid")"
+              envs="$(api_get "applications/$uuid/envs")"
+              jq -r '"- UUID: \(.uuid // "n/a")\n- name: \(.name // "n/a")\n- repo: \(.git_repository // "n/a")\n- branch: \(.git_branch // "n/a")\n- environment id: \((.environment_id // "n/a")|tostring)\n- status: \(.status // "unknown")\n- fqdn: \(.fqdn // "none")\n- base directory: \(.base_directory // "n/a")"' <<<"$detail"
+              echo '- env keys:'
+              jq -r 'if type=="array" then ([.[].key // empty] | unique | sort | .[] | "  - " + .) else "  - unexpected response shape" end' <<<"$envs"
+              echo '- required-key presence:'
+              jq -r '
+                def has($k): any(.[]; .key==$k);
+                ["TASO_OWNER_EMAIL","TASO_OWNER_PASSWORD_HASH","TASO_OWNER_PASSWORD","TASO_PROVIDER_NVIDIA_API_KEY","TASO_GITHUB_TOKEN","TASO_GATEWAY_SECRET","TASO_AUTH_ENCRYPTION_KEY"][] as $k |
+                "  - " + $k + ": " + (has($k)|tostring)
+              ' <<<"$envs"
+            done
+            echo
+            echo 'No environment values or real_value fields were printed. No Coolify resource was changed.'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
