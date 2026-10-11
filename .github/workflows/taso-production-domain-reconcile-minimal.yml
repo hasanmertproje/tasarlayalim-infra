@@ -1,0 +1,82 @@
+name: Taso Production Domain Reconcile Minimal
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - fix/taso-production-domain-ownership-20261012
+    paths:
+      - ".github/workflows/taso-production-domain-reconcile-minimal.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  reconcile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      COOLIFY_BASE_URL: https://coolify.tasarlayalim.com
+      COOLIFY_API_TOKEN: ${{ secrets.COOLIFY_API_TOKEN }}
+      LEGACY_UUID: tw8kbaxloxgv938tyn8x7dqu
+      PROD_UI_UUID: biuki5ik9ifbphwalsmgukmq
+      PROD_DOMAIN: taso.tasarlayalim.com
+      DEMO_DOMAIN: taso-v2.demo.tasarlayalim.com
+      REPOSITORY: hasanmertproje/tasarlayalim-infra
+    steps:
+      - name: Remove production domain from legacy command center only
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          tmp="$(mktemp -d)"
+          trap 'rm -rf "$tmp"' EXIT
+          get() {
+            local path="$1" out="$2" code="" rc=0 attempt=1
+            while ((attempt<=4)); do
+              rc=0
+              code="$(curl --silent --show-error --connect-timeout 15 --max-time 60 --output "$out" --write-out '%{http_code}' \
+                --header "Authorization: Bearer $COOLIFY_API_TOKEN" --header 'Accept: application/json' \
+                "$COOLIFY_BASE_URL/api/v1/$path")" || rc=$?
+              if ((rc==0)) && [[ "$code" =~ ^2 ]]; then return 0; fi
+              if ((attempt<4)) && { ((rc!=0)) || [[ "$code" == 408 || "$code" == 429 || "$code" =~ ^5 ]]; }; then sleep $((attempt*3)); ((attempt+=1)); continue; fi
+              echo "::error::Coolify GET $path failed (curl=$rc HTTP=${code:-000})."; return 1
+            done
+          }
+
+          get "applications/$LEGACY_UUID" "$tmp/legacy-before.json"
+          jq -e --arg repo "$REPOSITORY" --arg prod "https://$PROD_DOMAIN" --arg demo "https://$DEMO_DOMAIN" '
+            .uuid=="tw8kbaxloxgv938tyn8x7dqu"
+            and .name=="taso-command-center-v2"
+            and .git_repository==$repo
+            and ((.fqdn//"")|split(",")|index($prod)!=null)
+            and ((.fqdn//"")|split(",")|index($demo)!=null)
+          ' "$tmp/legacy-before.json" >/dev/null || { echo "::error::Legacy resource guard failed; refusing domain mutation."; exit 1; }
+
+          body="$(DOMAIN="https://$DEMO_DOMAIN" node -e 'process.stdout.write(JSON.stringify({domains:process.env.DOMAIN}))')"
+          code=""; rc=0
+          code="$(curl --silent --show-error --connect-timeout 15 --max-time 60 --output "$tmp/patch.json" --write-out '%{http_code}' \
+            --header "Authorization: Bearer $COOLIFY_API_TOKEN" --header 'Accept: application/json' --header 'Content-Type: application/json' \
+            --data-binary "$body" -X PATCH "$COOLIFY_BASE_URL/api/v1/applications/$LEGACY_UUID")" || rc=$?
+          if ((rc!=0)) || [[ ! "$code" =~ ^2 ]]; then
+            echo "::warning::Minimal legacy-domain PATCH was not confirmed (curl=$rc HTTP=${code:-000})."
+            jq -c '{message,errors,warning,conflicts}' "$tmp/patch.json" 2>/dev/null || true
+          fi
+
+          get "applications/$LEGACY_UUID" "$tmp/legacy-after.json"
+          actual="$(jq -r '.fqdn//""' "$tmp/legacy-after.json")"
+          [[ "$actual" == "https://$DEMO_DOMAIN" ]] || { echo "::error::Legacy domain update did not apply. Current fqdn=$actual"; exit 1; }
+          echo "Legacy command center now owns only https://$DEMO_DOMAIN"
+
+          get "applications/$PROD_UI_UUID" "$tmp/ui.json"
+          jq -e --arg prod "https://$PROD_DOMAIN" --arg repo "$REPOSITORY" '
+            .uuid=="biuki5ik9ifbphwalsmgukmq" and .name=="taso-ui-prod" and .environment_id==2 and .git_repository==$repo and .fqdn==$prod
+          ' "$tmp/ui.json" >/dev/null || { echo "::error::Production UI domain guard failed after legacy cleanup."; exit 1; }
+
+          get applications "$tmp/apps.json"
+          count="$(jq --arg prod "$PROD_DOMAIN" '[.[]|select(((.fqdn//"")|ascii_downcase)|contains($prod|ascii_downcase))]|length' "$tmp/apps.json")"
+          [[ "$count" == 1 ]] || { echo "::error::Expected one production domain owner after cleanup, found $count."; exit 1; }
+          echo "Production domain ownership is unique: taso-ui-prod ($PROD_UI_UUID)."
+
+          http="$(curl --silent --show-error --output "$tmp/health" --write-out '%{http_code}' --connect-timeout 10 --max-time 20 "https://$PROD_DOMAIN/health" || true)"
+          [[ "$http" == 200 ]] && grep -q 'ok' "$tmp/health" || { echo "::error::Production UI health probe failed after domain cleanup (HTTP $http)."; exit 1; }
+          echo "Production UI health responds correctly on https://$PROD_DOMAIN/health"
