@@ -1,0 +1,35 @@
+name: Taso Production Stack Status
+
+on:
+  push:
+    branches:
+      - fix/taso-production-domain-ownership-20261012
+    paths:
+      - ".github/workflows/taso-production-stack-status.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  status:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      COOLIFY_BASE_URL: https://coolify.tasarlayalim.com
+      COOLIFY_API_TOKEN: ${{ secrets.COOLIFY_API_TOKEN }}
+    steps:
+      - name: Read non-secret production service state
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          tmp="$(mktemp)"
+          trap 'rm -f "$tmp"' EXIT
+          code="$(curl --silent --show-error --connect-timeout 15 --max-time 60 --output "$tmp" --write-out '%{http_code}' \
+            --header "Authorization: Bearer $COOLIFY_API_TOKEN" --header 'Accept: application/json' \
+            "$COOLIFY_BASE_URL/api/v1/applications")"
+          [[ "$code" =~ ^2 ]] || { echo "::error::Coolify applications snapshot failed (HTTP $code)."; exit 1; }
+          jq -r '
+            ["taso-search-prod","taso-browser-prod","taso-speaker-prod","taso-voice-prod","taso-core-prod","taso-ui-prod"] as $names
+            | .[] | select(.name as $n | $names | index($n))
+            | "STACK name=\(.name) uuid=\(.uuid) status=\(.status//"unknown") fqdn=\(.fqdn//"") branch=\(.git_branch//"") base=\(.base_directory//"")"
+          ' "$tmp" | sort
