@@ -1,0 +1,49 @@
+name: Taso Production Patch CI
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/taso-production-deploy.yml"
+      - ".github/workflows/taso-production-patch-ci.yml"
+      - "scripts/taso-production-deploy.sh"
+      - "scripts/taso-production-bootstrap.sh"
+      - "scripts/taso-production-secret-compat.sh"
+      - "scripts/taso-production-core-clone-compat.sh"
+      - "scripts/taso-production-api-retry-compat.sh"
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/taso-production-deploy.yml"
+      - ".github/workflows/taso-production-patch-ci.yml"
+      - "scripts/taso-production-deploy.sh"
+      - "scripts/taso-production-bootstrap.sh"
+      - "scripts/taso-production-secret-compat.sh"
+      - "scripts/taso-production-core-clone-compat.sh"
+      - "scripts/taso-production-api-retry-compat.sh"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  patch-chain:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Validate full production compatibility chain
+        env:
+          TASO_PATCH_VALIDATE_ONLY: "1"
+        run: bash scripts/taso-production-api-retry-compat.sh
+      - name: Confirm no production token is required
+        run: |
+          test -z "${COOLIFY_API_TOKEN:-}"
+          echo "Validation completed without Coolify credentials or mutations."
