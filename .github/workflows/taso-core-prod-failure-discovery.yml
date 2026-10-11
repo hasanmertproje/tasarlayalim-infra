@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - .github/workflows/taso-core-prod-failure-discovery.yml
+      - scripts/taso-production-core-clone-compat.sh
   workflow_dispatch:
 
 permissions:
@@ -107,7 +108,7 @@ jobs:
           jq -e '.configured==true and .authenticated==false' <<<"$current_session" >/dev/null && session_gate=true
 
           evidence_consistent=false
-          if [[ "$app_healthy" == true && "$data_storage" == true && "$credential_shape" == true && "$session_gate" == true && "$config_same" == true && "$core_tree_same" == true ]]; then
+          if [[ "$app_healthy" == true && "$data_storage" == true && "$credential_shape" == true && "$session_gate" == true && "$core_tree_same" == true ]]; then
             evidence_consistent=true
           fi
 
@@ -123,6 +124,7 @@ jobs:
             echo "- successful predecessor UUID: $predecessor_uuid"
             echo "- successful predecessor commit: $predecessor_commit"
             echo "- Coolify configuration hash unchanged: $config_same"
+            echo '- note: Coolify configuration snapshots include git_commit_sha, so a hash change across commits is informational and is not used as evidence of a Core configuration regression.'
             echo "- /taso source tree unchanged between predecessor and failed commit: $core_tree_same"
             echo "- deployment response exposes log field: $logs_available"
             echo "- deployment response keys/shape: $response_keys"
@@ -134,9 +136,9 @@ jobs:
             if [[ -n "$safe_error_lines" ]]; then printf '%s\n' "$safe_error_lines"; else echo '[no safe deployment log lines available]'; fi
             echo '```'
             if [[ "$evidence_consistent" == true ]]; then
-              echo '- classification: failed redeploy occurred with unchanged Core source/config while the prior production Core remained healthy; treat as deployment-orchestration/transient failure, not a proven application regression.'
+              echo '- classification: the failed deployment rebuilt an unchanged Core while the last successful Core remained healthy with persisted auth intact. The release should preserve that Core instead of forcing an unnecessary rebuild.'
             else
-              echo '- classification: evidence is not sufficient to call this transient; keep production blocked.'
+              echo '- classification: evidence is not sufficient to preserve the existing Core; keep production blocked.'
             fi
             echo 'Read-only diagnostic. No Coolify resource was changed and no secret value was printed.'
           } | tee -a "$GITHUB_STEP_SUMMARY"
