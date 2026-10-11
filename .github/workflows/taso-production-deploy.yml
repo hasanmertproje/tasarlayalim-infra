@@ -11,6 +11,7 @@ on:
       - "scripts/taso-production-secret-compat.sh"
       - "scripts/taso-production-core-clone-compat.sh"
       - "docker/taso-browser/**"
+      - "docker/taso-speaker/**"
 
 permissions:
   contents: read
