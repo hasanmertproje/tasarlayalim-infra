@@ -1,0 +1,116 @@
+name: Taso Production UI Only Deploy
+
+on:
+  push:
+    branches:
+      - fix/taso-production-domain-ownership-20261012
+    paths:
+      - ".github/workflows/taso-production-ui-only-deploy.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      COOLIFY_BASE_URL: https://coolify.tasarlayalim.com
+      COOLIFY_API_TOKEN: ${{ secrets.COOLIFY_API_TOKEN }}
+      UI_UUID: biuki5ik9ifbphwalsmgukmq
+      CORE_UUID: hgqndeyja2gvb5by2meypl6b
+      PROD_DOMAIN: taso.tasarlayalim.com
+      REPOSITORY: hasanmertproje/tasarlayalim-infra
+    steps:
+      - name: Deploy only production UI and run public acceptance
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          set +x
+          tmp="$(mktemp -d)"
+          trap 'rm -rf "$tmp"' EXIT
+          api_get() {
+            local path="$1" out="$2" code="" rc=0 attempt=1
+            while ((attempt<=4)); do
+              rc=0
+              code="$(curl --silent --show-error --connect-timeout 15 --max-time 90 --output "$out" --write-out '%{http_code}' \
+                --header "Authorization: Bearer $COOLIFY_API_TOKEN" --header 'Accept: application/json' \
+                "$COOLIFY_BASE_URL/api/v1/$path")" || rc=$?
+              if ((rc==0)) && [[ "$code" =~ ^2 ]]; then return 0; fi
+              if ((attempt<4)) && { ((rc!=0)) || [[ "$code" == 408 || "$code" == 429 || "$code" =~ ^5 ]]; }; then sleep $((attempt*3)); ((attempt+=1)); continue; fi
+              echo "::error::Coolify GET $path failed (curl=$rc HTTP=${code:-000})."; return 1
+            done
+          }
+
+          api_get "applications/$UI_UUID" "$tmp/ui.json"
+          api_get "applications/$CORE_UUID" "$tmp/core.json"
+          api_get applications "$tmp/apps.json"
+          api_get "applications/$UI_UUID/envs" "$tmp/ui-envs.json"
+
+          jq -e --arg repo "$REPOSITORY" --arg fqdn "https://$PROD_DOMAIN" '
+            .uuid=="biuki5ik9ifbphwalsmgukmq" and .name=="taso-ui-prod" and .environment_id==2 and .git_repository==$repo and .git_branch=="main" and .base_directory=="/taso-ui" and .dockerfile_location=="/Dockerfile" and .fqdn==$fqdn and (.is_http_basic_auth_enabled//false)==false
+          ' "$tmp/ui.json" >/dev/null || { echo "::error::Production UI identity/config guard failed."; exit 1; }
+          jq -e '.uuid=="hgqndeyja2gvb5by2meypl6b" and .name=="taso-core-prod" and (.status|startswith("running")) and ((.fqdn//"")=="")' "$tmp/core.json" >/dev/null || { echo "::error::Production Core is not a healthy internal prerequisite."; exit 1; }
+          owners="$(jq --arg d "$PROD_DOMAIN" '[.[]|select(((.fqdn//"")|ascii_downcase)|contains($d|ascii_downcase))]|length' "$tmp/apps.json")"
+          [[ "$owners" == 1 ]] || { echo "::error::Production domain must have exactly one application owner before UI deploy; found $owners."; exit 1; }
+          jq -e '["TASO_CORE_UPSTREAM","TASO_GATEWAY_SECRET"][] as $k | any(.[];.key==$k)' "$tmp/ui-envs.json" >/dev/null || { echo "::error::Production UI required env-key presence guard failed."; exit 1; }
+          echo "UI/Core/domain/env preflight passed; no secret values were read."
+
+          rc=0; code=""
+          code="$(curl --silent --show-error --connect-timeout 15 --max-time 90 --output "$tmp/queue.json" --write-out '%{http_code}' \
+            --header "Authorization: Bearer $COOLIFY_API_TOKEN" --header 'Accept: application/json' \
+            -X POST "$COOLIFY_BASE_URL/api/v1/deploy?uuid=$UI_UUID")" || rc=$?
+          if ((rc!=0)) || [[ ! "$code" =~ ^2 ]]; then echo "::error::Production UI deployment could not be queued (curl=$rc HTTP=${code:-000})."; exit 1; fi
+          duuid="$(jq -r --arg u "$UI_UUID" '[.deployments[]?|select(.resource_uuid==$u)][0].deployment_uuid//empty' "$tmp/queue.json")"
+          [[ -n "$duuid" ]] || { echo "::error::Production UI queue response had no exact deployment UUID."; exit 1; }
+          echo "Production UI deployment queued with exact deployment tracking."
+
+          for i in $(seq 1 180); do
+            api_get "deployments/$duuid" "$tmp/deployment.json"
+            status="$(jq -r '.status//"unknown"' "$tmp/deployment.json")"
+            case "$status" in
+              finished) echo "Production UI deployment finished."; break ;;
+              failed|cancelled|cancelled-by-user) echo "::error::Production UI deployment entered $status."; exit 1 ;;
+            esac
+            ((i<180)) || { echo "::error::Timed out waiting for exact production UI deployment."; exit 1; }
+            sleep 5
+          done
+
+          unhealthy=0
+          for i in $(seq 1 60); do
+            api_get "applications/$UI_UUID" "$tmp/ui-after.json"
+            state="$(jq -r '.status//"unknown"' "$tmp/ui-after.json")"
+            if [[ "$state" == running || "$state" == running:* ]]; then
+              if [[ "$state" != running:unhealthy ]]; then echo "Production UI runtime state: $state"; break; fi
+            fi
+            if [[ "$state" == exited || "$state" == exited:unhealthy || "$state" == running:unhealthy ]]; then
+              unhealthy=$((unhealthy+1))
+              ((unhealthy<24)) || { echo "::error::Production UI remained unhealthy for the full stabilization window ($state)."; exit 1; }
+            elif [[ "$state" == errored* || "$state" == stopped* ]]; then
+              echo "::error::Production UI entered terminal runtime state $state."; exit 1
+            fi
+            ((i<60)) || { echo "::error::Timed out waiting for production UI runtime."; exit 1; }
+            sleep 5
+          done
+
+          for i in $(seq 1 24); do
+            health="$(curl --silent --show-error --connect-timeout 10 --max-time 20 -o "$tmp/health.body" -w '%{http_code}' "https://$PROD_DOMAIN/health" || true)"
+            if [[ "$health" == 200 ]] && grep -q '^ok' "$tmp/health.body"; then break; fi
+            ((i<24)) || { echo "::error::Public TASO UI health did not become ready (HTTP $health)."; exit 1; }
+            sleep 5
+          done
+          echo "Public UI health passed."
+
+          core_health="$(curl --silent --show-error --connect-timeout 10 --max-time 20 -o "$tmp/core-health.json" -w '%{http_code}' "https://$PROD_DOMAIN/api/health" || true)"
+          [[ "$core_health" == 200 ]] || { echo "::error::Public Core health proxy failed (HTTP $core_health)."; exit 1; }
+          jq -e '.' "$tmp/core-health.json" >/dev/null || { echo "::error::Public Core health body is not JSON."; exit 1; }
+          echo "Public Core health proxy passed."
+
+          session_code="$(curl --silent --show-error --connect-timeout 10 --max-time 20 -o "$tmp/session.json" -w '%{http_code}' "https://$PROD_DOMAIN/api/auth/session" || true)"
+          [[ "$session_code" == 200 ]] || { echo "::error::Production auth session endpoint failed (HTTP $session_code)."; exit 1; }
+          jq -e '.configured==true and .authenticated==false' "$tmp/session.json" >/dev/null || { echo "::error::Production unauthenticated session gate is not configured/closed as expected."; exit 1; }
+          echo "Production session gate passed: configured=true authenticated=false."
+
+          root_code="$(curl --silent --show-error --connect-timeout 10 --max-time 20 -o /dev/null -w '%{http_code}' "https://$PROD_DOMAIN/" || true)"
+          [[ "$root_code" == 200 ]] || { echo "::error::Production dashboard root failed (HTTP $root_code)."; exit 1; }
+          echo "Production dashboard root responds HTTP 200 with only TASO application auth remaining."
