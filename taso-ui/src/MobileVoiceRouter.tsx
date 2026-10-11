@@ -1,8 +1,8 @@
 import { useEffect } from 'react';
 import { navigateTaso } from './navigation';
 
-function clickConversationMic() {
-  return document.querySelector<HTMLButtonElement>('.conversation-bridge .conversation-mic')?.click();
+function dashboardVoiceMic() {
+  return document.querySelector<HTMLButtonElement>('.dashboard-chat .dashboard-chat-mic');
 }
 
 export default function MobileVoiceRouter() {
@@ -12,24 +12,27 @@ export default function MobileVoiceRouter() {
       const mobileMic = origin?.closest?.('.mobile-nav .mobile-taso');
       if (!mobileMic) return;
 
-      // If Realtime Voice already intercepted the event it stops immediate propagation before we run.
-      // Otherwise never allow the legacy App.startVoice handler to own the mobile Taso button.
+      // The mobile entry must always enter DashboardChat. DashboardChat submits only
+      // final transcripts through the normal Core conversation endpoint, so voice
+      // never gains a separate provider/tool/mission boundary.
       event.preventDefault();
       event.stopPropagation();
       event.stopImmediatePropagation();
 
       navigateTaso('Command Center');
-      if (document.querySelector('.conversation-bridge')) {
-        clickConversationMic();
+      const immediate = dashboardVoiceMic();
+      if (immediate) {
+        immediate.click();
         return;
       }
 
       let attempts = 0;
       const timer = window.setInterval(() => {
         attempts += 1;
-        if (document.querySelector('.conversation-bridge')) {
+        const mic = dashboardVoiceMic();
+        if (mic) {
           window.clearInterval(timer);
-          clickConversationMic();
+          mic.click();
           return;
         }
         if (attempts >= 40) window.clearInterval(timer);
