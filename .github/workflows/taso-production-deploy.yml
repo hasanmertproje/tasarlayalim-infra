@@ -1,6 +1,7 @@
 name: Taso Production Deploy
 
 on:
+  workflow_dispatch:
   push:
     branches: [main]
     paths:
