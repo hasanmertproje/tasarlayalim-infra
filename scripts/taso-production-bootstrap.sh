@@ -112,14 +112,33 @@ new_deploy = '''wait_deployment() {
  echo "::error::Timed out waiting for $name deployment $deployment_uuid."; return 1
 }
 wait_running() {
- local uuid="$1" name="$2" status
+ local uuid="$1" name="$2" status unhealthy_checks=0 max_unhealthy_checks=24
  for _ in $(seq 1 60); do
    status="$(api GET "applications/$uuid"|jq -r '.status//"unknown"')"
    if [[ "$status" == running:* || "$status" == running ]]; then
-     [[ "$status" != running:unhealthy ]] || { echo "::error::$name is unhealthy."; return 1; }
+     if [[ "$status" == running:unhealthy ]]; then
+       ((unhealthy_checks+=1))
+       if ((unhealthy_checks>=max_unhealthy_checks)); then
+         echo "::error::$name remained unhealthy for the full stabilization window."
+         return 1
+       fi
+       echo "::notice::$name is temporarily unhealthy after deployment ($status); waiting for stabilization ($unhealthy_checks/$max_unhealthy_checks)."
+       sleep 5
+       continue
+     fi
      echo "$name runtime state: $status"; return 0
    fi
-   if [[ "$status" == exited:* || "$status" == exited || "$status" == errored* || "$status" == stopped* ]]; then echo "::error::$name failed ($status)."; return 1; fi
+   if [[ "$status" == exited:unhealthy || "$status" == exited ]]; then
+     ((unhealthy_checks+=1))
+     if ((unhealthy_checks>=max_unhealthy_checks)); then
+       echo "::error::$name remained exited/unhealthy for the full stabilization window ($status)."
+       return 1
+     fi
+     echo "::notice::$name is temporarily exited/unhealthy after deployment ($status); waiting for platform restart ($unhealthy_checks/$max_unhealthy_checks)."
+     sleep 5
+     continue
+   fi
+   if [[ "$status" == errored* || "$status" == stopped* ]]; then echo "::error::$name failed ($status)."; return 1; fi
    sleep 5
  done
  echo "::error::Timed out waiting for $name runtime state."; return 1
