@@ -74,6 +74,16 @@ async function voiceCoreAcceptance(){
  let providerSessionPosts=0;
  let capturedBody;
 
+ await page.addInitScript(()=>{
+  localStorage.setItem('taso-voice-replies','false');
+  class FakeSpeechRecognition{
+   lang='';continuous=false;interimResults=false;maxAlternatives=1;onstart;onresult;onerror;onend;stopped=false;
+   start(){this.stopped=false;window.__tasoVoiceRecognition=this;this.onstart?.()}
+   stop(){if(this.stopped)return;this.stopped=true;queueMicrotask(()=>this.onend?.())}
+  }
+  window.SpeechRecognition=FakeSpeechRecognition;
+  window.webkitSpeechRecognition=FakeSpeechRecognition;
+ });
  page.on('request',request=>{
   const url=request.url();
   if(request.method()==='POST'&&/\/api\/v1\/missions(?:$|\?)/.test(url))missionPosts+=1;
@@ -92,7 +102,6 @@ async function voiceCoreAcceptance(){
  });
 
  await authenticate(page);
- await page.evaluate(()=>{localStorage.setItem('taso-voice-replies','false');class FakeSpeechRecognition{lang='';continuous=false;interimResults=false;maxAlternatives=1;onstart;onresult;onerror;onend;stopped=false;start(){this.stopped=false;window.__tasoVoiceRecognition=this;this.onstart?.()}stop(){if(this.stopped)return;this.stopped=true;queueMicrotask(()=>this.onend?.())}}window.SpeechRecognition=FakeSpeechRecognition;window.webkitSpeechRecognition=FakeSpeechRecognition});
  await page.goto(base,{waitUntil:'networkidle'});
  await page.locator('.dashboard-chat').waitFor({state:'visible'});
  await page.locator('.dashboard-chat input[type="checkbox"]').check();
