@@ -39,20 +39,18 @@ jobs:
           envs="$(api_get "applications/$CORE_UUID/envs")"
           deployment="$(api_get "deployments/$DEPLOYMENT_UUID")"
 
-          jq -e --arg u "$CORE_UUID" '.resource_uuid==$u or .application_uuid==$u or .uuid!=null' <<<"$deployment" >/dev/null || {
-            echo '::error::Deployment detail shape did not identify a resource.'
-            exit 1
-          }
-
-          raw_logs="$(jq -r '.logs // ""' <<<"$deployment")"
+          response_type="$(jq -r 'type' <<<"$deployment")"
+          response_keys="$(jq -r 'if type=="object" then (keys|join(",")) elif type=="array" then "array-length=" + (length|tostring) else type end' <<<"$deployment")"
+          deployment_record="$(jq -c '[.. | objects | select((.deployment_uuid // .uuid // "") == env.DEPLOYMENT_UUID)] | .[0] // (if type=="object" then . else {} end)' <<<"$deployment")"
+          raw_logs="$(jq -r '[.. | objects | .logs? | select(type=="string" and length>0)] | .[0] // ""' <<<"$deployment")"
           safe_error_lines="$(printf '%s\n' "$raw_logs" \
-            | grep -Eai 'error|failed|failure|exit code|exited|enoent|eacces|cannot|unable|invalid|missing|not found|npm|node|docker|health|scrypt|owner credential|hash file' \
+            | grep -Eai 'error|failed|failure|exit code|exited|enoent|eacces|cannot|unable|invalid|missing|not found|npm|node|docker|health|scrypt|owner credential|hash file|permission|module|compile|build' \
             | grep -Evai 'authorization|bearer|password|secret|token|api[_-]?key|private[_-]?key|totp|cookie|set-cookie' \
             | sed -E \
               -e 's#https?://[^[:space:]]+#[URL-REDACTED]#g' \
               -e 's/\b[0-9A-Fa-f]{32,}\b/[REDACTED-LONG-HEX]/g' \
               -e 's/([A-Za-z0-9_+=\/.:-]{48,})/[REDACTED-LONG-VALUE]/g' \
-            | tail -n 120 || true)"
+            | tail -n 140 || true)"
 
           {
             echo '## TASO Core production failure discovery'
@@ -61,7 +59,9 @@ jobs:
             jq -r '[((.persistent_storages // [])[] | "persistent " + (.name // "unnamed") + " -> " + (.mount_path // "unknown")), ((.file_storages // [])[] | "file -> " + (.mount_path // "unknown"))] | if length then .[] else "no mounts" end' <<<"$storages" | sed 's/^/  - /'
             echo '- credential/provider key presence only:'
             jq -r '["TASO_OWNER_EMAIL","TASO_OWNER_PASSWORD_HASH","TASO_OWNER_PASSWORD","TASO_OWNER_PASSWORD_HASH_FILE","TASO_AUTH_MIGRATE_OWNER_PASSWORD","TASO_PROVIDER_NVIDIA_API_KEY","TASO_GITHUB_TOKEN"][] as $k | "  - " + $k + ": " + (any(.[];.key==$k)|tostring)' <<<"$envs"
-            jq -r '"- deployment UUID: \(.deployment_uuid // .uuid // "n/a")\n- deployment status: \(.status // "unknown")\n- commit: \(.commit // .git_commit_sha // "n/a")\n- type: \(.deployment_type // "n/a")\n- created: \(.created_at // "n/a")\n- updated: \(.updated_at // "n/a")\n- finished: \(.finished_at // "n/a")"' <<<"$deployment"
+            echo "- deployment response type: $response_type"
+            echo "- deployment response keys/shape: $response_keys"
+            jq -r '"- deployment UUID: \(.deployment_uuid // .uuid // "n/a")\n- deployment status: \(.status // "unknown")\n- commit: \(.commit // .git_commit_sha // "n/a")\n- type: \(.deployment_type // "n/a")\n- created: \(.created_at // "n/a")\n- updated: \(.updated_at // "n/a")\n- finished: \(.finished_at // "n/a")"' <<<"$deployment_record"
             echo '- sanitized error-focused deployment log lines:'
             echo '```text'
             if [[ -n "$safe_error_lines" ]]; then printf '%s\n' "$safe_error_lines"; else echo '[no matching safe error lines returned]'; fi
