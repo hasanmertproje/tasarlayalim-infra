@@ -18,6 +18,8 @@ type ConversationResponse = {
 type Mission = { id: string; status: string; objective: string };
 type VoiceState = 'idle' | 'listening' | 'thinking' | 'starting' | 'speaking' | 'error' | 'unsupported';
 
+type CompletedTurn = { userMessage: ConversationMessage; assistantMessage: ConversationMessage };
+
 function storedNumber(key: string, fallback: number) {
   const parsed = Number(localStorage.getItem(key));
   return Number.isFinite(parsed) ? parsed : fallback;
@@ -25,8 +27,10 @@ function storedNumber(key: string, fallback: number) {
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_URL}${path}`, {
+    credentials: 'same-origin',
+    cache: 'no-store',
     ...init,
-    headers: { 'content-type': 'application/json', ...(init?.headers ?? {}) },
+    headers: { 'content-type': 'application/json', accept: 'application/json', ...(init?.headers ?? {}) },
   });
   if (!response.ok) {
     let detail = `${response.status} ${response.statusText}`;
@@ -39,6 +43,31 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     throw new Error(detail);
   }
   return response.json() as Promise<T>;
+}
+
+function findCompletedTurn(messages: ConversationMessage[], text: string): CompletedTurn | undefined {
+  for (let index = messages.length - 2; index >= 0; index -= 1) {
+    const userMessage = messages[index];
+    const assistantMessage = messages[index + 1];
+    if (userMessage?.role === 'user' && userMessage.content === text && assistantMessage?.role === 'assistant') {
+      return { userMessage, assistantMessage };
+    }
+  }
+  return undefined;
+}
+
+async function recoverCompletedTurn(projectId: string, text: string): Promise<CompletedTurn | undefined> {
+  for (const delay of [250, 750, 1500]) {
+    await new Promise((resolve) => window.setTimeout(resolve, delay));
+    try {
+      const payload = await request<{ messages?: ConversationMessage[] }>(`/v1/conversations?projectId=${encodeURIComponent(projectId)}`);
+      const completed = findCompletedTurn(payload.messages ?? [], text);
+      if (completed) return completed;
+    } catch {
+      // The transport may still be reconnecting; retry within the bounded recovery window.
+    }
+  }
+  return undefined;
 }
 
 export default function ConversationBridgeV2() {
@@ -199,9 +228,21 @@ export default function ConversationBridgeV2() {
       if (payload.conversation?.model) setProvider(`${payload.conversation.provider ?? 'AI'} · ${payload.conversation.model}`);
       await speak(payload.assistantMessage.content, fromVoice || liveSessionRef.current);
     } catch (cause) {
-      setVoiceState('error');
-      setError((cause as Error).message);
-      if (liveSessionRef.current) scheduleListening(700);
+      const recovered = await recoverCompletedTurn(activeProjectId, trimmed);
+      if (recovered) {
+        setDecision(undefined);
+        setSuggestedMission(undefined);
+        setLastUser(recovered.userMessage.content);
+        setLastReply(recovered.assistantMessage.content);
+        setProvider('AI · recovered');
+        setError('');
+        await speak(recovered.assistantMessage.content, fromVoice || liveSessionRef.current);
+      } else {
+        setVoiceState('error');
+        const message = (cause as Error).message;
+        setError(message === 'Failed to fetch' ? 'Yanıt sunucuda tamamlanmış olabilir ancak bağlantı koptu. Tekrar deneyebilirsin.' : message);
+        if (liveSessionRef.current) scheduleListening(700);
+      }
     } finally {
       busyRef.current = false;
       setBusy(false);
