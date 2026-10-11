@@ -1,0 +1,72 @@
+name: Taso Core Production Failure Discovery
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/taso-core-prod-failure-discovery.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      COOLIFY_BASE_URL: https://coolify.tasarlayalim.com
+      COOLIFY_API_TOKEN: ${{ secrets.COOLIFY_API_TOKEN }}
+      CORE_UUID: hgqndeyja2gvb5by2meypl6b
+      DEPLOYMENT_UUID: xg2n0gxkc22pxlzvnc7eilbs
+    steps:
+      - name: Inspect failed Core deployment safely
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          set +x
+          : "${COOLIFY_API_TOKEN:?COOLIFY_API_TOKEN repository secret is required}"
+          api_get() {
+            curl --silent --show-error --fail-with-body \
+              --connect-timeout 15 --max-time 60 \
+              --header "Authorization: Bearer $COOLIFY_API_TOKEN" \
+              --header 'Accept: application/json' \
+              "$COOLIFY_BASE_URL/api/v1/$1"
+          }
+
+          detail="$(api_get "applications/$CORE_UUID")"
+          storages="$(api_get "applications/$CORE_UUID/storages")"
+          envs="$(api_get "applications/$CORE_UUID/envs")"
+          deployment="$(api_get "deployments/$DEPLOYMENT_UUID")"
+
+          jq -e --arg u "$CORE_UUID" '.resource_uuid==$u or .application_uuid==$u or .uuid!=null' <<<"$deployment" >/dev/null || {
+            echo '::error::Deployment detail shape did not identify a resource.'
+            exit 1
+          }
+
+          raw_logs="$(jq -r '.logs // ""' <<<"$deployment")"
+          safe_error_lines="$(printf '%s\n' "$raw_logs" \
+            | grep -Eai 'error|failed|failure|exit code|exited|enoent|eacces|cannot|unable|invalid|missing|not found|npm|node|docker|health|scrypt|owner credential|hash file' \
+            | grep -Evai 'authorization|bearer|password|secret|token|api[_-]?key|private[_-]?key|totp|cookie|set-cookie' \
+            | sed -E \
+              -e 's#https?://[^[:space:]]+#[URL-REDACTED]#g' \
+              -e 's/\b[0-9A-Fa-f]{32,}\b/[REDACTED-LONG-HEX]/g' \
+              -e 's/([A-Za-z0-9_+=\/.:-]{48,})/[REDACTED-LONG-VALUE]/g' \
+            | tail -n 120 || true)"
+
+          {
+            echo '## TASO Core production failure discovery'
+            jq -r '"- app UUID: \(.uuid // "n/a")\n- app status: \(.status // "unknown")\n- branch: \(.git_branch // "n/a")\n- base directory: \(.base_directory // "n/a")\n- dockerfile: \(.dockerfile_location // "n/a")\n- port: \(.ports_exposes // "n/a")"' <<<"$detail"
+            echo '- storage metadata:'
+            jq -r '[((.persistent_storages // [])[] | "persistent " + (.name // "unnamed") + " -> " + (.mount_path // "unknown")), ((.file_storages // [])[] | "file -> " + (.mount_path // "unknown"))] | if length then .[] else "no mounts" end' <<<"$storages" | sed 's/^/  - /'
+            echo '- credential/provider key presence only:'
+            jq -r '["TASO_OWNER_EMAIL","TASO_OWNER_PASSWORD_HASH","TASO_OWNER_PASSWORD","TASO_OWNER_PASSWORD_HASH_FILE","TASO_AUTH_MIGRATE_OWNER_PASSWORD","TASO_PROVIDER_NVIDIA_API_KEY","TASO_GITHUB_TOKEN"][] as $k | "  - " + $k + ": " + (any(.[];.key==$k)|tostring)' <<<"$envs"
+            jq -r '"- deployment UUID: \(.deployment_uuid // .uuid // "n/a")\n- deployment status: \(.status // "unknown")\n- commit: \(.commit // .git_commit_sha // "n/a")\n- type: \(.deployment_type // "n/a")\n- created: \(.created_at // "n/a")\n- updated: \(.updated_at // "n/a")\n- finished: \(.finished_at // "n/a")"' <<<"$deployment"
+            echo '- sanitized error-focused deployment log lines:'
+            echo '```text'
+            if [[ -n "$safe_error_lines" ]]; then printf '%s\n' "$safe_error_lines"; else echo '[no matching safe error lines returned]'; fi
+            echo '```'
+            echo 'Read-only diagnostic. No Coolify resource was changed and secret-bearing lines were dropped before output.'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
+          [[ -n "$raw_logs" ]] || { echo '::error::Exact Core deployment returned no logs.'; exit 1; }
