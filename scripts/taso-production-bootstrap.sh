@@ -286,4 +286,8 @@ PY
 
 bash -n "$tmp"
 echo "Guarded production bootstrap patch validated."
+if [[ "${TASO_PATCH_VALIDATE_ONLY:-0}" == 1 ]]; then
+  echo "Full production compatibility patch chain validated without Coolify mutations."
+  exit 0
+fi
 bash "$tmp"
