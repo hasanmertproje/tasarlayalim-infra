@@ -17,6 +17,7 @@ on:
       - "scripts/taso-production-secret-compat.sh"
       - "scripts/taso-production-core-clone-compat.sh"
       - "scripts/taso-production-api-retry-compat.sh"
+      - "scripts/taso-production-ui-retry-compat.sh"
       - "docker/taso-search/**"
       - "docker/taso-browser/**"
       - "docker/taso-speaker/**"
@@ -49,4 +50,4 @@ jobs:
         with:
           node-version: "22"
       - name: Deploy isolated Taso production stack
-        run: bash scripts/taso-production-api-retry-compat.sh
+        run: bash scripts/taso-production-ui-retry-compat.sh
