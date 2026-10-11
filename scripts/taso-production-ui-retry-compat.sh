@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+umask 077
+set +x
+
+src="scripts/taso-production-core-clone-compat.sh"
+
+python3 - "$src" <<'PY'
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+text = path.read_text()
+old = '''elif [[ "${owner_credential_mode:-}" == persisted ]]; then
+  echo "Production Core persisted auth boundary remains in force with no plaintext owner credential configured."
+fi
+deploy taso-ui-prod "$ui"
+'''
+new = '''elif [[ "${owner_credential_mode:-}" == persisted ]]; then
+  echo "Production Core persisted auth boundary remains in force with no plaintext owner credential configured."
+fi
+
+deploy_ui_for_release() {
+  if deploy taso-ui-prod "$ui"; then
+    return 0
+  fi
+
+  local status
+  status="$(api GET "applications/$ui" | jq -r '.status//"unknown"')"
+  case "$status" in
+    running|running:*)
+      [[ "$status" != running:unhealthy ]] || {
+        echo "::error::taso-ui-prod failed to deploy and the preserved runtime is unhealthy; refusing retry."
+        return 1
+      }
+      ;;
+    *)
+      echo "::error::taso-ui-prod failed to deploy and no healthy preserved runtime is available; refusing retry."
+      return 1
+      ;;
+  esac
+
+  echo "::notice::taso-ui-prod first deployment failed while the previous runtime remained healthy; retrying exactly once."
+  sleep 5
+  deploy taso-ui-prod "$ui"
+}
+deploy_ui_for_release
+'''
+count = text.count(old)
+if count != 1:
+    raise SystemExit(f"UI retry compatibility patch refused: expected UI deploy tail once, found {count}")
+path.write_text(text.replace(old, new, 1))
+PY
+
+bash -n "$src"
+echo "Production UI single-retry compatibility patch validated."
+exec bash scripts/taso-production-api-retry-compat.sh
