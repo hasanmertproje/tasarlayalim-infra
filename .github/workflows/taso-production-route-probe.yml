@@ -19,21 +19,28 @@ jobs:
       COOLIFY_BASE_URL: https://coolify.tasarlayalim.com
       COOLIFY_API_TOKEN: ${{ secrets.COOLIFY_API_TOKEN }}
       UI_UUID: biuki5ik9ifbphwalsmgukmq
+      LEGACY_UUID: tw8kbaxloxgv938tyn8x7dqu
       PROD_DOMAIN: taso.tasarlayalim.com
+      DEMO_DOMAIN: taso-v2.demo.tasarlayalim.com
     steps:
-      - name: Inspect safe UI metadata and public auth headers
+      - name: Inspect safe route metadata and public auth headers
         shell: bash
         run: |
           set -Eeuo pipefail
           tmp="$(mktemp -d)"
           trap 'rm -rf "$tmp"' EXIT
-          code="$(curl --silent --show-error --connect-timeout 15 --max-time 60 --output "$tmp/app.json" --write-out '%{http_code}' \
-            --header "Authorization: Bearer $COOLIFY_API_TOKEN" --header 'Accept: application/json' \
-            "$COOLIFY_BASE_URL/api/v1/applications/$UI_UUID")"
-          [[ "$code" =~ ^2 ]] || { echo "::error::Unable to read production UI metadata (HTTP $code)."; exit 1; }
-          jq -r '"UI_METADATA name=\(.name//"") uuid=\(.uuid//"") status=\(.status//"") fqdn=\(.fqdn//"") basic_auth=\(.is_http_basic_auth_enabled//false) connect_network=\(.settings.connect_to_docker_network//"unknown") port=\(.ports_exposes//"") base=\(.base_directory//"") dockerfile=\(.dockerfile_location//"")"' "$tmp/app.json"
-          jq -r '"UI_ROUTE_METADATA redirect=\(.redirect//"unknown") health_enabled=\(.health_check_enabled//false) health_path=\(.health_check_path//"") health_port=\(.health_check_port//"") health_method=\(.health_check_method//"") health_return=\(.health_check_return_code//"") custom_healthcheck=\(.custom_healthcheck_found//false)"' "$tmp/app.json"
-          jq -r 'keys | map(select(test("auth|middleware|redirect|proxy|traefik|label|domain|fqdn|health";"i"))) | "SAFE_RELEVANT_METADATA_KEYS=" + join(",")' "$tmp/app.json"
+          read_app() {
+            local uuid="$1" out="$2" code
+            code="$(curl --silent --show-error --connect-timeout 15 --max-time 60 --output "$out" --write-out '%{http_code}' \
+              --header "Authorization: Bearer $COOLIFY_API_TOKEN" --header 'Accept: application/json' \
+              "$COOLIFY_BASE_URL/api/v1/applications/$uuid")"
+            [[ "$code" =~ ^2 ]] || { echo "::error::Unable to read application $uuid metadata (HTTP $code)."; return 1; }
+          }
+          read_app "$UI_UUID" "$tmp/ui.json"
+          read_app "$LEGACY_UUID" "$tmp/legacy.json"
+          jq -r '"UI_METADATA name=\(.name//"") uuid=\(.uuid//"") status=\(.status//"") fqdn=\(.fqdn//"") basic_auth=\(.is_http_basic_auth_enabled//false) connect_network=\(.settings.connect_to_docker_network//"unknown") port=\(.ports_exposes//"") base=\(.base_directory//"") dockerfile=\(.dockerfile_location//"")"' "$tmp/ui.json"
+          jq -r '"UI_ROUTE_METADATA redirect=\(.redirect//"unknown") health_enabled=\(.health_check_enabled//false) health_path=\(.health_check_path//"") health_port=\(.health_check_port//"") health_method=\(.health_check_method//"") health_return=\(.health_check_return_code//"") custom_healthcheck=\(.custom_healthcheck_found//false)"' "$tmp/ui.json"
+          jq -r '"LEGACY_METADATA name=\(.name//"") uuid=\(.uuid//"") status=\(.status//"") fqdn=\(.fqdn//"") basic_auth=\(.is_http_basic_auth_enabled//false) username_configured=\((((.http_basic_auth_username//"")|length)>0)) redirect=\(.redirect//"unknown")"' "$tmp/legacy.json"
 
           probe() {
             local label="$1"
@@ -49,3 +56,4 @@ jobs:
           probe root "https://$PROD_DOMAIN/"
           probe health "https://$PROD_DOMAIN/health"
           probe session "https://$PROD_DOMAIN/api/auth/session"
+          probe demo "https://$DEMO_DOMAIN/"
