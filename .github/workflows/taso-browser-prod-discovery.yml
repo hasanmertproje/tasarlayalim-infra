@@ -54,6 +54,8 @@ jobs:
           {
             echo '## TASO browser production deployment discovery'
             jq -r '"- UUID: \(.uuid // "n/a")\n- status: \(.status // "unknown")\n- branch: \(.git_branch // "n/a")\n- base directory: \(.base_directory // "n/a")\n- dockerfile: \(.dockerfile_location // "n/a")\n- port: \(.ports_exposes // "n/a")\n- public fqdn: \(.fqdn // "none")"' <<<"$detail"
+            echo '- healthcheck metadata:'
+            jq -r '"  - enabled: \(.health_check_enabled // "n/a")\n  - path: \(.health_check_path // "n/a")\n  - port: \(.health_check_port // "n/a")\n  - method: \(.health_check_method // "n/a")\n  - return_code: \(.health_check_return_code // "n/a")\n  - interval: \(.health_check_interval // "n/a")\n  - timeout: \(.health_check_timeout // "n/a")\n  - retries: \(.health_check_retries // "n/a")\n  - start_period: \(.health_check_start_period // "n/a")"' <<<"$detail"
             echo '- env key presence:'
             jq -r '["PORT","TASO_BROWSER_WORKER_SECRET","TASO_BROWSER_ALLOWED_HOSTS"][] as $k | "  - " + $k + ": " + (any(.[];.key==$k)|tostring)' <<<"$envs"
             jq -r '"- latest deployment UUID: \(.deployment_uuid // .uuid // "n/a")\n- latest deployment status: \(.status // "unknown")\n- latest deployment commit: \(.commit // .git_commit_sha // "n/a")"' <<<"$deployment_detail"
