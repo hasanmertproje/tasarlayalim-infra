@@ -1,0 +1,89 @@
+name: Taso Legacy Route Refresh
+
+on:
+  push:
+    branches:
+      - fix/taso-production-domain-ownership-20261012
+    paths:
+      - ".github/workflows/taso-legacy-route-refresh.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      COOLIFY_BASE_URL: https://coolify.tasarlayalim.com
+      COOLIFY_API_TOKEN: ${{ secrets.COOLIFY_API_TOKEN }}
+      LEGACY_UUID: tw8kbaxloxgv938tyn8x7dqu
+      DEMO_DOMAIN: taso-v2.demo.tasarlayalim.com
+      PROD_DOMAIN: taso.tasarlayalim.com
+      REPOSITORY: hasanmertproje/tasarlayalim-infra
+    steps:
+      - name: Redeploy demo-only legacy router and verify production auth is gone
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          set +x
+          tmp="$(mktemp -d)"
+          trap 'rm -rf "$tmp"' EXIT
+          api_get() {
+            local path="$1" out="$2" code="" rc=0 attempt=1
+            while ((attempt<=4)); do
+              rc=0
+              code="$(curl --silent --show-error --connect-timeout 15 --max-time 90 --output "$out" --write-out '%{http_code}' \
+                --header "Authorization: Bearer $COOLIFY_API_TOKEN" --header 'Accept: application/json' \
+                "$COOLIFY_BASE_URL/api/v1/$path")" || rc=$?
+              if ((rc==0)) && [[ "$code" =~ ^2 ]]; then return 0; fi
+              if ((attempt<4)) && { ((rc!=0)) || [[ "$code" == 408 || "$code" == 429 || "$code" =~ ^5 ]]; }; then sleep $((attempt*3)); ((attempt+=1)); continue; fi
+              echo "::error::Coolify GET $path failed (curl=$rc HTTP=${code:-000})."; return 1
+            done
+          }
+          api_get "applications/$LEGACY_UUID" "$tmp/before.json"
+          jq -e --arg repo "$REPOSITORY" --arg fqdn "https://$DEMO_DOMAIN" '
+            .uuid=="tw8kbaxloxgv938tyn8x7dqu" and .name=="taso-command-center-v2" and .git_repository==$repo and .fqdn==$fqdn and .is_http_basic_auth_enabled==true
+          ' "$tmp/before.json" >/dev/null || { echo "::error::Legacy route guard failed; refusing redeploy."; exit 1; }
+          echo "Legacy resource guard passed: demo-only domain with Basic Auth preserved."
+
+          rc=0; code=""
+          code="$(curl --silent --show-error --connect-timeout 15 --max-time 90 --output "$tmp/queue.json" --write-out '%{http_code}' \
+            --header "Authorization: Bearer $COOLIFY_API_TOKEN" --header 'Accept: application/json' \
+            -X POST "$COOLIFY_BASE_URL/api/v1/deploy?uuid=$LEGACY_UUID")" || rc=$?
+          if ((rc!=0)) || [[ ! "$code" =~ ^2 ]]; then
+            echo "::error::Legacy route refresh deployment could not be queued (curl=$rc HTTP=${code:-000})."; exit 1
+          fi
+          duuid="$(jq -r --arg u "$LEGACY_UUID" '[.deployments[]?|select(.resource_uuid==$u)][0].deployment_uuid//empty' "$tmp/queue.json")"
+          [[ -n "$duuid" ]] || { echo "::error::Legacy route refresh returned no exact deployment UUID."; exit 1; }
+          echo "Queued guarded legacy route refresh deployment."
+
+          for i in $(seq 1 180); do
+            api_get "deployments/$duuid" "$tmp/deployment.json"
+            status="$(jq -r '.status//"unknown"' "$tmp/deployment.json")"
+            case "$status" in
+              finished) echo "Legacy route refresh deployment finished."; break ;;
+              failed|cancelled|cancelled-by-user) echo "::error::Legacy route refresh deployment entered $status."; exit 1 ;;
+            esac
+            ((i<180)) || { echo "::error::Timed out waiting for legacy route refresh deployment."; exit 1; }
+            sleep 5
+          done
+
+          for i in $(seq 1 30); do
+            api_get "applications/$LEGACY_UUID" "$tmp/after.json"
+            state="$(jq -r '.status//"unknown"' "$tmp/after.json")"
+            if [[ "$state" == running:* || "$state" == running ]]; then break; fi
+            ((i<30)) || { echo "::error::Legacy command center did not return to running state ($state)."; exit 1; }
+            sleep 4
+          done
+          jq -e --arg fqdn "https://$DEMO_DOMAIN" '.fqdn==$fqdn and .is_http_basic_auth_enabled==true' "$tmp/after.json" >/dev/null || { echo "::error::Legacy demo auth/domain changed unexpectedly after refresh."; exit 1; }
+
+          demo_status="$(curl --silent --show-error --connect-timeout 10 --max-time 20 -D "$tmp/demo.headers" -o /dev/null -w '%{http_code}' "https://$DEMO_DOMAIN/" || true)"
+          [[ "$demo_status" == 401 ]] && grep -qi '^www-authenticate: Basic realm="traefik"' "$tmp/demo.headers" || { echo "::error::Legacy demo Basic Auth contract was not preserved (HTTP $demo_status)."; exit 1; }
+          echo "Legacy demo URL remains protected by Traefik Basic Auth."
+
+          prod_status="$(curl --silent --show-error --connect-timeout 10 --max-time 20 -D "$tmp/prod.headers" -o "$tmp/prod.body" -w '%{http_code}' "https://$PROD_DOMAIN/health" || true)"
+          if [[ "$prod_status" == 401 ]] && grep -qi '^www-authenticate: Basic realm="traefik"' "$tmp/prod.headers"; then
+            echo "::error::Stale legacy Traefik Basic Auth still intercepts the production domain after guarded refresh."; exit 1
+          fi
+          echo "Production domain is no longer intercepted by legacy Traefik Basic Auth (HTTP $prod_status)."
