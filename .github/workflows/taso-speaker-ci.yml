@@ -1,0 +1,51 @@
+name: Taso Speaker CI
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "docker/taso-speaker/**"
+      - ".github/workflows/taso-speaker-ci.yml"
+  push:
+    branches: [main]
+    paths:
+      - "docker/taso-speaker/**"
+      - ".github/workflows/taso-speaker-ci.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  speaker-runtime:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build speaker image
+        run: docker build -t tasarlayalim-taso-speaker ./docker/taso-speaker
+      - name: Smoke test speaker runtime health
+        run: |
+          docker run -d --rm --name taso-speaker-ci -p 3200:3200 \
+            -e TASO_SPEAKER_SERVICE_SECRET=ci-speaker-secret \
+            tasarlayalim-taso-speaker
+          for i in $(seq 1 75); do
+            status="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}missing{{end}}' taso-speaker-ci 2>/dev/null || true)"
+            if [[ "$status" == healthy ]]; then
+              curl -fsS http://127.0.0.1:3200/health | grep -q '"ok":true'
+              exit 0
+            fi
+            if [[ "$status" == unhealthy ]]; then
+              echo "Speaker container reported unhealthy." >&2
+              docker inspect taso-speaker-ci --format '{{json .State}}' || true
+              docker logs taso-speaker-ci || true
+              exit 1
+            fi
+            sleep 2
+          done
+          echo "Speaker worker did not become healthy in time." >&2
+          docker inspect taso-speaker-ci --format '{{json .State}}' || true
+          docker logs taso-speaker-ci || true
+          exit 1
+      - name: Cleanup speaker runtime
+        if: always()
+        run: docker rm -f taso-speaker-ci 2>/dev/null || true
