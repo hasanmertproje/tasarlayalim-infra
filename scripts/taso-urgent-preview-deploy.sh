@@ -37,16 +37,25 @@ for tuple in "search:$search" "core:$core" "ui:$ui";do name="${tuple%%:*}";uuid=
 wait_running(){ local uuid="$1" label="$2" status;for _ in $(seq 1 90);do status="$(api GET "applications/$uuid"|jq -r '.status//"unknown"')";[[ "$status" == running:* || "$status" == running ]]&&{ echo "$label runtime state: $status";return 0;};[[ "$status" == exited*||"$status" == degraded*||"$status" == stopped* ]]&&{ echo "::error::$label entered $status";return 1;};sleep 5;done;echo "::error::$label did not enter a running state";return 1;}
 wait_running "$search" search;wait_running "$core" core;wait_running "$ui" ui
 # Coolify may report running:unknown when an image has no platform healthcheck. Do not call the preview ready from that metadata alone: the public UI health, auth gate, real AI turn, and sourced web-search probes below are authoritative acceptance checks.
+echo 'acceptance: waiting for public UI health'
 for _ in $(seq 1 24);do curl -fsS "https://$TASO_PREVIEW_DOMAIN/health">/dev/null&&break;sleep 5;done
+echo 'acceptance: public UI health'
 curl -fsS "https://$TASO_PREVIEW_DOMAIN/health">/dev/null
+echo 'acceptance: unauthenticated session gate'
 session="$(curl -fsS "https://$TASO_PREVIEW_DOMAIN/api/auth/session")";jq -e '.configured==true and .authenticated==false'<<<"$session">/dev/null
-jar="$TMP/cookies";login="$(curl -fsS -c "$jar" -H 'content-type: application/json' --data-binary "$(jq -nc --arg email "$qa_email" --arg password "$qa_password" '{email:$email,password:$password}')" "https://$TASO_PREVIEW_DOMAIN/api/auth/login")";challenge="$(jq -r '.challengeId//empty'<<<"$login")";secret="$(jq -r '.secret//empty'<<<"$login")";[[ -n "$challenge"&&-n "$secret" ]]||{ echo '::error::QA login did not start TOTP enrollment.';exit 1;};mask "$secret"
+jar="$TMP/cookies"
+echo 'acceptance: QA login'
+login="$(curl -fsS -c "$jar" -H 'content-type: application/json' --data-binary "$(jq -nc --arg email "$qa_email" --arg password "$qa_password" '{email:$email,password:$password}')" "https://$TASO_PREVIEW_DOMAIN/api/auth/login")";challenge="$(jq -r '.challengeId//empty'<<<"$login")";secret="$(jq -r '.secret//empty'<<<"$login")";[[ -n "$challenge"&&-n "$secret" ]]||{ echo '::error::QA login did not start TOTP enrollment.';exit 1;};mask "$secret"
 code="$(TOTP_SECRET="$secret" node - <<'NODE'
 const c=require('node:crypto'),a='ABCDEFGHIJKLMNOPQRSTUVWXYZ234567',s=process.env.TOTP_SECRET.replace(/=+$/,'');let bits=0,v=0,b=[];for(const x of s){v=(v<<5)|a.indexOf(x);bits+=5;if(bits>=8){b.push((v>>>(bits-8))&255);bits-=8}}const q=Buffer.alloc(8);q.writeBigUInt64BE(BigInt(Math.floor(Date.now()/30000)));const d=c.createHmac('sha1',Buffer.from(b)).update(q).digest(),o=d.at(-1)&15,n=((d[o]&127)<<24)|((d[o+1]&255)<<16)|((d[o+2]&255)<<8)|(d[o+3]&255);process.stdout.write(String(n%1e6).padStart(6,'0'));
 NODE
 )";mask "$code"
+echo 'acceptance: QA TOTP enrollment'
 enrolled="$(curl -fsS -b "$jar" -c "$jar" -H 'content-type: application/json' --data-binary "$(jq -nc --arg challengeId "$challenge" --arg code "$code" '{challengeId:$challengeId,code:$code,deviceName:"GitHub Actions preview QA"}')" "https://$TASO_PREVIEW_DOMAIN/api/auth/2fa/setup/confirm")";jq -e '.authenticated==true'<<<"$enrolled">/dev/null
+echo 'acceptance: authenticated projects'
 projects="$(curl -fsS -b "$jar" "https://$TASO_PREVIEW_DOMAIN/api/v1/projects")";project_id="$(jq -r '.projects[0].id//empty'<<<"$projects")";[[ -n "$project_id" ]]||exit 1
+echo 'acceptance: real AI chat'
 chat="$(curl -fsS -b "$jar" -H 'content-type: application/json' --data-binary "$(jq -nc --arg projectId "$project_id" '{projectId:$projectId,text:"Merhaba Taso. Kendini tek cümlede tanıt."}')" "https://$TASO_PREVIEW_DOMAIN/api/v1/conversations/messages")";jq -e '.assistantMessage.replyMode=="ai" and (.assistantMessage.content|length>10)'<<<"$chat">/dev/null
+echo 'acceptance: sourced web search'
 web="$(curl -fsS -b "$jar" -H 'content-type: application/json' --data-binary "$(jq -nc --arg projectId "$project_id" '{projectId:$projectId,text:"OpenAI resmi sitesini webde ara ve kaynakla yanıtla.",webSearch:true}')" "https://$TASO_PREVIEW_DOMAIN/api/v1/conversations/messages")";jq -e '.assistantMessage.replyMode=="ai" and (.assistantMessage.sources|length>0)'<<<"$web">/dev/null
 printf '### TASO urgent preview verified\n- URL: https://%s\n- UI health: PASS\n- Session gate: PASS\n- Real AI chat: PASS\n- Web search with sources: PASS\n- QA account expires automatically within one hour.\n' "$TASO_PREVIEW_DOMAIN" >>"${GITHUB_STEP_SUMMARY:-/dev/null}"
