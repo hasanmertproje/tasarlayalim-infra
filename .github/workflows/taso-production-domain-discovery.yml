@@ -1,0 +1,47 @@
+name: Taso Production Domain Discovery
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - fix/taso-production-domain-ownership-20261012
+    paths:
+      - ".github/workflows/taso-production-domain-discovery.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      COOLIFY_BASE_URL: https://coolify.tasarlayalim.com
+      COOLIFY_API_TOKEN: ${{ secrets.COOLIFY_API_TOKEN }}
+      TASO_PRODUCTION_DOMAIN: taso.tasarlayalim.com
+    steps:
+      - name: Discover exact production domain owners safely
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          tmp="$(mktemp)"
+          trap 'rm -f "$tmp"' EXIT
+          code="$(curl --silent --show-error --connect-timeout 15 --max-time 60 \
+            --output "$tmp" --write-out '%{http_code}' \
+            --header "Authorization: Bearer $COOLIFY_API_TOKEN" \
+            --header 'Accept: application/json' \
+            "$COOLIFY_BASE_URL/api/v1/applications")"
+          [[ "$code" =~ ^2 ]] || { echo "::error::Coolify applications discovery failed (HTTP $code)."; exit 1; }
+          jq -e 'type=="array"' "$tmp" >/dev/null || { echo "::error::Unexpected Coolify applications response shape."; exit 1; }
+          TARGET="$TASO_PRODUCTION_DOMAIN" jq -r '
+            def hostmatch($fqdn; $target):
+              (($fqdn // "") | ascii_downcase | split(",") | map(gsub("^ +| +$"; "")) |
+               map(gsub("^https?://"; "") | split("/")[0] | split(":")[0]) |
+               any(. == ($target | ascii_downcase)));
+            .[]
+            | select(hostmatch(.fqdn; env.TARGET))
+            | "DOMAIN_OWNER name=\(.name // "unknown") uuid=\(.uuid // "unknown") env=\(.environment_id // "unknown") repo=\(.git_repository // "") fqdn=\(.fqdn // "")"
+          ' "$tmp"
+          count="$(TARGET="$TASO_PRODUCTION_DOMAIN" jq '[.[] | select(((.fqdn // "") | ascii_downcase) | contains(env.TARGET | ascii_downcase))] | length' "$tmp")"
+          echo "DOMAIN_OWNER_COUNT=$count"
+          [[ "$count" -gt 0 ]] || { echo "::error::No application currently owns $TASO_PRODUCTION_DOMAIN."; exit 1; }
