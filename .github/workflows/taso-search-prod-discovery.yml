@@ -36,22 +36,52 @@ jobs:
           [[ -n "$uuid" ]] || { echo '::error::taso-search-prod not found'; exit 1; }
           detail="$(api_get "applications/$uuid")"
           envs="$(api_get "applications/$uuid/envs")"
-          raw_logs="$(api_get "applications/$uuid/logs?lines=120&show_timestamps=true" | jq -r '.logs // ""')"
+
+          app_log_body="$(mktemp)"
+          app_log_code="$(curl --silent --show-error \
+            --connect-timeout 15 --max-time 60 \
+            --output "$app_log_body" --write-out '%{http_code}' \
+            --header "Authorization: Bearer $COOLIFY_API_TOKEN" \
+            --header 'Accept: application/json' \
+            "$COOLIFY_BASE_URL/api/v1/applications/$uuid/logs?lines=120&show_timestamps=true")"
+
+          log_source="application-runtime"
+          raw_logs=""
+          deployment_summary='{}'
+          if [[ "$app_log_code" == 200 ]]; then
+            raw_logs="$(jq -r '.logs // ""' "$app_log_body")"
+          else
+            echo "::notice::Application runtime logs endpoint returned HTTP $app_log_code; falling back to deployment history."
+            deployments="$(api_get "deployments/applications/$uuid?skip=0&take=10")"
+            deployment_summary="$(jq -c 'sort_by(.created_at // "") | reverse | .[0] // {}' <<<"$deployments")"
+            raw_logs="$(jq -r '.logs // ""' <<<"$deployment_summary")"
+            log_source="latest-deployment"
+          fi
+          rm -f "$app_log_body"
+
           safe_logs="$(printf '%s\n' "$raw_logs" \
             | sed -E \
               -e 's/([Aa]uthorization:[[:space:]]*[Bb]earer[[:space:]]+)[^[:space:]]+/\1[REDACTED]/g' \
               -e 's/((SECRET|TOKEN|PASSWORD|API_KEY)[=:][[:space:]]*)[^[:space:]]+/\1[REDACTED]/Ig' \
               -e 's/\b[0-9A-Fa-f]{32,}\b/[REDACTED-LONG-HEX]/g' \
-            | tail -n 120)"
+            | tail -n 160)"
+
           {
             echo '## TASO search production runtime discovery'
             jq -r '"- UUID: \(.uuid // "n/a")\n- status: \(.status // "unknown")\n- branch: \(.git_branch // "n/a")\n- base directory: \(.base_directory // "n/a")\n- port: \(.ports_exposes // "n/a")\n- public fqdn: \(.fqdn // "none")"' <<<"$detail"
             echo '- env key presence:'
             jq -r '["PORT","SEARXNG_SECRET"][] as $k | "  - " + $k + ": " + (any(.[];.key==$k)|tostring)' <<<"$envs"
-            echo '- sanitized last container logs:'
+            echo "- application log endpoint HTTP: $app_log_code"
+            echo "- selected log source: $log_source"
+            if [[ "$log_source" == latest-deployment ]]; then
+              jq -r '"- latest deployment UUID: \(.deployment_uuid // "n/a")\n- latest deployment status: \(.status // "unknown")\n- latest deployment commit: \(.commit // "n/a")"' <<<"$deployment_summary"
+            fi
+            echo '- sanitized diagnostic logs:'
             echo '```text'
-            printf '%s\n' "$safe_logs"
+            if [[ -n "$safe_logs" ]]; then printf '%s\n' "$safe_logs"; else echo '[no logs returned]'; fi
             echo '```'
             echo
             echo 'Read-only diagnostic: no Coolify resource was changed; secret-like values were redacted before output.'
           } | tee -a "$GITHUB_STEP_SUMMARY"
+
+          [[ -n "$raw_logs" ]] || { echo '::error::Neither runtime nor latest deployment logs were available.'; exit 1; }
