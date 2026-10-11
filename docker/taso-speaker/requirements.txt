@@ -1,6 +1,8 @@
 fastapi==0.115.6
 uvicorn[standard]==0.34.0
 numpy==1.26.4
+# torch is installed and pinned to the official CPU-only wheel in the Dockerfile
+# before resemblyzer so pip cannot drift back to the CUDA dependency stack.
 resemblyzer==0.1.4
 soundfile==0.12.1
 python-multipart==0.0.20

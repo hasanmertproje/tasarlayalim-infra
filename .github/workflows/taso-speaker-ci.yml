@@ -23,6 +23,15 @@ jobs:
       - uses: actions/checkout@v4
       - name: Build speaker image
         run: docker build -t tasarlayalim-taso-speaker ./docker/taso-speaker
+      - name: Verify CPU-only torch dependency contract
+        run: |
+          docker run --rm tasarlayalim-taso-speaker python -c "import torch; assert torch.version.cuda is None, f'CUDA torch unexpectedly installed: {torch.version.cuda}'; assert torch.__version__.startswith('2.14.1'), torch.__version__; print('CPU-only torch verified:', torch.__version__)"
+          if docker run --rm tasarlayalim-taso-speaker python -m pip list --format=freeze | grep -qi '^nvidia-'; then
+            echo "Speaker image unexpectedly contains NVIDIA/CUDA Python packages." >&2
+            exit 1
+          fi
+          docker run --rm tasarlayalim-taso-speaker python -m pip check
+          docker image inspect tasarlayalim-taso-speaker --format 'Speaker image size: {{.Size}} bytes'
       - name: Smoke test speaker runtime health
         run: |
           docker run -d --rm --name taso-speaker-ci -p 3200:3200 \
