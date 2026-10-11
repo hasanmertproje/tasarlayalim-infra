@@ -1,0 +1,105 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+umask 077
+set +x
+
+src="scripts/taso-production-deploy.sh"
+
+python3 - "$src" <<'PY'
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+text = path.read_text()
+
+def replace_once(old: str, new: str, label: str) -> None:
+    global text
+    count = text.count(old)
+    if count != 1:
+        raise SystemExit(f"core clone compatibility patch refused: expected {label} once, found {count}")
+    text = text.replace(old, new, 1)
+
+start = 'src_envs="$(api GET "applications/$source_uuid/envs")"\n'
+end = ': "${NVIDIA_CLASS:=public}"\n'
+if text.count(start) != 1 or text.count(end) != 1:
+    raise SystemExit('core clone compatibility patch refused: source-secret block markers changed')
+a = text.index(start)
+b = text.index(end, a) + len(end)
+text = text[:a] + '''echo "Production Core owner/provider secrets will be inherited through a Coolify configuration clone; CI will not read secret values."
+''' + text[b:]
+
+marker = '''}
+ensure_app taso-search-prod /docker/taso-search 8080 taso-search
+'''
+clone_fn = '''}
+ensure_core_prod() {
+ local uuid detail destination cloned moved envs env_uuid
+ uuid="$(jq -r '.[]|select(.name=="taso-core-prod")|.uuid' <<<"$apps"|head -n1)"
+ if [[ -n "$uuid" ]]; then
+   detail="$(api GET "applications/$uuid")"
+   jq -e --arg r "$REPOSITORY" '.environment_id==2 and .git_repository==$r and .git_branch=="main"' <<<"$detail" >/dev/null || {
+     echo "::error::Existing taso-core-prod is not the expected production resource; refusing to alter it."
+     return 1
+   }
+ else
+   destination="$(api GET "applications/$source_uuid/destinations" | jq -r '.. | objects | (.uuid? // empty)' | head -n1)"
+   [[ -n "$destination" ]] || { echo "::error::Source Core destination is unavailable."; return 1; }
+   cloned="$(api POST "applications/$source_uuid/clone" "$(jq -nc --arg destination_uuid "$destination" '{destination_uuid:$destination_uuid,name:"taso-core-prod",clone_volumes:false}')")"
+   uuid="$(jq -r '.uuid//empty' <<<"$cloned")"
+   [[ -n "$uuid" ]] || { echo "::error::Coolify did not return a cloned Core UUID."; return 1; }
+   moved="$(api POST "applications/$uuid/move" "$(jq -nc --arg environment_uuid "$PROD_ENV_UUID" '{environment_uuid:$environment_uuid}')")"
+   jq -e --arg e "$PROD_ENV_UUID" '.environment_uuid==$e' <<<"$moved" >/dev/null || { echo "::error::Cloned Core was not moved to production environment."; return 1; }
+ fi
+ api PATCH "applications/$uuid" "$(jq -nc '{name:"taso-core-prod",git_branch:"main",base_directory:"/taso",dockerfile_location:"/Dockerfile",ports_exposes:"3000",domains:"",custom_internal_name:"taso-core-prod",connect_to_docker_network:true,is_auto_deploy_enabled:false,is_preview_deployments_enabled:false}')" >/dev/null
+ apps="$(api GET applications)"
+ detail="$(api GET "applications/$uuid")"
+ jq -e --arg r "$REPOSITORY" '.environment_id==2 and .git_repository==$r and .git_branch=="main" and (.fqdn//"")==""' <<<"$detail" >/dev/null || {
+   echo "::error::Cloned Core production placement validation failed."
+   return 1
+ }
+ envs="$(api GET "applications/$uuid/envs")"
+ while IFS= read -r env_uuid; do
+   [[ -z "$env_uuid" ]] && continue
+   api DELETE "applications/$uuid/envs/$env_uuid" >/dev/null
+ done < <(jq -r '.[]|select((.key//"")|startswith("TASO_PREVIEW_QA_"))|.uuid//empty' <<<"$envs")
+ U["taso-core-prod"]="$uuid"
+ echo "Configured taso-core-prod from source configuration clone without cloning volume data."
+}
+ensure_app taso-search-prod /docker/taso-search 8080 taso-search
+'''
+replace_once(marker, clone_fn, 'ensure_core insertion point')
+replace_once('''ensure_app taso-core-prod /taso 3000 taso-core-prod
+''', '''ensure_core_prod
+''', 'Core application creation call')
+
+old_secret_reuse = '''owner_email="$(reuse "$cf" TASO_OWNER_EMAIL)"; [[ -n "$owner_email" ]] || owner_email="$OWNER_EMAIL"
+owner_hash="$(reuse "$cf" TASO_OWNER_PASSWORD_HASH)"; [[ -n "$owner_hash" ]] || owner_hash="$OWNER_HASH"
+nvidia="$(reuse "$cf" TASO_PROVIDER_NVIDIA_API_KEY)"; [[ -n "$nvidia" ]] || nvidia="$NVIDIA_KEY"
+github="$(reuse "$cf" TASO_GITHUB_TOKEN)"; [[ -n "$github" ]] || github="$GITHUB_TOKEN"
+'''
+new_secret_reuse = '''jq -e 'any(.[];.key=="TASO_OWNER_EMAIL") and any(.[];.key=="TASO_OWNER_PASSWORD_HASH") and any(.[];.key=="TASO_PROVIDER_NVIDIA_API_KEY") and any(.[];.key=="TASO_GITHUB_TOKEN")' "$cf" >/dev/null || {
+ echo "::error::Cloned Core is missing required production owner/provider secret keys; refusing insecure production auth."
+ exit 1
+}
+'''
+replace_once(old_secret_reuse, new_secret_reuse, 'secret value reuse block')
+
+for old, new, label in [
+(''' "NODE_ENV|production" "PORT|3000" "HOST|0.0.0.0" "TASO_OWNER_EMAIL|$owner_email" \\
+ "TASO_OWNER_PASSWORD_HASH|$owner_hash" "TASO_AUTH_ALLOW_INSECURE_BOOTSTRAP|0" \\
+''', ''' "NODE_ENV|production" "PORT|3000" "HOST|0.0.0.0" "TASO_AUTH_ALLOW_INSECURE_BOOTSTRAP|0" \\
+''', 'owner env writes'),
+(''' "TASO_GITHUB_TOKEN|$github" "TASO_GITHUB_API_URL|https://api.github.com" \\
+ "TASO_PROVIDER_NVIDIA_API_KEY|$nvidia" "TASO_PROVIDER_NVIDIA_BASE_URL|$NVIDIA_BASE" \\
+ "TASO_PROVIDER_NVIDIA_MODEL|$NVIDIA_MODEL" "TASO_PROVIDER_NVIDIA_DATA|$NVIDIA_CLASS" \\
+''', ''' "TASO_GITHUB_API_URL|https://api.github.com" \\
+''', 'provider secret env writes'),
+]:
+    replace_once(old, new, label)
+
+path.write_text(text)
+PY
+
+bash -n "$src"
+echo "Production Core clone compatibility patch validated."
+exec bash scripts/taso-production-bootstrap.sh
