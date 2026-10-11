@@ -1,0 +1,59 @@
+name: Taso Speaker Production Discovery
+
+on:
+  push:
+    branches:
+      - fix/taso-production-domain-ownership-20261012
+    paths:
+      - ".github/workflows/taso-speaker-prod-discovery.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      COOLIFY_BASE_URL: https://coolify.tasarlayalim.com
+      COOLIFY_API_TOKEN: ${{ secrets.COOLIFY_API_TOKEN }}
+      SPEAKER_UUID: tm8zzvblmh2iobgn1veas07v
+    steps:
+      - name: Inspect exact failed speaker deployment safely
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          set +x
+          tmp="$(mktemp -d)"
+          trap 'rm -rf "$tmp"' EXIT
+          api_get() {
+            local path="$1" out="$2" code="" rc=0 attempt=1
+            while ((attempt<=4)); do
+              rc=0
+              code="$(curl --silent --show-error --connect-timeout 15 --max-time 60 --output "$out" --write-out '%{http_code}' \
+                --header "Authorization: Bearer $COOLIFY_API_TOKEN" --header 'Accept: application/json' \
+                "$COOLIFY_BASE_URL/api/v1/$path")" || rc=$?
+              if ((rc==0)) && [[ "$code" =~ ^2 ]]; then return 0; fi
+              if ((attempt<4)) && { ((rc!=0)) || [[ "$code" == 408 || "$code" == 429 || "$code" =~ ^5 ]]; }; then sleep $((attempt*2)); ((attempt+=1)); continue; fi
+              echo "::error::Coolify GET $path failed (curl=$rc HTTP=${code:-000})."; return 1
+            done
+          }
+          api_get "applications/$SPEAKER_UUID" "$tmp/app.json"
+          jq -e '.name=="taso-speaker-prod" and .environment_id==2 and .base_directory=="/docker/taso-speaker"' "$tmp/app.json" >/dev/null || { echo '::error::Speaker production identity guard failed.'; exit 1; }
+          api_get "deployments/applications/$SPEAKER_UUID?skip=0&take=10" "$tmp/list.json"
+          latest="$(jq -c '[.. | objects | select(has("created_at") and (has("deployment_uuid") or has("uuid")))] | sort_by(.created_at//"") | reverse | .[0]//{}' "$tmp/list.json")"
+          duuid="$(jq -r '.deployment_uuid//.uuid//empty' <<<"$latest")"
+          [[ -n "$duuid" ]] || { echo '::error::Latest speaker deployment UUID unavailable.'; exit 1; }
+          api_get "deployments/$duuid" "$tmp/deployment.json"
+          raw="$(jq -r '.logs//empty' "$tmp/deployment.json")"
+          [[ -n "$raw" ]] || raw="$(jq -r '.logs//empty' <<<"$latest")"
+          safe="$(printf '%s\n' "$raw" | sed -E \
+            -e 's/([Aa]uthorization:[[:space:]]*[Bb]earer[[:space:]]+)[^[:space:]]+/\1[REDACTED]/g' \
+            -e 's/((SECRET|TOKEN|PASSWORD|API_KEY)[=:][[:space:]]*)[^[:space:]]+/\1[REDACTED]/Ig' \
+            -e 's/\b[0-9A-Fa-f]{32,}\b/[REDACTED-LONG-HEX]/g' \
+            | tail -n 260)"
+          jq -r '"SPEAKER_APP status=\(.status//"unknown") branch=\(.git_branch//"") dockerfile=\(.dockerfile_location//"") port=\(.ports_exposes//"")"' "$tmp/app.json"
+          jq -r '"SPEAKER_DEPLOY uuid=\(.deployment_uuid//.uuid//"unknown") status=\(.status//"unknown") commit=\(.commit//.git_commit_sha//"unknown") type=\(.deployment_type//"unknown") created=\(.created_at//"unknown") finished=\(.finished_at//"unknown")"' "$tmp/deployment.json"
+          echo 'SANITIZED_LOG_BEGIN'
+          if [[ -n "$safe" ]]; then printf '%s\n' "$safe"; else echo '[no deployment logs returned]'; fi
+          echo 'SANITIZED_LOG_END'
