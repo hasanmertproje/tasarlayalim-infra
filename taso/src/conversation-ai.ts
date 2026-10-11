@@ -26,6 +26,21 @@ export function wantsWebSearch(input:string){
  return /(?:^|[^\\p{L}\\p{N}_])(webde ara|internette ara|internetten araştır|web araştır|araştır ve bul|güncel|son gelişmeler|bugün|haberleri ara|internetten bak|hava durumu|hava nasıl|yağmur yağacak|kaç derece|döviz kuru|kaç tl|son dakika|son haberler|neler olmuş|ne olmuş|ne oldu|araştır|internette|webden|haberlerde|son durum)(?=$|[^\\p{L}\\p{N}_])/iu.test(value)
   || /\\b(weather|forecast|latest news|breaking news|search the web|look up)\\b/i.test(input);
 }
+export function webSearchQuery(input:string){
+ const original=input.trim();
+ if(!original)return original;
+ const cleaned=original
+  .replace(/\b(?:webde|webden|internette|internetten)\s+(?:ara|araştır|bak)\b/giu,' ')
+  .replace(/\bweb\s+araştır\b/giu,' ')
+  .replace(/\baraştır\s+ve\s+bul\b/giu,' ')
+  .replace(/\b(?:ve\s+)?kaynak(?:la|lı|larla)?\s+(?:yanıtla|cevapla)\b/giu,' ')
+  .replace(/\b(?:ve\s+)?(?:kaynaklarıyla|kaynaklarla)\s+(?:yanıtla|cevapla)\b/giu,' ')
+  .replace(/\b(?:search\s+the\s+web|look\s+up)\b/giu,' ')
+  .replace(/\s+/g,' ')
+  .replace(/[?.!,;:]+$/g,'')
+  .trim();
+ return cleaned||original;
+}
 function isCreatorQuestion(input:string){return /\b(seni kim yaptı|seni kim geliştirdi|kim tarafından geliştirildin|yaratıcın kim)\b/i.test(normalized(input))}
 function isFounderQuestion(input:string){return /\b(tasarlayalım.*kurucu|tasarlayalim.*kurucu|kurucusu kim|tasarlayalım.*kim kurdu|tasarlayalim.*kim kurdu)\b/i.test(normalized(input))}
 function isSelfIdentityQuestion(input:string){return /\b(sen kimsin|sen nesin|kendinden bahset|taso kimsin|taso nedir)\b/i.test(normalized(input))}
@@ -41,7 +56,7 @@ async function webContext(input:string,forceSearch=false){
     sources.push({title:doc.title||new URL(doc.finalUrl).hostname,url:doc.finalUrl,text:doc.text.slice(0,12000)});
   }
   if((forceSearch||wantsWebSearch(input))&&researchStatus().searchReady){
-    const results=await searchWeb(input,6);
+    const results=await searchWeb(webSearchQuery(input),6);
     for(const result of results.slice(0,6)) sources.push({title:result.title,url:result.url,text:result.snippet||''});
   }
   return sources;
@@ -109,4 +124,3 @@ export class ConversationAi{
     evidence.mode='ai';evidence.sources=sources.map(({title,url})=>({title,url}));return content;
   }
 }
-
