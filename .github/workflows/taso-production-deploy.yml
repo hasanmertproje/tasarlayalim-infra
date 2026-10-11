@@ -8,6 +8,7 @@ on:
       - ".github/workflows/taso-production-deploy.yml"
       - "scripts/taso-production-deploy.sh"
       - "scripts/taso-production-bootstrap.sh"
+      - "scripts/taso-production-secret-compat.sh"
 
 permissions:
   contents: read
@@ -33,4 +34,4 @@ jobs:
         with:
           node-version: "22"
       - name: Deploy isolated Taso production stack
-        run: bash scripts/taso-production-bootstrap.sh
+        run: bash scripts/taso-production-secret-compat.sh
