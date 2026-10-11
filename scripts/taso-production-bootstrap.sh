@@ -79,11 +79,9 @@ put "$search" "$xf" SEARXNG_SECRET "$searchkey"
 )
 
 replace_once(
-'''ensure_core_prod
-ensure_app taso-ui-prod /taso-ui 80 taso-ui-prod "$TASO_PRODUCTION_DOMAIN"
+'''ensure_app taso-ui-prod /taso-ui 80 taso-ui-prod "$TASO_PRODUCTION_DOMAIN"
 ''',
-'''ensure_core_prod
-ensure_app taso-ui-prod /taso-ui 80 taso-ui-prod "$TASO_PRODUCTION_DOMAIN"
+'''ensure_app taso-ui-prod /taso-ui 80 taso-ui-prod "$TASO_PRODUCTION_DOMAIN"
 
 guard_production_domain_owner() {
  local ui_uuid="${U[taso-ui-prod]}" snapshot conflicts detail current basic desired owners
