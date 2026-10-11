@@ -1,11 +1,16 @@
 FROM python:3.11-slim
 WORKDIR /app
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PORT=3200 TASO_SPEAKER_DATA_DIR=/data
+ARG TORCH_VERSION=2.14.1+cpu
 RUN apt-get update \
  && apt-get install -y --no-install-recommends ffmpeg libsndfile1 build-essential \
  && rm -rf /var/lib/apt/lists/*
 COPY requirements.txt ./
-RUN pip install --no-cache-dir -r requirements.txt \
+RUN pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu "torch==${TORCH_VERSION}" \
+ && pip install --no-cache-dir -r requirements.txt \
+ && pip check \
+ && python -c "import torch; assert torch.version.cuda is None, torch.version.cuda; print('CPU-only torch:', torch.__version__)" \
+ && ! python -m pip list --format=freeze | grep -qi '^nvidia-' \
  && apt-get purge -y --auto-remove build-essential \
  && rm -rf /var/lib/apt/lists/*
 COPY app.py ./
