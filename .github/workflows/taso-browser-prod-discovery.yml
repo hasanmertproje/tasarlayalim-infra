@@ -1,0 +1,64 @@
+name: Taso Browser Production Discovery
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/taso-browser-prod-discovery.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      COOLIFY_BASE_URL: https://coolify.tasarlayalim.com
+      COOLIFY_API_TOKEN: ${{ secrets.COOLIFY_API_TOKEN }}
+    steps:
+      - name: Inspect production browser deployment safely
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          set +x
+          : "${COOLIFY_API_TOKEN:?COOLIFY_API_TOKEN repository secret is required}"
+          api_get() {
+            curl --silent --show-error --fail-with-body \
+              --connect-timeout 15 --max-time 60 \
+              --header "Authorization: Bearer $COOLIFY_API_TOKEN" \
+              --header 'Accept: application/json' \
+              "$COOLIFY_BASE_URL/api/v1/$1"
+          }
+
+          apps="$(api_get applications)"
+          uuid="$(jq -r '.[]|select(.name=="taso-browser-prod")|.uuid' <<<"$apps" | head -n1)"
+          [[ -n "$uuid" ]] || { echo '::error::taso-browser-prod not found'; exit 1; }
+          detail="$(api_get "applications/$uuid")"
+          envs="$(api_get "applications/$uuid/envs")"
+          deployments="$(api_get "deployments/applications/$uuid?skip=0&take=10")"
+          deployment_summary="$(jq -c '[.. | objects | select(has("created_at") and (has("deployment_uuid") or has("uuid")))] | sort_by(.created_at // "") | reverse | .[0] // {}' <<<"$deployments")"
+          raw_logs="$(jq -r '.logs // ""' <<<"$deployment_summary")"
+          safe_logs="$(printf '%s\n' "$raw_logs" \
+            | sed -E \
+              -e 's/([Aa]uthorization:[[:space:]]*[Bb]earer[[:space:]]+)[^[:space:]]+/\1[REDACTED]/g' \
+              -e 's/((SECRET|TOKEN|PASSWORD|API_KEY)[=:][[:space:]]*)[^[:space:]]+/\1[REDACTED]/Ig' \
+              -e 's/\b[0-9A-Fa-f]{32,}\b/[REDACTED-LONG-HEX]/g' \
+            | tail -n 200)"
+
+          {
+            echo '## TASO browser production deployment discovery'
+            jq -r '"- UUID: \(.uuid // "n/a")\n- status: \(.status // "unknown")\n- branch: \(.git_branch // "n/a")\n- base directory: \(.base_directory // "n/a")\n- dockerfile: \(.dockerfile_location // "n/a")\n- port: \(.ports_exposes // "n/a")\n- public fqdn: \(.fqdn // "none")"' <<<"$detail"
+            echo '- env key presence:'
+            jq -r '["PORT","TASO_BROWSER_SERVICE_SECRET"][] as $k | "  - " + $k + ": " + (any(.[];.key==$k)|tostring)' <<<"$envs"
+            jq -r '"- latest deployment UUID: \(.deployment_uuid // .uuid // "n/a")\n- latest deployment status: \(.status // "unknown")\n- latest deployment commit: \(.commit // .git_commit_sha // "n/a")"' <<<"$deployment_summary"
+            echo '- sanitized deployment logs:'
+            echo '```text'
+            if [[ -n "$safe_logs" ]]; then printf '%s\n' "$safe_logs"; else echo '[no logs returned]'; fi
+            echo '```'
+            echo
+            echo 'Read-only diagnostic: no Coolify resource was changed; secret-like values were redacted before output.'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
+          [[ -n "$raw_logs" ]] || { echo '::error::Latest browser deployment returned no logs.'; exit 1; }
