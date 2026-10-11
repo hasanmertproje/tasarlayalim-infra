@@ -10,7 +10,6 @@ on:
 permissions:
   contents: read
 
-# Read-only diagnostic. Touching this file intentionally triggers one discovery run on main.
 jobs:
   discover:
     runs-on: ubuntu-latest
@@ -20,6 +19,7 @@ jobs:
       COOLIFY_API_TOKEN: ${{ secrets.COOLIFY_API_TOKEN }}
     steps:
       - name: Inspect production search runtime safely
+        shell: bash
         run: |
           set -Eeuo pipefail
           set +x
@@ -36,21 +36,13 @@ jobs:
           [[ -n "$uuid" ]] || { echo '::error::taso-search-prod not found'; exit 1; }
           detail="$(api_get "applications/$uuid")"
           envs="$(api_get "applications/$uuid/envs")"
-          raw_logs="$(api_get "applications/$uuid/logs?lines=120&show_timestamps=false" | jq -r '.logs // ""')"
-          SAFE_LOGS="$raw_logs" python3 - <<'PY' > /tmp/search-safe.log
-import os,re
-text=os.environ.get('SAFE_LOGS','')
-patterns=[
-    (re.compile(r'(?i)(password|passwd|secret|token|api[_-]?key|authorization)(\s*[:=]\s*)([^\s,;]+)'),r'\1\2[REDACTED]'),
-    (re.compile(r'(?i)(bearer\s+)[A-Za-z0-9._~+/=-]+'),r'\1[REDACTED]'),
-    (re.compile(r'([?&](?:key|token|secret|password)=)[^&\s]+',re.I),r'\1[REDACTED]'),
-    (re.compile(r'\b[A-Fa-f0-9]{32,}\b'), '[REDACTED-LONG-HEX]'),
-]
-for line in text.splitlines()[-120:]:
-    safe=line
-    for pat,repl in patterns:safe=pat.sub(repl,safe)
-    print(safe[:800])
-PY
+          raw_logs="$(api_get "applications/$uuid/logs?lines=120&show_timestamps=true" | jq -r '.logs // ""')"
+          safe_logs="$(printf '%s\n' "$raw_logs" \
+            | sed -E \
+              -e 's/([Aa]uthorization:[[:space:]]*[Bb]earer[[:space:]]+)[^[:space:]]+/\1[REDACTED]/g' \
+              -e 's/((SECRET|TOKEN|PASSWORD|API_KEY)[=:][[:space:]]*)[^[:space:]]+/\1[REDACTED]/Ig' \
+              -e 's/\b[0-9A-Fa-f]{32,}\b/[REDACTED-LONG-HEX]/g' \
+            | tail -n 120)"
           {
             echo '## TASO search production runtime discovery'
             jq -r '"- UUID: \(.uuid // "n/a")\n- status: \(.status // "unknown")\n- branch: \(.git_branch // "n/a")\n- base directory: \(.base_directory // "n/a")\n- port: \(.ports_exposes // "n/a")\n- public fqdn: \(.fqdn // "none")"' <<<"$detail"
@@ -58,7 +50,7 @@ PY
             jq -r '["PORT","SEARXNG_SECRET"][] as $k | "  - " + $k + ": " + (any(.[];.key==$k)|tostring)' <<<"$envs"
             echo '- sanitized last container logs:'
             echo '```text'
-            cat /tmp/search-safe.log
+            printf '%s\n' "$safe_logs"
             echo '```'
             echo
             echo 'Read-only diagnostic: no Coolify resource was changed; secret-like values were redacted before output.'
