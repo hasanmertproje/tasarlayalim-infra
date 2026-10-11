@@ -51,7 +51,7 @@ jobs:
             echo '## TASO browser production deployment discovery'
             jq -r '"- UUID: \(.uuid // "n/a")\n- status: \(.status // "unknown")\n- branch: \(.git_branch // "n/a")\n- base directory: \(.base_directory // "n/a")\n- dockerfile: \(.dockerfile_location // "n/a")\n- port: \(.ports_exposes // "n/a")\n- public fqdn: \(.fqdn // "none")"' <<<"$detail"
             echo '- env key presence:'
-            jq -r '["PORT","TASO_BROWSER_SERVICE_SECRET"][] as $k | "  - " + $k + ": " + (any(.[];.key==$k)|tostring)' <<<"$envs"
+            jq -r '["PORT","TASO_BROWSER_WORKER_SECRET","TASO_BROWSER_ALLOWED_HOSTS"][] as $k | "  - " + $k + ": " + (any(.[];.key==$k)|tostring)' <<<"$envs"
             jq -r '"- latest deployment UUID: \(.deployment_uuid // .uuid // "n/a")\n- latest deployment status: \(.status // "unknown")\n- latest deployment commit: \(.commit // .git_commit_sha // "n/a")"' <<<"$deployment_summary"
             echo '- sanitized deployment logs:'
             echo '```text'
