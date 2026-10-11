@@ -2,6 +2,12 @@ name: Taso Production Deploy
 
 on:
   workflow_dispatch:
+    inputs:
+      force_heavy_workers:
+        description: "Force rebuild/deploy of TASO Speaker and Voice even when their source paths are unchanged"
+        required: false
+        type: boolean
+        default: false
   push:
     branches: [main]
     paths:
@@ -11,8 +17,12 @@ on:
       - "scripts/taso-production-secret-compat.sh"
       - "scripts/taso-production-core-clone-compat.sh"
       - "scripts/taso-production-api-retry-compat.sh"
+      - "docker/taso-search/**"
       - "docker/taso-browser/**"
       - "docker/taso-speaker/**"
+      - "docker/taso-voice/**"
+      - "taso/**"
+      - "taso-ui/**"
 
 permissions:
   contents: read
@@ -30,6 +40,7 @@ jobs:
       COOLIFY_API_TOKEN: ${{ secrets.COOLIFY_API_TOKEN }}
       TASO_PRODUCTION_DOMAIN: taso.tasarlayalim.com
       TASO_SERVER_IPV4: 45.74.243.96
+      TASO_FORCE_HEAVY_WORKER_DEPLOY: ${{ github.event_name == 'workflow_dispatch' && inputs.force_heavy_workers && '1' || '0' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
