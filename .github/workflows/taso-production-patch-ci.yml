@@ -11,6 +11,7 @@ on:
       - "scripts/taso-production-secret-compat.sh"
       - "scripts/taso-production-core-clone-compat.sh"
       - "scripts/taso-production-api-retry-compat.sh"
+      - "scripts/taso-production-ui-retry-compat.sh"
   push:
     branches: [main]
     paths:
@@ -21,6 +22,7 @@ on:
       - "scripts/taso-production-secret-compat.sh"
       - "scripts/taso-production-core-clone-compat.sh"
       - "scripts/taso-production-api-retry-compat.sh"
+      - "scripts/taso-production-ui-retry-compat.sh"
   workflow_dispatch:
 
 permissions:
@@ -42,7 +44,7 @@ jobs:
       - name: Validate full production compatibility chain
         env:
           TASO_PATCH_VALIDATE_ONLY: "1"
-        run: bash scripts/taso-production-api-retry-compat.sh
+        run: bash scripts/taso-production-ui-retry-compat.sh
       - name: Confirm no production token is required
         run: |
           test -z "${COOLIFY_API_TOKEN:-}"
