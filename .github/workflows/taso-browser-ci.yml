@@ -24,6 +24,27 @@ jobs:
         run: node --test docker/taso-browser/security.test.mjs
       - name: Build browser worker image
         run: docker build -t tasarlayalim-taso-browser ./docker/taso-browser
+      - name: Smoke test browser worker runtime health
+        run: |
+          docker run -d --rm --name taso-browser-ci -p 3100:3100 \
+            -e TASO_BROWSER_WORKER_SECRET=ci-browser-secret \
+            -e TASO_BROWSER_ALLOWED_HOSTS=example.com \
+            tasarlayalim-taso-browser
+          for i in $(seq 1 40); do
+            status="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}missing{{end}}' taso-browser-ci 2>/dev/null || true)"
+            if [[ "$status" == healthy ]]; then
+              curl -fsS http://127.0.0.1:3100/health | grep -q '"ok":true'
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Browser worker did not become healthy." >&2
+          docker inspect taso-browser-ci --format '{{json .State}}' || true
+          docker logs taso-browser-ci || true
+          exit 1
+      - name: Cleanup browser worker runtime
+        if: always()
+        run: docker rm -f taso-browser-ci 2>/dev/null || true
 
   visual-acceptance:
     runs-on: ubuntu-latest
