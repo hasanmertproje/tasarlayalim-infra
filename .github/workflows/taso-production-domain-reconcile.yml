@@ -28,78 +28,97 @@ jobs:
           set -Eeuo pipefail
           tmp="$(mktemp -d)"
           trap 'rm -rf "$tmp"' EXIT
+
           api() {
-            local method="$1" path="$2" body="${3:-}" out="$tmp/response.json" code
+            local method="$1" path="$2" body="${3:-}" out="$tmp/response.json"
+            local code="" rc=0 attempt=1 max_attempts=1 delay=0
             local args=(--silent --show-error --connect-timeout 15 --max-time 60 --output "$out" --write-out '%{http_code}' \
               --header "Authorization: Bearer $COOLIFY_API_TOKEN" --header 'Accept: application/json')
             if [[ -n "$body" ]]; then args+=(--header 'Content-Type: application/json' --data-binary "$body"); fi
-            code="$(curl "${args[@]}" -X "$method" "$COOLIFY_BASE_URL/api/v1/$path")"
-            [[ "$code" =~ ^2 ]] || { echo "::error::Coolify API $method $path failed (HTTP $code)."; cat "$out" | jq -c '{message,warning,conflicts}' 2>/dev/null || true; return 1; }
-            cat "$out"
+            [[ "$method" == GET ]] && max_attempts=4
+            while (( attempt <= max_attempts )); do
+              : > "$out"
+              rc=0
+              code="$(curl "${args[@]}" -X "$method" "$COOLIFY_BASE_URL/api/v1/$path")" || rc=$?
+              if (( rc == 0 )) && [[ "$code" =~ ^2 ]]; then cat "$out"; return 0; fi
+              if [[ "$method" == GET ]] && (( attempt < max_attempts )) && { (( rc != 0 )) || [[ "$code" == 408 || "$code" == 429 || "$code" =~ ^5 ]]; }; then
+                delay=$((attempt*3)); echo "::notice::Coolify GET $path transient failure (curl=$rc HTTP=${code:-000}); retrying after ${delay}s." >&2
+                sleep "$delay"; ((attempt+=1)); continue
+              fi
+              if (( rc != 0 )); then
+                echo "::warning::Coolify API $method $path transport failed (curl=$rc HTTP=${code:-000})." >&2
+              else
+                echo "::warning::Coolify API $method $path failed (HTTP ${code:-000})." >&2
+                jq -c '{message,warning,conflicts}' "$out" 2>/dev/null >&2 || true
+              fi
+              return 1
+            done
           }
+
+          normalized_domains_equal() {
+            EXPECTED="$1" ACTUAL="$2" python3 - <<'PY'
+          import os
+          def norm(s): return ','.join(sorted(x.strip().lower().rstrip('/') for x in s.split(',') if x.strip()))
+          raise SystemExit(0 if norm(os.environ['EXPECTED']) == norm(os.environ['ACTUAL']) else 1)
+          PY
+          }
+
+          patch_domains_verified() {
+            local uuid="$1" expected="$2" body detail actual
+            body="$(DOMAINS="$expected" node -e 'process.stdout.write(JSON.stringify({domains:process.env.DOMAINS,autogenerate_domain:false}))')"
+            if ! api PATCH "applications/$uuid" "$body" >/dev/null; then
+              echo "::notice::PATCH result was not authoritative; verifying application state before any retry." >&2
+            fi
+            detail="$(api GET "applications/$uuid")"
+            actual="$(jq -r '.fqdn // ""' <<<"$detail")"
+            normalized_domains_equal "$expected" "$actual" || {
+              echo "::error::Domain update verification failed for application $uuid. Expected '$expected', actual '$actual'." >&2
+              return 1
+            }
+          }
+
           apps="$(api GET applications)"
           jq -e 'type=="array"' <<<"$apps" >/dev/null
           ui="$(jq -r --arg n "$TASO_PRODUCTION_UI_NAME" --arg r "$TASO_REPOSITORY" '[.[]|select(.name==$n and .environment_id==2 and .git_repository==$r)][0].uuid//empty' <<<"$apps")"
           [[ -n "$ui" ]] || { echo "::error::Production UI resource could not be resolved safely."; exit 1; }
-
-          TARGET="$TASO_PRODUCTION_DOMAIN" UI="$ui" REPO="$TASO_REPOSITORY" python3 - <<'PY' > "$tmp/owners.tsv"
-          import json, os, sys
-          apps=json.loads(sys.stdin.read() or '[]') if False else None
-          PY
           printf '%s' "$apps" > "$tmp/apps.json"
+
           TARGET="$TASO_PRODUCTION_DOMAIN" UI="$ui" REPO="$TASO_REPOSITORY" python3 - "$tmp/apps.json" > "$tmp/owners.tsv" <<'PY'
           import json, os, sys
           from urllib.parse import urlsplit
-          apps=json.load(open(sys.argv[1]))
-          target=os.environ['TARGET'].lower()
-          ui=os.environ['UI']
-          repo=os.environ['REPO']
+          apps=json.load(open(sys.argv[1])); target=os.environ['TARGET'].lower(); ui=os.environ['UI']; repo=os.environ['REPO']
           def host(v):
               v=v.strip()
               if not v: return ''
               if '://' not in v: v='https://'+v
               return (urlsplit(v).hostname or '').lower()
           for app in apps:
-              fqdn=app.get('fqdn') or ''
-              parts=[p.strip() for p in fqdn.split(',') if p.strip()]
-              if target not in [host(p) for p in parts]:
-                  continue
-              uuid=app.get('uuid') or ''
-              name=app.get('name') or ''
-              apprepo=app.get('git_repository') or ''
+              fqdn=app.get('fqdn') or ''; parts=[p.strip() for p in fqdn.split(',') if p.strip()]
+              if target not in [host(p) for p in parts]: continue
+              uuid=app.get('uuid') or ''; name=app.get('name') or ''; apprepo=app.get('git_repository') or ''
               if uuid==ui:
-                  print(f'UI\t{uuid}\t{name}\t{fqdn}')
-                  continue
+                  print(f'UI\t{uuid}\t{name}\t{fqdn}'); continue
               if apprepo!=repo:
-                  print(f'UNSAFE\t{uuid}\t{name}\t{fqdn}')
-                  continue
+                  print(f'UNSAFE\t{uuid}\t{name}\t{fqdn}'); continue
               remaining=[p for p in parts if host(p)!=target]
-              if not remaining:
-                  print(f'MANUAL\t{uuid}\t{name}\t{fqdn}')
-              else:
-                  print(f'LEGACY\t{uuid}\t{name}\t{",".join(remaining)}')
+              if not remaining: print(f'MANUAL\t{uuid}\t{name}\t{fqdn}')
+              else: print(f'LEGACY\t{uuid}\t{name}\t{",".join(remaining)}')
           PY
 
-          if grep -q '^UNSAFE\t' "$tmp/owners.tsv"; then
-            echo "::error::Production domain is owned by an unrelated resource; refusing automatic mutation."
-            cat "$tmp/owners.tsv"
-            exit 1
+          if grep -q $'^UNSAFE\t' "$tmp/owners.tsv"; then
+            echo "::error::Production domain is owned by an unrelated resource; refusing automatic mutation."; cat "$tmp/owners.tsv"; exit 1
           fi
-          if grep -q '^MANUAL\t' "$tmp/owners.tsv"; then
-            echo "::error::A legacy owner has no alternate domain; Coolify cannot reliably clear a sole domain through this API version."
-            cat "$tmp/owners.tsv"
-            exit 1
+          if grep -q $'^MANUAL\t' "$tmp/owners.tsv"; then
+            echo "::error::A legacy owner has no alternate domain; this Coolify API cannot reliably clear a sole domain."; cat "$tmp/owners.tsv"; exit 1
           fi
 
           while IFS=$'\t' read -r kind uuid name remaining; do
             [[ "$kind" == LEGACY ]] || continue
-            body="$(DOMAINS="$remaining" node -e 'process.stdout.write(JSON.stringify({domains:process.env.DOMAINS,autogenerate_domain:false}))')"
-            api PATCH "applications/$uuid" "$body" >/dev/null
+            patch_domains_verified "$uuid" "$remaining"
             echo "Removed $TASO_PRODUCTION_DOMAIN from legacy resource $name ($uuid); preserved: $remaining"
           done < "$tmp/owners.tsv"
 
-          body="$(DOMAIN="https://$TASO_PRODUCTION_DOMAIN" node -e 'process.stdout.write(JSON.stringify({domains:process.env.DOMAIN,autogenerate_domain:false}))')"
-          api PATCH "applications/$ui" "$body" >/dev/null
+          patch_domains_verified "$ui" "https://$TASO_PRODUCTION_DOMAIN"
           echo "Enforced production domain on $TASO_PRODUCTION_UI_NAME ($ui)."
 
           apps2="$(api GET applications)"
@@ -107,8 +126,7 @@ jobs:
           TARGET="$TASO_PRODUCTION_DOMAIN" UI="$ui" python3 - "$tmp/apps2.json" <<'PY'
           import json, os, sys
           from urllib.parse import urlsplit
-          apps=json.load(open(sys.argv[1]))
-          target=os.environ['TARGET'].lower(); ui=os.environ['UI']
+          apps=json.load(open(sys.argv[1])); target=os.environ['TARGET'].lower(); ui=os.environ['UI']
           def host(v):
               v=v.strip()
               if '://' not in v: v='https://'+v
@@ -118,8 +136,7 @@ jobs:
               parts=[p.strip() for p in (app.get('fqdn') or '').split(',') if p.strip()]
               if target in [host(p) for p in parts]: owners.append((app.get('uuid'),app.get('name'),app.get('fqdn')))
           for uuid,name,fqdn in owners: print(f'FINAL_DOMAIN_OWNER name={name} uuid={uuid} fqdn={fqdn}')
-          if len(owners)!=1 or owners[0][0]!=ui:
-              raise SystemExit(f'expected exactly production UI as owner, got {owners}')
+          if len(owners)!=1 or owners[0][0]!=ui: raise SystemExit(f'expected exactly production UI as owner, got {owners}')
           print('Production domain ownership is unique and correct.')
           PY
 
