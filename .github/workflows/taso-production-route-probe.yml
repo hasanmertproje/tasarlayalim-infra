@@ -31,11 +31,16 @@ jobs:
             --header "Authorization: Bearer $COOLIFY_API_TOKEN" --header 'Accept: application/json' \
             "$COOLIFY_BASE_URL/api/v1/applications/$UI_UUID")"
           [[ "$code" =~ ^2 ]] || { echo "::error::Unable to read production UI metadata (HTTP $code)."; exit 1; }
-          jq -r '"UI_METADATA name=\(.name//"") uuid=\(.uuid//"") status=\(.status//"") fqdn=\(.fqdn//"") basic_auth=\(.is_http_basic_auth_enabled//false) force_https=\(.settings.force_https//"unknown") connect_network=\(.settings.connect_to_docker_network//"unknown") port=\(.ports_exposes//"") base=\(.base_directory//"") dockerfile=\(.dockerfile_location//"")"' "$tmp/app.json"
+          jq -r '"UI_METADATA name=\(.name//"") uuid=\(.uuid//"") status=\(.status//"") fqdn=\(.fqdn//"") basic_auth=\(.is_http_basic_auth_enabled//false) connect_network=\(.settings.connect_to_docker_network//"unknown") port=\(.ports_exposes//"") base=\(.base_directory//"") dockerfile=\(.dockerfile_location//"")"' "$tmp/app.json"
+          jq -r '"UI_ROUTE_METADATA redirect=\(.redirect//"unknown") health_enabled=\(.health_check_enabled//false) health_path=\(.health_check_path//"") health_port=\(.health_check_port//"") health_method=\(.health_check_method//"") health_return=\(.health_check_return_code//"") custom_healthcheck=\(.custom_healthcheck_found//false)"' "$tmp/app.json"
           jq -r 'keys | map(select(test("auth|middleware|redirect|proxy|traefik|label|domain|fqdn|health";"i"))) | "SAFE_RELEVANT_METADATA_KEYS=" + join(",")' "$tmp/app.json"
 
           probe() {
-            local label="$1" url="$2" headers="$tmp/$label.headers" body="$tmp/$label.body" status
+            local label="$1"
+            local url="$2"
+            local headers="$tmp/$label.headers"
+            local body="$tmp/$label.body"
+            local status
             status="$(curl --silent --show-error --connect-timeout 10 --max-time 20 -D "$headers" -o "$body" -w '%{http_code}' "$url" || true)"
             echo "PROBE $label status=$status url=$url"
             awk 'BEGIN{IGNORECASE=1} /^(HTTP\/|WWW-Authenticate:|Server:|Location:|Content-Type:|X-Powered-By:|X-Served-By:|X-Request-ID:)/ {gsub(/\r$/,""); print "HEADER " $0}' "$headers" || true
