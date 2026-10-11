@@ -1,0 +1,73 @@
+name: Taso Production UI Auth Reconcile
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - fix/taso-production-domain-ownership-20261012
+    paths:
+      - ".github/workflows/taso-production-ui-auth-reconcile.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  reconcile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      COOLIFY_BASE_URL: https://coolify.tasarlayalim.com
+      COOLIFY_API_TOKEN: ${{ secrets.COOLIFY_API_TOKEN }}
+      UI_UUID: biuki5ik9ifbphwalsmgukmq
+      PROD_DOMAIN: taso.tasarlayalim.com
+      REPOSITORY: hasanmertproje/tasarlayalim-infra
+    steps:
+      - name: Verify and remove outer Coolify Basic Auth
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          tmp="$(mktemp -d)"
+          trap 'rm -rf "$tmp"' EXIT
+          request() {
+            local method="$1" path="$2" out="$3" body="${4:-}" code="" rc=0
+            local args=(--silent --show-error --connect-timeout 15 --max-time 60 --output "$out" --write-out '%{http_code}' \
+              --header "Authorization: Bearer $COOLIFY_API_TOKEN" --header 'Accept: application/json')
+            [[ -n "$body" ]] && args+=(--header 'Content-Type: application/json' --data-binary "$body")
+            code="$(curl "${args[@]}" -X "$method" "$COOLIFY_BASE_URL/api/v1/$path")" || rc=$?
+            echo "$rc $code"
+          }
+
+          read -r rc code < <(request GET "applications/$UI_UUID" "$tmp/before.json")
+          ((rc==0)) && [[ "$code" =~ ^2 ]] || { echo "::error::Unable to read production UI metadata (curl=$rc HTTP=${code:-000})."; exit 1; }
+          jq -e --arg repo "$REPOSITORY" --arg fqdn "https://$PROD_DOMAIN" '
+            .uuid=="biuki5ik9ifbphwalsmgukmq" and .name=="taso-ui-prod" and .environment_id==2 and .git_repository==$repo and .fqdn==$fqdn
+          ' "$tmp/before.json" >/dev/null || { echo "::error::Production UI identity/domain guard failed."; exit 1; }
+          enabled="$(jq -r '.is_http_basic_auth_enabled // false' "$tmp/before.json")"
+          user_configured="$(jq -r '((.http_basic_auth_username // "")|length)>0' "$tmp/before.json")"
+          echo "OUTER_BASIC_AUTH enabled=$enabled username_configured=$user_configured status=$(jq -r '.status//"unknown"' "$tmp/before.json")"
+
+          if [[ "$enabled" == true ]]; then
+            read -r rc code < <(request PATCH "applications/$UI_UUID" "$tmp/patch.json" '{"is_http_basic_auth_enabled":false}')
+            if ((rc!=0)) || [[ ! "$code" =~ ^2 ]]; then
+              echo "::warning::Coolify Basic Auth PATCH was not confirmed (curl=$rc HTTP=${code:-000}); verifying resulting state."
+              jq -c '{message,errors,warning}' "$tmp/patch.json" 2>/dev/null || true
+            fi
+          fi
+
+          sleep 2
+          read -r rc code < <(request GET "applications/$UI_UUID" "$tmp/after.json")
+          ((rc==0)) && [[ "$code" =~ ^2 ]] || { echo "::error::Unable to verify production UI metadata."; exit 1; }
+          after="$(jq -r '.is_http_basic_auth_enabled // false' "$tmp/after.json")"
+          [[ "$after" == false ]] || { echo "::error::Outer Coolify Basic Auth remains enabled."; exit 1; }
+          echo "Outer Coolify Basic Auth is disabled; TASO application auth remains authoritative."
+
+          for attempt in $(seq 1 12); do
+            http="$(curl --silent --show-error --output "$tmp/health" --write-out '%{http_code}' --connect-timeout 10 --max-time 20 "https://$PROD_DOMAIN/health" || true)"
+            if [[ "$http" == 200 ]] && grep -q 'ok' "$tmp/health"; then
+              echo "Production UI health is public and correct on https://$PROD_DOMAIN/health"
+              exit 0
+            fi
+            echo "Health propagation attempt $attempt/12 returned HTTP $http; waiting."
+            sleep 5
+          done
+          echo "::error::Production UI /health did not become public after outer auth reconciliation."; exit 1
