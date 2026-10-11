@@ -32,10 +32,12 @@ marker = '''}
 ensure_app taso-search-prod /docker/taso-search 8080 taso-search
 '''
 clone_fn = '''}
+core_preexisting=false
 ensure_core_prod() {
  local uuid detail destination cloned moved envs env_uuid
  uuid="$(jq -r '.[]|select(.name=="taso-core-prod")|.uuid' <<<"$apps"|head -n1)"
  if [[ -n "$uuid" ]]; then
+   core_preexisting=true
    detail="$(api GET "applications/$uuid")"
    jq -e --arg r "$REPOSITORY" '.environment_id==2 and .git_repository==$r and .git_branch=="main"' <<<"$detail" >/dev/null || {
      echo "::error::Existing taso-core-prod is not the expected production resource; refusing to alter it."
@@ -63,7 +65,11 @@ ensure_core_prod() {
    api DELETE "applications/$uuid/envs/$env_uuid" >/dev/null
  done < <(jq -r '.[]|select((.key//"")|startswith("TASO_PREVIEW_QA_"))|.uuid//empty' <<<"$envs")
  U["taso-core-prod"]="$uuid"
- echo "Configured taso-core-prod from source configuration clone without cloning volume data."
+ if [[ "$core_preexisting" == true ]]; then
+   echo "Configured existing taso-core-prod in place; production volume data was preserved."
+ else
+   echo "Configured taso-core-prod from source configuration clone without cloning volume data."
+ fi
 }
 ensure_app taso-search-prod /docker/taso-search 8080 taso-search
 '''
@@ -77,16 +83,41 @@ owner_hash="$(reuse "$cf" TASO_OWNER_PASSWORD_HASH)"; [[ -n "$owner_hash" ]] || 
 nvidia="$(reuse "$cf" TASO_PROVIDER_NVIDIA_API_KEY)"; [[ -n "$nvidia" ]] || nvidia="$NVIDIA_KEY"
 github="$(reuse "$cf" TASO_GITHUB_TOKEN)"; [[ -n "$github" ]] || github="$GITHUB_TOKEN"
 '''
-new_secret_reuse = '''jq -e 'any(.[];.key=="TASO_OWNER_EMAIL") and (any(.[];.key=="TASO_OWNER_PASSWORD_HASH") or any(.[];.key=="TASO_OWNER_PASSWORD")) and any(.[];.key=="TASO_PROVIDER_NVIDIA_API_KEY") and any(.[];.key=="TASO_GITHUB_TOKEN")' "$cf" >/dev/null || {
- echo "::error::Cloned Core is missing required production owner/provider secret keys; refusing production auth bootstrap."
+new_secret_reuse = '''jq -e 'any(.[];.key=="TASO_OWNER_EMAIL") and any(.[];.key=="TASO_PROVIDER_NVIDIA_API_KEY") and any(.[];.key=="TASO_GITHUB_TOKEN")' "$cf" >/dev/null || {
+ echo "::error::Production Core is missing required owner/provider configuration keys; refusing production auth bootstrap."
  exit 1
 }
 if jq -e 'any(.[];.key=="TASO_OWNER_PASSWORD_HASH")' "$cf" >/dev/null; then
  owner_credential_mode=hash
-else
+elif jq -e 'any(.[];.key=="TASO_OWNER_PASSWORD")' "$cf" >/dev/null; then
  owner_credential_mode=migrate
  put "$core" "$cf" TASO_AUTH_MIGRATE_OWNER_PASSWORD 1
  echo "Owner credential requires one-time in-container hash migration; secret value remains outside CI."
+elif [[ "$core_preexisting" == true ]]; then
+ core_detail="$(api GET "applications/$core")"
+ core_status="$(jq -r '.status//"unknown"' <<<"$core_detail")"
+ core_storages="$(api GET "applications/$core/storages")"
+ jq -e 'any(.persistent_storages[]?;.mount_path=="/data")' <<<"$core_storages" >/dev/null || {
+   echo "::error::Existing production Core has no persistent /data storage for the owner credential hash."
+   exit 1
+ }
+ case "$core_status" in
+   running|running:*) [[ "$core_status" != running:unhealthy ]] || { echo "::error::Existing production Core is unhealthy; persisted owner credential state cannot be trusted for redeploy."; exit 1; } ;;
+   *) echo "::error::Existing production Core is not running; persisted owner credential state cannot be proven before redeploy."; exit 1 ;;
+ esac
+ current_session="$(curl -fsS --connect-timeout 10 --max-time 20 "https://$TASO_PRODUCTION_DOMAIN/api/auth/session")" || {
+   echo "::error::Current production authentication session gate is unavailable; persisted owner credential state cannot be proven."
+   exit 1
+ }
+ jq -e '.configured==true and .authenticated==false' <<<"$current_session" >/dev/null || {
+   echo "::error::Current production authentication session gate does not prove a configured owner credential."
+   exit 1
+ }
+ owner_credential_mode=persisted
+ echo "Existing production Core has a healthy configured auth boundary and persistent /data storage; reusing the persisted owner password hash without reading it."
+else
+ echo "::error::New production Core has no owner password hash or one-time plaintext migration key; refusing bootstrap."
+ exit 1
 fi
 '''
 replace_once(old_secret_reuse, new_secret_reuse, 'secret value reuse block')
@@ -129,6 +160,8 @@ if [[ "${owner_credential_mode:-hash}" == migrate ]]; then
   jq -e 'all(.[];.key!="TASO_OWNER_PASSWORD" and .key!="TASO_AUTH_MIGRATE_OWNER_PASSWORD")' <<<"$core_envs" >/dev/null || { echo "::error::One-time production owner credential cleanup did not converge."; exit 1; }
   echo "One-time plaintext owner credential removed; redeploying Core to prove persisted hash restart."
   deploy taso-core-prod "$core"
+elif [[ "${owner_credential_mode:-}" == persisted ]]; then
+  echo "Production Core will prove the persisted hash again by completing this normal deployment with no plaintext owner credential configured."
 fi
 deploy taso-ui-prod "$ui"
 ''',
