@@ -77,10 +77,17 @@ owner_hash="$(reuse "$cf" TASO_OWNER_PASSWORD_HASH)"; [[ -n "$owner_hash" ]] || 
 nvidia="$(reuse "$cf" TASO_PROVIDER_NVIDIA_API_KEY)"; [[ -n "$nvidia" ]] || nvidia="$NVIDIA_KEY"
 github="$(reuse "$cf" TASO_GITHUB_TOKEN)"; [[ -n "$github" ]] || github="$GITHUB_TOKEN"
 '''
-new_secret_reuse = '''jq -e 'any(.[];.key=="TASO_OWNER_EMAIL") and any(.[];.key=="TASO_OWNER_PASSWORD_HASH") and any(.[];.key=="TASO_PROVIDER_NVIDIA_API_KEY") and any(.[];.key=="TASO_GITHUB_TOKEN")' "$cf" >/dev/null || {
- echo "::error::Cloned Core is missing required production owner/provider secret keys; refusing insecure production auth."
+new_secret_reuse = '''jq -e 'any(.[];.key=="TASO_OWNER_EMAIL") and (any(.[];.key=="TASO_OWNER_PASSWORD_HASH") or any(.[];.key=="TASO_OWNER_PASSWORD")) and any(.[];.key=="TASO_PROVIDER_NVIDIA_API_KEY") and any(.[];.key=="TASO_GITHUB_TOKEN")' "$cf" >/dev/null || {
+ echo "::error::Cloned Core is missing required production owner/provider secret keys; refusing production auth bootstrap."
  exit 1
 }
+if jq -e 'any(.[];.key=="TASO_OWNER_PASSWORD_HASH")' "$cf" >/dev/null; then
+ owner_credential_mode=hash
+else
+ owner_credential_mode=migrate
+ put "$core" "$cf" TASO_AUTH_MIGRATE_OWNER_PASSWORD 1
+ echo "Owner credential requires one-time in-container hash migration; secret value remains outside CI."
+fi
 '''
 replace_once(old_secret_reuse, new_secret_reuse, 'secret value reuse block')
 
@@ -88,6 +95,7 @@ for old, new, label in [
 (''' "NODE_ENV|production" "PORT|3000" "HOST|0.0.0.0" "TASO_OWNER_EMAIL|$owner_email" \\
  "TASO_OWNER_PASSWORD_HASH|$owner_hash" "TASO_AUTH_ALLOW_INSECURE_BOOTSTRAP|0" \\
 ''', ''' "NODE_ENV|production" "PORT|3000" "HOST|0.0.0.0" "TASO_AUTH_ALLOW_INSECURE_BOOTSTRAP|0" \\
+ "TASO_OWNER_PASSWORD_HASH_FILE|/data/taso-owner-password.hash" \\
 ''', 'owner env writes'),
 (''' "TASO_GITHUB_TOKEN|$github" "TASO_GITHUB_API_URL|https://api.github.com" \\
  "TASO_PROVIDER_NVIDIA_API_KEY|$nvidia" "TASO_PROVIDER_NVIDIA_BASE_URL|$NVIDIA_BASE" \\
@@ -96,6 +104,36 @@ for old, new, label in [
 ''', 'provider secret env writes'),
 ]:
     replace_once(old, new, label)
+
+replace_once(
+'''deploy taso-core-prod "$core"
+deploy taso-ui-prod "$ui"
+''',
+'''deploy taso-core-prod "$core"
+if [[ "${owner_credential_mode:-hash}" == migrate ]]; then
+  echo "Removing one-time plaintext owner credential from Coolify production configuration."
+  core_envs="$(api GET "applications/$core/envs")"
+  removed_password=false
+  while IFS= read -r env_uuid; do
+    [[ -z "$env_uuid" ]] && continue
+    api DELETE "applications/$core/envs/$env_uuid" >/dev/null
+    removed_password=true
+  done < <(jq -r '.[]|select(.key=="TASO_OWNER_PASSWORD")|.uuid//empty' <<<"$core_envs")
+  [[ "$removed_password" == true ]] || { echo "::error::One-time owner plaintext environment entry was not found for cleanup."; exit 1; }
+  core_envs="$(api GET "applications/$core/envs")"
+  while IFS= read -r env_uuid; do
+    [[ -z "$env_uuid" ]] && continue
+    api DELETE "applications/$core/envs/$env_uuid" >/dev/null
+  done < <(jq -r '.[]|select(.key=="TASO_AUTH_MIGRATE_OWNER_PASSWORD")|.uuid//empty' <<<"$core_envs")
+  core_envs="$(api GET "applications/$core/envs")"
+  jq -e 'all(.[];.key!="TASO_OWNER_PASSWORD" and .key!="TASO_AUTH_MIGRATE_OWNER_PASSWORD")' <<<"$core_envs" >/dev/null || { echo "::error::One-time production owner credential cleanup did not converge."; exit 1; }
+  echo "One-time plaintext owner credential removed; redeploying Core to prove persisted hash restart."
+  deploy taso-core-prod "$core"
+fi
+deploy taso-ui-prod "$ui"
+''',
+'Core migration cleanup deployment',
+)
 
 path.write_text(text)
 PY
