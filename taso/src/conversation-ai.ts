@@ -30,12 +30,11 @@ export function webSearchQuery(input:string){
  const original=input.trim();
  if(!original)return original;
  const cleaned=original
-  .replace(/\b(?:webde|webden|internette|internetten)\s+(?:ara|araştır|bak)\b/giu,' ')
-  .replace(/\bweb\s+araştır\b/giu,' ')
-  .replace(/\baraştır\s+ve\s+bul\b/giu,' ')
-  .replace(/\b(?:ve\s+)?kaynak(?:la|lı|larla)?\s+(?:yanıtla|cevapla)\b/giu,' ')
-  .replace(/\b(?:ve\s+)?(?:kaynaklarıyla|kaynaklarla)\s+(?:yanıtla|cevapla)\b/giu,' ')
-  .replace(/\b(?:search\s+the\s+web|look\s+up)\b/giu,' ')
+  .replace(/(?:webde|webden|internette|internetten)\s+(?:araştır|ara|bak)/giu,' ')
+  .replace(/web\s+araştır/giu,' ')
+  .replace(/araştır\s+ve\s+bul/giu,' ')
+  .replace(/(?:ve\s+)?kaynak(?:larıyla|larla|la|lı)?\s+(?:yanıtla|cevapla)/giu,' ')
+  .replace(/(?:search\s+the\s+web|look\s+up)/giu,' ')
   .replace(/\s+/g,' ')
   .replace(/[?.!,;:]+$/g,'')
   .trim();
