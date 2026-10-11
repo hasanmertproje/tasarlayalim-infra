@@ -20,7 +20,7 @@ export function validOwnerPasswordHash(value:string|undefined){
 }
 
 export function createOwnerPasswordHash(password:string){
-  if(password.length<12||password.length>256)throw new Error('Owner password must be between 12 and 256 characters.');
+  if(!password)throw new Error('Owner password is empty.');
   const salt=randomBytes(16),hash=scryptSync(password,salt,32);
   return `${SCRYPT_SCHEME}$${salt.toString('base64')}$${hash.toString('base64')}`;
 }
