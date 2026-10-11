@@ -9,6 +9,7 @@ on:
       - "scripts/taso-production-deploy.sh"
       - "scripts/taso-production-bootstrap.sh"
       - "scripts/taso-production-secret-compat.sh"
+      - "scripts/taso-production-core-clone-compat.sh"
 
 permissions:
   contents: read
@@ -34,4 +35,4 @@ jobs:
         with:
           node-version: "22"
       - name: Deploy isolated Taso production stack
-        run: bash scripts/taso-production-secret-compat.sh
+        run: bash scripts/taso-production-core-clone-compat.sh
