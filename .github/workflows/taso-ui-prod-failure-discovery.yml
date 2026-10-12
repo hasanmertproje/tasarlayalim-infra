@@ -60,6 +60,7 @@ jobs:
           [[ -n "$predecessor_uuid" && -n "$predecessor_commit" ]] || { echo '::error::No successful predecessor UI deployment was found.'; exit 1; }
 
           failed_detail="$(api_get "deployments/$failed_uuid")"
+          predecessor_detail="$(api_get "deployments/$predecessor_uuid")"
           raw_logs="$(jq -r '[.. | objects | .logs? | select(type=="string" and length>0)] | .[0] // ""' <<<"$failed_detail")"
           logs_available=false
           [[ -n "$raw_logs" ]] && logs_available=true
@@ -82,6 +83,23 @@ jobs:
           branch="$(jq -r '.git_branch // empty' <<<"$detail")"
           fqdn="$(jq -r '.fqdn // empty' <<<"$detail")"
           build_pack="$(jq -r '.build_pack // empty' <<<"$detail")"
+          ports="$(jq -r '.ports_exposes // empty' <<<"$detail")"
+          health_enabled="$(jq -r '.health_check_enabled // false' <<<"$detail")"
+          health_path="$(jq -r '.health_check_path // empty' <<<"$detail")"
+          health_port="$(jq -r '.health_check_port // empty' <<<"$detail")"
+          health_method="$(jq -r '.health_check_method // empty' <<<"$detail")"
+          force_rebuild="$(jq -r '.force_rebuild // false' <<<"$failed_detail")"
+          restart_only="$(jq -r '.restart_only // false' <<<"$failed_detail")"
+          rollback="$(jq -r '.rollback // false' <<<"$failed_detail")"
+          is_api="$(jq -r '.is_api // false' <<<"$failed_detail")"
+          git_type="$(jq -r '.git_type // "unknown"' <<<"$failed_detail")"
+          failed_keys="$(jq -r 'keys | sort | join(", ")' <<<"$failed_detail")"
+          snapshot_keys="$(jq -r '(.configuration_snapshot // {}) | keys | sort | join(", ")' <<<"$failed_detail")"
+          diff_keys="$(jq -r '(.configuration_diff // {}) | keys | sort | join(", ")' <<<"$failed_detail")"
+          config_same=false
+          failed_hash="$(jq -r '.configuration_hash // empty' <<<"$failed_detail")"
+          predecessor_hash="$(jq -r '.configuration_hash // empty' <<<"$predecessor_detail")"
+          [[ -n "$failed_hash" && "$failed_hash" == "$predecessor_hash" ]] && config_same=true
 
           {
             echo '## TASO UI production failure discovery'
@@ -91,14 +109,28 @@ jobs:
             echo "- base directory: $base_dir"
             echo "- Dockerfile location: $dockerfile"
             echo "- build pack: $build_pack"
+            echo "- exposed ports: $ports"
             echo "- domain configured: $([[ -n "$fqdn" ]] && echo true || echo false)"
+            echo "- health check enabled: $health_enabled"
+            echo "- health check path: ${health_path:-[empty]}"
+            echo "- health check port: ${health_port:-[empty]}"
+            echo "- health check method: ${health_method:-[empty]}"
             echo "- failed deployment UUID: $failed_uuid"
             echo "- failed deployment commit: $(jq -r '.commit // .git_commit_sha // "unknown"' <<<"$failed")"
             echo "- failed deployment status: $(jq -r '.status // "unknown"' <<<"$failed")"
             echo "- failed deployment created: $(jq -r '.created_at // "unknown"' <<<"$failed")"
+            echo "- force rebuild recorded: $force_rebuild"
+            echo "- restart only: $restart_only"
+            echo "- rollback: $rollback"
+            echo "- API initiated: $is_api"
+            echo "- git type: $git_type"
             echo "- successful predecessor UUID: $predecessor_uuid"
             echo "- successful predecessor commit: $predecessor_commit"
             echo "- taso-ui source unchanged vs predecessor: $ui_tree_same"
+            echo "- deployment configuration hash unchanged vs predecessor: $config_same"
+            echo "- failed deployment top-level keys: $failed_keys"
+            echo "- configuration snapshot key names: ${snapshot_keys:-[none]}"
+            echo "- configuration diff key names: ${diff_keys:-[none]}"
             echo "- deployment response exposes log field: $logs_available"
             if [[ "$logs_available" != true ]]; then
               echo '- note: deployment logs are omitted by this API token/response; no sensitive permission was added or bypassed.'
