@@ -1,4 +1,4 @@
-name: Taso Coolify Host And Edge Isolation
+name: Taso Production Runtime Snapshot
 
 on:
   pull_request:
@@ -11,105 +11,72 @@ permissions:
   contents: read
 
 jobs:
-  discover:
+  snapshot:
     runs-on: ubuntu-latest
     timeout-minutes: 3
     env:
       COOLIFY_BASE_URL: https://coolify.tasarlayalim.com
       TASO_PUBLIC_URL: https://taso.tasarlayalim.com
-      TASO_SERVER_IPV4: 45.74.243.96
       COOLIFY_API_TOKEN: ${{ secrets.COOLIFY_API_TOKEN }}
     steps:
-      - name: Isolate host, proxy, Coolify and TASO reachability safely
+      - name: Capture recovered production runtime state safely
         shell: bash
         run: |
           set -Eeuo pipefail
           set +x
           : "${COOLIFY_API_TOKEN:?COOLIFY_API_TOKEN repository secret is required}"
+          API_BASE="${COOLIFY_BASE_URL%/}/api/v1"
 
-          tcp_state() {
-            local port="$1"
-            if timeout 3 bash -c "</dev/tcp/$TASO_SERVER_IPV4/$port" 2>/dev/null; then
-              echo open
-            else
-              echo closed-or-filtered
-            fi
+          api_get() {
+            curl --silent --show-error --fail-with-body \
+              --connect-timeout 5 --max-time 20 \
+              --header "Authorization: Bearer $COOLIFY_API_TOKEN" \
+              --header 'Accept: application/json' \
+              "$API_BASE/$1"
           }
 
           status_public() {
-            local url="$1"
-            curl --silent --show-error --connect-timeout 4 --max-time 8 \
-              --output /dev/null --write-out '%{http_code}' \
-              "$url" || true
+            curl --silent --show-error --connect-timeout 5 --max-time 12 \
+              --output /dev/null --write-out '%{http_code}' "$1" || true
           }
 
-          status_forced() {
-            local host="$1" path="$2"
-            curl --silent --show-error --connect-timeout 4 --max-time 8 \
-              --resolve "$host:443:$TASO_SERVER_IPV4" \
-              --output /dev/null --write-out '%{http_code}' \
-              "https://$host$path" || true
-          }
-
-          status_forced_api() {
-            local path="$1"
-            curl --silent --show-error --connect-timeout 4 --max-time 8 \
-              --resolve "coolify.tasarlayalim.com:443:$TASO_SERVER_IPV4" \
-              --output /dev/null --write-out '%{http_code}' \
-              --header "Authorization: Bearer $COOLIFY_API_TOKEN" \
-              --header 'Accept: application/json' \
-              "https://coolify.tasarlayalim.com/api/v1/$path" || true
-          }
-
-          status_coolify_8000() {
-            local path="$1"
-            curl --silent --show-error --connect-timeout 4 --max-time 8 \
-              --output /dev/null --write-out '%{http_code}' \
-              "http://$TASO_SERVER_IPV4:8000$path" || true
-          }
-
-          port22="$(tcp_state 22)"
-          port80="$(tcp_state 80)"
-          port443="$(tcp_state 443)"
-          port8000="$(tcp_state 8000)"
-
-          coolify_8000_root="$(status_coolify_8000 /)"
-          coolify_8000_health="$(status_coolify_8000 /api/v1/health)"
-
-          public_coolify_health="$(status_public "$COOLIFY_BASE_URL/api/v1/health")"
-          public_taso_health="$(status_public "$TASO_PUBLIC_URL/health")"
-          public_taso_session="$(status_public "$TASO_PUBLIC_URL/api/auth/session")"
-
-          direct_coolify_root="$(status_forced coolify.tasarlayalim.com /)"
-          direct_coolify_health="$(status_forced coolify.tasarlayalim.com /api/v1/health)"
-          direct_coolify_version="$(status_forced_api version)"
-          direct_coolify_apps="$(status_forced_api applications)"
-          direct_taso_root="$(status_forced taso.tasarlayalim.com /)"
-          direct_taso_health="$(status_forced taso.tasarlayalim.com /health)"
-          direct_taso_session="$(status_forced taso.tasarlayalim.com /api/auth/session)"
+          apps="$(api_get applications)"
+          names=(taso-search-prod taso-browser-prod taso-speaker-prod taso-voice-prod taso-core-prod taso-ui-prod)
 
           {
-            echo '## TASO/Coolify host, proxy and runtime isolation'
-            echo "- TCP 22: $port22"
-            echo "- TCP 80: $port80"
-            echo "- TCP 443: $port443"
-            echo "- TCP 8000: $port8000"
-            echo "- direct Coolify port 8000 / HTTP: $coolify_8000_root"
-            echo "- direct Coolify port 8000 /api/v1/health HTTP: $coolify_8000_health"
-            echo "- public Coolify /api/v1/health HTTP: $public_coolify_health"
-            echo "- direct-IP/SNI Coolify / HTTP: $direct_coolify_root"
-            echo "- direct-IP/SNI Coolify /api/v1/health HTTP: $direct_coolify_health"
-            echo "- direct-IP/SNI authenticated Coolify /api/v1/version HTTP: $direct_coolify_version"
-            echo "- direct-IP/SNI authenticated Coolify /api/v1/applications HTTP: $direct_coolify_apps"
-            echo "- public TASO /health HTTP: $public_taso_health"
-            echo "- public TASO /api/auth/session HTTP: $public_taso_session"
-            echo "- direct-IP/SNI TASO / HTTP: $direct_taso_root"
-            echo "- direct-IP/SNI TASO /health HTTP: $direct_taso_health"
-            echo "- direct-IP/SNI TASO /api/auth/session HTTP: $direct_taso_session"
-            echo 'Port 8000 probes are unauthenticated HTTP health/status checks only; no credential is sent over plaintext HTTP.'
-            echo 'No endpoint response body was printed.'
-            echo 'No secret, environment value, password, private key, cookie, auth payload, or sensitive log was printed.'
-            echo 'Read-only diagnostic. No service was restarted and no DNS, Coolify resource, application, auth state, or deployment was changed.'
+            echo '## Recovered TASO production runtime snapshot'
+            echo "- TASO root HTTP: $(status_public "$TASO_PUBLIC_URL")"
+            echo "- TASO /health HTTP: $(status_public "$TASO_PUBLIC_URL/health")"
+            echo "- TASO /api/auth/session HTTP: $(status_public "$TASO_PUBLIC_URL/api/auth/session")"
+            echo
+            echo '| Application | App UUID | Runtime status | Latest finished deployment UUID | Commit SHA | Updated |'
+            echo '|---|---|---|---|---|---|'
+
+            all_ok=true
+            for name in "${names[@]}"; do
+              uuid="$(jq -r --arg n "$name" '[.[] | select(.name==$n)] | if length==1 then .[0].uuid else empty end' <<<"$apps")"
+              if [[ -z "$uuid" ]]; then
+                echo "| $name | missing | missing | missing | missing | missing |"
+                all_ok=false
+                continue
+              fi
+
+              detail="$(api_get "applications/$uuid")"
+              runtime="$(jq -r '.status // "unknown"' <<<"$detail")"
+              history="$(api_get "deployments/applications/$uuid?skip=0&take=25")"
+              rows="$(jq -c 'if type=="array" then . elif (.deployments|type)=="array" then .deployments else [.. | arrays] | first // [] end' <<<"$history")"
+              latest="$(jq -c '[.[] | select((.status // "")=="finished") | select(((.commit // .git_commit_sha // "") | test("^[0-9A-Fa-f]{40}$")))] | sort_by(.updated_at // .created_at // "") | reverse | .[0] // {}' <<<"$rows")"
+              dep_uuid="$(jq -r '.deployment_uuid // .uuid // "none"' <<<"$latest")"
+              commit="$(jq -r '.commit // .git_commit_sha // "none"' <<<"$latest")"
+              updated="$(jq -r '.updated_at // .created_at // "unknown"' <<<"$latest")"
+
+              echo "| $name | $uuid | $runtime | $dep_uuid | $commit | $updated |"
+              [[ "$runtime" == running:healthy ]] || all_ok=false
+            done
+
+            echo
+            echo 'Read-only snapshot: no deployment, restart, DNS, auth, environment, secret, or application configuration was changed.'
           } | tee -a "$GITHUB_STEP_SUMMARY"
 
-          [[ "$direct_taso_health" == 200 ]] || exit 1
+          [[ "$(status_public "$TASO_PUBLIC_URL/health")" == 200 ]] || exit 1
+          [[ "$all_ok" == true ]] || exit 1
