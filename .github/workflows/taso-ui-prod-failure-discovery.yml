@@ -1,4 +1,4 @@
-name: Taso Coolify Control Plane And Public Edge
+name: Taso Coolify Direct-IP And Public Edge
 
 on:
   pull_request:
@@ -17,52 +17,73 @@ jobs:
     env:
       COOLIFY_BASE_URL: https://coolify.tasarlayalim.com
       TASO_PUBLIC_URL: https://taso.tasarlayalim.com
+      TASO_SERVER_IPV4: 45.74.243.96
       COOLIFY_API_TOKEN: ${{ secrets.COOLIFY_API_TOKEN }}
     steps:
-      - name: Compare public edge and Coolify control plane safely
+      - name: Compare DNS path with direct Host/SNI path safely
         shell: bash
         run: |
           set -Eeuo pipefail
           set +x
           : "${COOLIFY_API_TOKEN:?COOLIFY_API_TOKEN repository secret is required}"
-          API_BASE="${COOLIFY_BASE_URL%/}/api/v1"
 
           status_public() {
             local url="$1"
-            curl --silent --show-error --connect-timeout 5 --max-time 12 \
+            curl --silent --show-error --connect-timeout 5 --max-time 10 \
               --output /dev/null --write-out '%{http_code}' \
               "$url" || true
           }
 
-          status_api() {
+          status_forced() {
+            local host="$1" path="$2"
+            curl --silent --show-error --connect-timeout 5 --max-time 10 \
+              --resolve "$host:443:$TASO_SERVER_IPV4" \
+              --output /dev/null --write-out '%{http_code}' \
+              "https://$host$path" || true
+          }
+
+          status_forced_api() {
             local path="$1"
-            curl --silent --show-error --connect-timeout 5 --max-time 15 \
+            curl --silent --show-error --connect-timeout 5 --max-time 10 \
+              --resolve "coolify.tasarlayalim.com:443:$TASO_SERVER_IPV4" \
               --output /dev/null --write-out '%{http_code}' \
               --header "Authorization: Bearer $COOLIFY_API_TOKEN" \
               --header 'Accept: application/json' \
-              "$API_BASE/$path" || true
+              "https://coolify.tasarlayalim.com/api/v1/$path" || true
           }
 
-          coolify_root="$(status_public "$COOLIFY_BASE_URL")"
-          coolify_health="$(status_public "$API_BASE/health")"
-          coolify_version="$(status_api version)"
-          coolify_apps="$(status_api applications)"
-          taso_root="$(status_public "$TASO_PUBLIC_URL")"
-          taso_health="$(status_public "$TASO_PUBLIC_URL/health")"
-          taso_session="$(status_public "$TASO_PUBLIC_URL/api/auth/session")"
+          public_coolify_health="$(status_public "$COOLIFY_BASE_URL/api/v1/health")"
+          public_coolify_apps="$(status_public "$COOLIFY_BASE_URL/api/v1/applications")"
+          public_taso_root="$(status_public "$TASO_PUBLIC_URL")"
+          public_taso_health="$(status_public "$TASO_PUBLIC_URL/health")"
+          public_taso_session="$(status_public "$TASO_PUBLIC_URL/api/auth/session")"
+
+          direct_coolify_root="$(status_forced coolify.tasarlayalim.com /)"
+          direct_coolify_health="$(status_forced coolify.tasarlayalim.com /api/v1/health)"
+          direct_coolify_version="$(status_forced_api version)"
+          direct_coolify_apps="$(status_forced_api applications)"
+          direct_taso_root="$(status_forced taso.tasarlayalim.com /)"
+          direct_taso_health="$(status_forced taso.tasarlayalim.com /health)"
+          direct_taso_session="$(status_forced taso.tasarlayalim.com /api/auth/session)"
 
           {
-            echo '## Coolify control-plane vs public-edge status matrix'
-            echo "- Coolify public root HTTP: $coolify_root"
-            echo "- Coolify public /api/v1/health HTTP: $coolify_health"
-            echo "- Authenticated /api/v1/version HTTP: $coolify_version"
-            echo "- Authenticated /api/v1/applications HTTP: $coolify_apps"
-            echo "- TASO public root HTTP: $taso_root"
-            echo "- TASO /health HTTP: $taso_health"
-            echo "- TASO /api/auth/session HTTP: $taso_session"
+            echo '## TASO/Coolify DNS path vs direct-IP Host/SNI path'
+            echo "- public Coolify /api/v1/health HTTP: $public_coolify_health"
+            echo "- public Coolify /api/v1/applications HTTP (unauthenticated status only): $public_coolify_apps"
+            echo "- public TASO / HTTP: $public_taso_root"
+            echo "- public TASO /health HTTP: $public_taso_health"
+            echo "- public TASO /api/auth/session HTTP: $public_taso_session"
+            echo "- direct-IP Coolify / HTTP: $direct_coolify_root"
+            echo "- direct-IP Coolify /api/v1/health HTTP: $direct_coolify_health"
+            echo "- direct-IP authenticated Coolify /api/v1/version HTTP: $direct_coolify_version"
+            echo "- direct-IP authenticated Coolify /api/v1/applications HTTP: $direct_coolify_apps"
+            echo "- direct-IP TASO / HTTP: $direct_taso_root"
+            echo "- direct-IP TASO /health HTTP: $direct_taso_health"
+            echo "- direct-IP TASO /api/auth/session HTTP: $direct_taso_session"
+            echo 'Direct-IP probes preserve the real HTTPS Host and SNI and bypass DNS only.'
             echo 'No endpoint response body was printed.'
             echo 'No secret, environment value, password, private key, cookie, auth payload, or sensitive log was printed.'
-            echo 'Read-only diagnostic. No Coolify resource, DNS record, application, auth state, or deployment was changed.'
+            echo 'Read-only diagnostic. No DNS, Coolify resource, application, auth state, or deployment was changed.'
           } | tee -a "$GITHUB_STEP_SUMMARY"
 
-          [[ "$coolify_health" == 200 && "$coolify_apps" == 200 && "$taso_health" == 200 ]] || exit 1
+          [[ "$direct_coolify_health" == 200 && "$direct_coolify_apps" == 200 && "$direct_taso_health" == 200 ]] || exit 1
