@@ -3,53 +3,55 @@ set -Eeuo pipefail
 umask 077
 set +x
 
-deploy_src="scripts/taso-production-deploy.sh"
+bootstrap_src="scripts/taso-production-bootstrap.sh"
 
-python3 - "$deploy_src" <<'PY'
+python3 - "$bootstrap_src" <<'PY'
 from pathlib import Path
 import sys
 
 path = Path(sys.argv[1])
 text = path.read_text()
-old = '''deploy taso-search-prod "$search"
-deploy taso-browser-prod "$browser"
-deploy taso-speaker-prod "$speaker"
-'''
-new = '''deploy taso-search-prod "$search"
+old = """'''deploy taso-search-prod \"$search\"
+deploy taso-browser-prod \"$browser\"
+deploy_heavy_worker taso-speaker-prod \"$speaker\" docker/taso-speaker
+deploy_heavy_worker taso-voice-prod \"$voice\" docker/taso-voice
+'''"""
+new = """'''deploy taso-search-prod \"$search\"
 deploy_browser_for_release() {
-  if deploy taso-browser-prod "$browser"; then
+  if deploy taso-browser-prod \"$browser\"; then
     return 0
   fi
 
   local status
-  status="$(api GET "applications/$browser" | jq -r '.status//"unknown"')"
-  case "$status" in
+  status=\"$(api GET \"applications/$browser\" | jq -r '.status//\"unknown\"')\"
+  case \"$status\" in
     running|running:*)
-      [[ "$status" != running:unhealthy ]] || {
-        echo "::error::taso-browser-prod failed to deploy and the preserved runtime is unhealthy; refusing retry."
+      [[ \"$status\" != running:unhealthy ]] || {
+        echo \"::error::taso-browser-prod failed to deploy and the preserved runtime is unhealthy; refusing retry.\"
         return 1
       }
       ;;
     *)
-      echo "::error::taso-browser-prod failed to deploy and no healthy preserved runtime is available; refusing retry."
+      echo \"::error::taso-browser-prod failed to deploy and no healthy preserved runtime is available; refusing retry.\"
       return 1
       ;;
   esac
 
-  echo "::notice::taso-browser-prod first deployment failed while the previous runtime remained healthy; retrying exactly once."
+  echo \"::notice::taso-browser-prod first deployment failed while the previous runtime remained healthy; retrying exactly once.\"
   sleep 5
-  deploy taso-browser-prod "$browser"
+  deploy taso-browser-prod \"$browser\"
 }
 deploy_browser_for_release
-deploy taso-speaker-prod "$speaker"
-'''
+deploy_heavy_worker taso-speaker-prod \"$speaker\" docker/taso-speaker
+deploy_heavy_worker taso-voice-prod \"$voice\" docker/taso-voice
+'''"""
 count = text.count(old)
 if count != 1:
-    raise SystemExit(f"Browser retry compatibility patch refused: expected browser deploy sequence once, found {count}")
+    raise SystemExit(f"Browser retry compatibility patch refused: expected guarded worker deploy target once, found {count}")
 path.write_text(text.replace(old, new, 1))
 PY
 
-bash -n "$deploy_src"
+bash -n "$bootstrap_src"
 echo "Production Browser single-retry compatibility patch validated."
 
 src="scripts/taso-production-core-clone-compat.sh"
