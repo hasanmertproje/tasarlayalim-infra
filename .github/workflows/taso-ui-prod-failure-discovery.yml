@@ -1,4 +1,4 @@
-name: Taso Coolify Version And Probe State
+name: Taso Coolify Control Plane And Public Edge
 
 on:
   pull_request:
@@ -16,10 +16,11 @@ jobs:
     timeout-minutes: 5
     env:
       COOLIFY_BASE_URL: https://coolify.tasarlayalim.com
+      TASO_PUBLIC_URL: https://taso.tasarlayalim.com
       COOLIFY_API_TOKEN: ${{ secrets.COOLIFY_API_TOKEN }}
       PROBE_NAME: taso-ui-env-probe
     steps:
-      - name: Read Coolify endpoint health safely
+      - name: Compare public edge and Coolify control plane safely
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -27,7 +28,14 @@ jobs:
           : "${COOLIFY_API_TOKEN:?COOLIFY_API_TOKEN repository secret is required}"
           API_BASE="${COOLIFY_BASE_URL%/}/api/v1"
 
-          get_status() {
+          public_status() {
+            local url="$1"
+            curl --silent --show-error --connect-timeout 15 --max-time 45 \
+              --output /dev/null --write-out '%{http_code}' \
+              "$url" || true
+          }
+
+          api_status() {
             local path="$1" out code
             out="$(mktemp)"
             code="$(curl --silent --show-error --connect-timeout 15 --max-time 60 \
@@ -39,9 +47,14 @@ jobs:
             printf '%s' "$out"
           }
 
-          vf="$(get_status version)"
+          coolify_root="$(public_status "$COOLIFY_BASE_URL")"
+          taso_root="$(public_status "$TASO_PUBLIC_URL")"
+          taso_health="$(public_status "$TASO_PUBLIC_URL/health")"
+          taso_session="$(public_status "$TASO_PUBLIC_URL/api/auth/session")"
+
+          vf="$(api_status version)"
           vcode="$(cat "$vf.code")"
-          af="$(get_status applications)"
+          af="$(api_status applications)"
           acode="$(cat "$af.code")"
 
           version='[unavailable]'
@@ -50,13 +63,11 @@ jobs:
           fi
 
           probe_count='[unavailable]'
-          probe_uuid='[unavailable]'
           probe_status='[unavailable]'
           probe_description_match='[unavailable]'
           if [[ "$acode" == 200 ]]; then
             probe_count="$(jq --arg n "$PROBE_NAME" '[.[]|select(.name==$n)]|length' "$af")"
             if [[ "$probe_count" -eq 1 ]]; then
-              probe_uuid="$(jq -r --arg n "$PROBE_NAME" '[.[]|select(.name==$n)][0].uuid' "$af")"
               probe_status="$(jq -r --arg n "$PROBE_NAME" '[.[]|select(.name==$n)][0].status // "unknown"' "$af")"
               desc="$(jq -r --arg n "$PROBE_NAME" '[.[]|select(.name==$n)][0].description // ""' "$af")"
               [[ "$desc" == 'Temporary TASO UI env injection probe' ]] && probe_description_match=true || probe_description_match=false
@@ -64,18 +75,21 @@ jobs:
           fi
 
           {
-            echo '## Coolify endpoint health and diagnostic probe state'
-            echo "- GET /version HTTP: $vcode"
+            echo '## Coolify control-plane vs public-edge status matrix'
+            echo "- Coolify public root HTTP: $coolify_root"
+            echo "- GET /api/v1/version HTTP: $vcode"
             echo "- parsed Coolify version: $version"
-            echo "- GET /applications HTTP: $acode"
+            echo "- GET /api/v1/applications HTTP: $acode"
+            echo "- TASO public root HTTP: $taso_root"
+            echo "- TASO /health HTTP: $taso_health"
+            echo "- TASO /api/auth/session HTTP: $taso_session"
             echo "- exact taso-ui-env-probe count: $probe_count"
-            echo "- probe UUID: $probe_uuid"
             echo "- probe status: $probe_status"
             echo "- probe description matches our diagnostic resource: $probe_description_match"
-            echo 'No response body from a failed endpoint was printed.'
-            echo 'No secret, environment value, IP, password, private key, or sensitive log was printed.'
-            echo 'Read-only diagnostic. No Coolify resource was changed.'
+            echo 'No endpoint response body was printed.'
+            echo 'No secret, environment value, password, private key, cookie, auth payload, or sensitive log was printed.'
+            echo 'Read-only diagnostic. No Coolify resource, DNS record, application, auth state, or deployment was changed.'
           } | tee -a "$GITHUB_STEP_SUMMARY"
 
           rm -f "$vf" "$vf.code" "$af" "$af.code"
-          [[ "$acode" == 200 ]] || exit 1
+          [[ "$acode" == 200 && "$taso_health" == 200 ]] || exit 1
