@@ -19,44 +19,63 @@ jobs:
       COOLIFY_API_TOKEN: ${{ secrets.COOLIFY_API_TOKEN }}
       PROBE_NAME: taso-ui-env-probe
     steps:
-      - name: Read Coolify version and stale probe state safely
+      - name: Read Coolify endpoint health safely
         shell: bash
         run: |
           set -Eeuo pipefail
           set +x
           : "${COOLIFY_API_TOKEN:?COOLIFY_API_TOKEN repository secret is required}"
+          API_BASE="${COOLIFY_BASE_URL%/}/api/v1"
 
-          api_get() {
-            curl --silent --show-error --fail-with-body \
-              --connect-timeout 15 --max-time 60 \
+          get_status() {
+            local path="$1" out code
+            out="$(mktemp)"
+            code="$(curl --silent --show-error --connect-timeout 15 --max-time 60 \
+              --output "$out" --write-out '%{http_code}' \
               --header "Authorization: Bearer $COOLIFY_API_TOKEN" \
               --header 'Accept: application/json' \
-              "$COOLIFY_BASE_URL/api/v1/$1"
+              "$API_BASE/$path" || true)"
+            printf '%s' "$code" > "$out.code"
+            printf '%s' "$out"
           }
 
-          version_raw="$(api_get version)"
-          apps="$(api_get applications)"
-          version="$(jq -r 'if type=="string" then . else (.version // .coolify_version // "unknown") end' <<<"$version_raw")"
-          probe_count="$(jq --arg n "$PROBE_NAME" '[.[]|select(.name==$n)]|length' <<<"$apps")"
-          probe_status='[none]'
-          probe_uuid='[none]'
-          probe_description_match='not-applicable'
-          if [[ "$probe_count" -eq 1 ]]; then
-            probe_uuid="$(jq -r --arg n "$PROBE_NAME" '[.[]|select(.name==$n)][0].uuid' <<<"$apps")"
-            probe_status="$(jq -r --arg n "$PROBE_NAME" '[.[]|select(.name==$n)][0].status // "unknown"' <<<"$apps")"
-            desc="$(jq -r --arg n "$PROBE_NAME" '[.[]|select(.name==$n)][0].description // ""' <<<"$apps")"
-            if [[ "$desc" == 'Temporary TASO UI env injection probe' ]]; then probe_description_match=true; else probe_description_match=false; fi
+          vf="$(get_status version)"
+          vcode="$(cat "$vf.code")"
+          af="$(get_status applications)"
+          acode="$(cat "$af.code")"
+
+          version='[unavailable]'
+          if [[ "$vcode" == 200 ]]; then
+            version="$(jq -r 'if type=="string" then . else (.version // .coolify_version // "unknown") end' "$vf" 2>/dev/null || echo '[parse-error]')"
+          fi
+
+          probe_count='[unavailable]'
+          probe_uuid='[unavailable]'
+          probe_status='[unavailable]'
+          probe_description_match='[unavailable]'
+          if [[ "$acode" == 200 ]]; then
+            probe_count="$(jq --arg n "$PROBE_NAME" '[.[]|select(.name==$n)]|length' "$af")"
+            if [[ "$probe_count" -eq 1 ]]; then
+              probe_uuid="$(jq -r --arg n "$PROBE_NAME" '[.[]|select(.name==$n)][0].uuid' "$af")"
+              probe_status="$(jq -r --arg n "$PROBE_NAME" '[.[]|select(.name==$n)][0].status // "unknown"' "$af")"
+              desc="$(jq -r --arg n "$PROBE_NAME" '[.[]|select(.name==$n)][0].description // ""' "$af")"
+              [[ "$desc" == 'Temporary TASO UI env injection probe' ]] && probe_description_match=true || probe_description_match=false
+            fi
           fi
 
           {
-            echo '## Coolify version and diagnostic probe state'
-            echo "- Coolify version: $version"
+            echo '## Coolify endpoint health and diagnostic probe state'
+            echo "- GET /version HTTP: $vcode"
+            echo "- parsed Coolify version: $version"
+            echo "- GET /applications HTTP: $acode"
             echo "- exact taso-ui-env-probe count: $probe_count"
             echo "- probe UUID: $probe_uuid"
             echo "- probe status: $probe_status"
             echo "- probe description matches our diagnostic resource: $probe_description_match"
-            echo 'No secret, environment value, IP, password, private key, or sensitive log was read or printed.'
+            echo 'No response body from a failed endpoint was printed.'
+            echo 'No secret, environment value, IP, password, private key, or sensitive log was printed.'
             echo 'Read-only diagnostic. No Coolify resource was changed.'
           } | tee -a "$GITHUB_STEP_SUMMARY"
 
-          [[ "$probe_count" -le 1 ]] || { echo '::error::Multiple exact diagnostic probes found; refusing inference.'; exit 1; }
+          rm -f "$vf" "$vf.code" "$af" "$af.code"
+          [[ "$acode" == 200 ]] || exit 1
