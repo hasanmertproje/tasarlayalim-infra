@@ -17,6 +17,7 @@ jobs:
     env:
       COOLIFY_BASE_URL: https://coolify.tasarlayalim.com
       TASO_PUBLIC_URL: https://taso.tasarlayalim.com
+      TASO_SERVER_IPV4: 45.74.243.96
       COOLIFY_API_TOKEN: ${{ secrets.COOLIFY_API_TOKEN }}
     steps:
       - name: Capture recovered production runtime state safely
@@ -30,14 +31,18 @@ jobs:
           api_get() {
             curl --silent --show-error --fail-with-body \
               --connect-timeout 5 --max-time 20 \
+              --resolve "coolify.tasarlayalim.com:443:$TASO_SERVER_IPV4" \
               --header "Authorization: Bearer $COOLIFY_API_TOKEN" \
               --header 'Accept: application/json' \
               "$API_BASE/$1"
           }
 
-          status_public() {
+          status_taso() {
+            local path="$1"
             curl --silent --show-error --connect-timeout 5 --max-time 12 \
-              --output /dev/null --write-out '%{http_code}' "$1" || true
+              --resolve "taso.tasarlayalim.com:443:$TASO_SERVER_IPV4" \
+              --output /dev/null --write-out '%{http_code}' \
+              "https://taso.tasarlayalim.com$path" || true
           }
 
           apps="$(api_get applications)"
@@ -45,9 +50,9 @@ jobs:
 
           {
             echo '## Recovered TASO production runtime snapshot'
-            echo "- TASO root HTTP: $(status_public "$TASO_PUBLIC_URL")"
-            echo "- TASO /health HTTP: $(status_public "$TASO_PUBLIC_URL/health")"
-            echo "- TASO /api/auth/session HTTP: $(status_public "$TASO_PUBLIC_URL/api/auth/session")"
+            echo "- TASO root HTTP: $(status_taso /)"
+            echo "- TASO /health HTTP: $(status_taso /health)"
+            echo "- TASO /api/auth/session HTTP: $(status_taso /api/auth/session)"
             echo
             echo '| Application | App UUID | Runtime status | Latest finished deployment UUID | Commit SHA | Updated |'
             echo '|---|---|---|---|---|---|'
@@ -78,5 +83,5 @@ jobs:
             echo 'Read-only snapshot: no deployment, restart, DNS, auth, environment, secret, or application configuration was changed.'
           } | tee -a "$GITHUB_STEP_SUMMARY"
 
-          [[ "$(status_public "$TASO_PUBLIC_URL/health")" == 200 ]] || exit 1
+          [[ "$(status_taso /health)" == 200 ]] || exit 1
           [[ "$all_ok" == true ]] || exit 1
