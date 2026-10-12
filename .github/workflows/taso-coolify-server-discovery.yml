@@ -1,4 +1,4 @@
-name: Taso Runtime Env Shape Discovery
+name: Taso Coolify Runtime And Server Discovery
 
 on:
   pull_request:
@@ -17,8 +17,9 @@ jobs:
     env:
       COOLIFY_BASE_URL: https://coolify.tasarlayalim.com
       COOLIFY_API_TOKEN: ${{ secrets.COOLIFY_API_TOKEN }}
+      SERVER_UUID: h6e4ws8nwfi6stqjgrrhgaq6
     steps:
-      - name: Compare env row shapes without values
+      - name: Inspect env shape and server metadata without secret values
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -43,8 +44,12 @@ jobs:
             envs="$(api_get "applications/$uuid/envs")"
             status="$(api_get "applications/$uuid" | jq -r '.status // "unknown"')"
             echo "- $app_name status=$status key=$key count=$(jq --arg k "$key" '[.[]|select(.key==$k)]|length' <<<"$envs")"
-            jq -r --arg k "$key" '[.[]|select(.key==$k)]|to_entries[]|"  row="+((.key+1)|tostring)+" uuid="+(.value.uuid//"[none]")+" runtime="+((.value.is_runtime//false)|tostring)+" buildtime="+((.value.is_buildtime//false)|tostring)+" preview="+((.value.is_preview//false)|tostring)+" shared="+((.value.is_shared//false)|tostring)' <<<"$envs"
+            jq -r --arg k "$key" '[.[]|select(.key==$k)]|to_entries[]|"  row="+((.key+1)|tostring)+" uuid="+(.value.uuid//"[none]")+" runtime="+((.value.is_runtime//false)|tostring)+" buildtime="+((.value.is_buildtime//false)|tostring)+" preview="+((.value.is_preview//false)|tostring)+" shared="+((.value.is_shared//false)|tostring)+" created="+(.value.created_at//"[none]")+" updated="+(.value.updated_at//"[none]")' <<<"$envs"
           }
+
+          server="$(api_get "servers/$SERVER_UUID")"
+          cleanup="$(api_get "servers/$SERVER_UUID/docker-cleanup")"
+          resources="$(api_get "servers/$SERVER_UUID/resources")"
 
           {
             echo '## TASO env row shape comparison'
@@ -52,6 +57,31 @@ jobs:
             describe taso-ui-prod TASO_CORE_UPSTREAM
             describe taso-core-prod TASO_GATEWAY_SECRET
             describe taso-browser-prod TASO_BROWSER_WORKER_SECRET
-            echo 'No environment value or real_value field was read or printed.'
+            echo
+            echo '## Coolify deployment/build server metadata'
+            echo "- server role: $(jq -r '.settings.server_role // "unknown"' <<<"$server")"
+            echo "- deprecated is_build_server: $(jq -r '.settings.is_build_server // false' <<<"$server")"
+            echo "- reachable: $(jq -r '.settings.is_reachable // false' <<<"$server")"
+            echo "- usable: $(jq -r '.settings.is_usable // false' <<<"$server")"
+            echo "- force_disabled: $(jq -r '.settings.force_disabled // false' <<<"$server")"
+            echo "- concurrent_builds: $(jq -r '.settings.concurrent_builds // 0' <<<"$server")"
+            echo "- deployment_queue_limit: $(jq -r '.settings.deployment_queue_limit // 0' <<<"$server")"
+            echo "- dynamic_timeout: $(jq -r '.settings.dynamic_timeout // 0' <<<"$server")"
+            echo "- unreachable_count: $(jq -r '.unreachable_count // 0' <<<"$server")"
+            echo "- high_disk_usage_notification_sent: $(jq -r '.high_disk_usage_notification_sent // false' <<<"$server")"
+            echo "- docker_version_present: $(jq -r '((.settings.docker_version // "")|length)>0' <<<"$server")"
+            echo "- compose_version_present: $(jq -r '((.settings.compose_version // "")|length)>0' <<<"$server")"
+            echo "- metrics_enabled: $(jq -r '.settings.is_metrics_enabled // false' <<<"$server")"
+            echo "- sentinel_enabled: $(jq -r '.settings.is_sentinel_enabled // false' <<<"$server")"
+            echo "- cleanup frequency: $(jq -r '.docker_cleanup_frequency // "unset"' <<<"$cleanup")"
+            echo "- cleanup threshold: $(jq -r '.docker_cleanup_threshold // "unset"' <<<"$cleanup")"
+            echo "- force cleanup: $(jq -r '.force_docker_cleanup // false' <<<"$cleanup")"
+            echo "- delete unused volumes: $(jq -r '.delete_unused_volumes // false' <<<"$cleanup")"
+            echo "- delete unused networks: $(jq -r '.delete_unused_networks // false' <<<"$cleanup")"
+            echo "- disable application image retention: $(jq -r '.disable_application_image_retention // false' <<<"$cleanup")"
+            echo "- resource count: $(jq 'length' <<<"$resources")"
+            echo '- resource status counts:'
+            jq -r 'group_by(.status // "unknown")[] | "  "+((.[0].status // "unknown")|tostring)+": "+(length|tostring)' <<<"$resources"
+            echo 'No environment value, real_value, token, password, private key, validation log, IP, or user field was read or printed.'
             echo 'Read-only diagnostic. No Coolify resource was changed.'
           } | tee -a "$GITHUB_STEP_SUMMARY"
