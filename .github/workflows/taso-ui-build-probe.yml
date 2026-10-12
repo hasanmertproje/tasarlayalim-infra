@@ -22,14 +22,19 @@ jobs:
       - name: Build TASO UI image without cache
         run: docker build --no-cache -t taso-ui-runtime-probe ./taso-ui
 
-      - name: Run image with Coolify-probe-shaped environment
+      - name: Run image with required runtime env shape
         shell: bash
         run: |
           set -Eeuo pipefail
           cleanup() { docker rm -f taso-ui-runtime-probe >/dev/null 2>&1 || true; }
           trap cleanup EXIT
 
-          docker run -d --name taso-ui-runtime-probe -p 4173:80 taso-ui-runtime-probe >/dev/null
+          docker run -d \
+            --name taso-ui-runtime-probe \
+            -p 4173:80 \
+            -e TASO_CORE_UPSTREAM=http://127.0.0.1:9 \
+            -e TASO_GATEWAY_SECRET=probe-only-nonsecret \
+            taso-ui-runtime-probe >/dev/null
           sleep 4
 
           running="$(docker inspect -f '{{.State.Running}}' taso-ui-runtime-probe)"
@@ -40,7 +45,7 @@ jobs:
           echo "container health: $health"
 
           if [[ "$running" != true ]]; then
-            echo 'Container logs (no production secrets are present in this probe):'
+            echo 'Container logs (probe uses only non-secret dummy values):'
             docker logs taso-ui-runtime-probe || true
             exit 1
           fi
