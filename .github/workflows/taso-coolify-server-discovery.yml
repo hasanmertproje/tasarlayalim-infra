@@ -1,0 +1,110 @@
+name: Taso Coolify Server Discovery
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/taso-coolify-server-discovery.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      COOLIFY_BASE_URL: https://coolify.tasarlayalim.com
+      COOLIFY_API_TOKEN: ${{ secrets.COOLIFY_API_TOKEN }}
+      SERVER_UUID: h6e4ws8nwfi6stqjgrrhgaq6
+    steps:
+      - name: Inspect Coolify server safely
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          set +x
+          : "${COOLIFY_API_TOKEN:?COOLIFY_API_TOKEN repository secret is required}"
+
+          api_get() {
+            curl --silent --show-error --fail-with-body \
+              --connect-timeout 15 --max-time 60 \
+              --header "Authorization: Bearer $COOLIFY_API_TOKEN" \
+              --header 'Accept: application/json' \
+              "$COOLIFY_BASE_URL/api/v1/$1"
+          }
+
+          server="$(api_get "servers/$SERVER_UUID")"
+          cleanup="$(api_get "servers/$SERVER_UUID/docker-cleanup")"
+          resources="$(api_get "servers/$SERVER_UUID/resources")"
+
+          server_name="$(jq -r '.name // "unknown"' <<<"$server")"
+          unreachable_count="$(jq -r '.unreachable_count // 0' <<<"$server")"
+          high_disk_notice="$(jq -r '.high_disk_usage_notification_sent // false' <<<"$server")"
+          unreachable_notice="$(jq -r '.unreachable_notification_sent // false' <<<"$server")"
+          settings="$(jq -c '.settings // {}' <<<"$server")"
+          concurrent_builds="$(jq -r '.concurrent_builds // "unknown"' <<<"$settings")"
+          queue_limit="$(jq -r '.deployment_queue_limit // "unknown"' <<<"$settings")"
+          dynamic_timeout="$(jq -r '.dynamic_timeout // "unknown"' <<<"$settings")"
+          force_disabled="$(jq -r '.force_disabled // false' <<<"$settings")"
+          force_cleanup="$(jq -r '.force_server_cleanup // false' <<<"$settings")"
+          server_role="$(jq -r '.server_role // "unknown"' <<<"$settings")"
+          is_build_server="$(jq -r '.is_build_server // false' <<<"$settings")"
+          is_reachable="$(jq -r '.is_reachable // false' <<<"$settings")"
+          is_usable="$(jq -r '.is_usable // false' <<<"$settings")"
+          metrics_enabled="$(jq -r '.is_metrics_enabled // false' <<<"$settings")"
+          sentinel_enabled="$(jq -r '.is_sentinel_enabled // false' <<<"$settings")"
+          docker_version="$(jq -r '.docker_version // "unknown"' <<<"$settings")"
+          compose_version="$(jq -r '.compose_version // "unknown"' <<<"$settings")"
+
+          cleanup_frequency="$(jq -r '.docker_cleanup_frequency // "unknown"' <<<"$cleanup")"
+          cleanup_threshold="$(jq -r '.docker_cleanup_threshold // "unknown"' <<<"$cleanup")"
+          force_docker_cleanup="$(jq -r '.force_docker_cleanup // false' <<<"$cleanup")"
+          delete_unused_volumes="$(jq -r '.delete_unused_volumes // false' <<<"$cleanup")"
+          delete_unused_networks="$(jq -r '.delete_unused_networks // false' <<<"$cleanup")"
+          disable_image_retention="$(jq -r '.disable_application_image_retention // false' <<<"$cleanup")"
+
+          resource_count="$(jq 'length' <<<"$resources")"
+          running_count="$(jq '[.[] | select((.status // "") | startswith("running"))] | length' <<<"$resources")"
+          unhealthy_count="$(jq '[.[] | select((.status // "") | contains("unhealthy"))] | length' <<<"$resources")"
+          failed_count="$(jq '[.[] | select((.status // "") | test("failed|exited|stopped"; "i"))] | length' <<<"$resources")"
+          resource_types="$(jq -r '[.[].type // "unknown"] | group_by(.) | map(.[0] + "=" + (length|tostring)) | join(", ")' <<<"$resources")"
+
+          {
+            echo '## Coolify build host safe discovery'
+            echo "- server name: $server_name"
+            echo "- unreachable count: $unreachable_count"
+            echo "- unreachable notification sent: $unreachable_notice"
+            echo "- high disk usage notification sent: $high_disk_notice"
+            echo "- server reachable: $is_reachable"
+            echo "- server usable: $is_usable"
+            echo "- server role: $server_role"
+            echo "- dedicated build server flag: $is_build_server"
+            echo "- concurrent builds: $concurrent_builds"
+            echo "- deployment queue limit: $queue_limit"
+            echo "- dynamic timeout: $dynamic_timeout"
+            echo "- force disabled: $force_disabled"
+            echo "- force server cleanup: $force_cleanup"
+            echo "- metrics enabled: $metrics_enabled"
+            echo "- sentinel enabled: $sentinel_enabled"
+            echo "- Docker version: $docker_version"
+            echo "- Compose version: $compose_version"
+            echo "- Docker cleanup frequency: $cleanup_frequency"
+            echo "- Docker cleanup threshold: $cleanup_threshold"
+            echo "- force Docker cleanup: $force_docker_cleanup"
+            echo "- delete unused volumes: $delete_unused_volumes"
+            echo "- delete unused networks: $delete_unused_networks"
+            echo "- application image retention disabled: $disable_image_retention"
+            echo "- deployed resource count: $resource_count"
+            echo "- running resource count: $running_count"
+            echo "- unhealthy resource count: $unhealthy_count"
+            echo "- failed/exited/stopped resource count: $failed_count"
+            echo "- resource type counts: ${resource_types:-[none]}"
+            echo 'No IP, SSH credential, token, environment value, log-drain credential, or private key was printed.'
+            echo 'Read-only diagnostic. No Coolify resource was changed.'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
+          [[ "$is_reachable" == true && "$is_usable" == true ]] || {
+            echo '::error::Coolify server is not currently reachable and usable.'
+            exit 1
+          }
