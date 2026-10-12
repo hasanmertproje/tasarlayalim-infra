@@ -1,11 +1,10 @@
-name: Taso UI Runtime Probe
+name: Taso UI Coolify Env Injection Probe
 
 on:
   pull_request:
     branches: [main]
     paths:
       - .github/workflows/taso-ui-build-probe.yml
-      - taso-ui/**
   workflow_dispatch:
 
 permissions:
@@ -14,51 +13,88 @@ permissions:
 jobs:
   probe:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 12
+    env:
+      COOLIFY_BASE_URL: https://coolify.tasarlayalim.com
+      COOLIFY_API_TOKEN: ${{ secrets.COOLIFY_API_TOKEN }}
+      PROJECT_UUID: q8zrrvgln9f9zy1tz5q2db0w
+      SERVER_UUID: h6e4ws8nwfi6stqjgrrhgaq6
+      ENVIRONMENT_UUID: witrmsidlkntl6vbjgc9zxsl
+      TARGET_COMMIT: a38f091bf03ab309e14f8ab8bfd6d78d112aca04
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Build TASO UI image without cache
-        run: docker build --no-cache -t taso-ui-runtime-probe ./taso-ui
-
-      - name: Run image with required runtime env shape
+      - name: Verify isolated Coolify UI env injection
         shell: bash
         run: |
           set -Eeuo pipefail
-          cleanup() { docker rm -f taso-ui-runtime-probe >/dev/null 2>&1 || true; }
+          set +x
+          : "${COOLIFY_API_TOKEN:?COOLIFY_API_TOKEN repository secret is required}"
+          API_BASE="${COOLIFY_BASE_URL%/}/api/v1"
+          probe_uuid=''
+
+          api() {
+            local method="$1" path="$2" body="${3:-}" out code
+            out="$(mktemp)"
+            local args=(--silent --show-error --connect-timeout 15 --max-time 120 --output "$out" --write-out '%{http_code}' --header "Authorization: Bearer $COOLIFY_API_TOKEN" --header 'Accept: application/json')
+            if [[ -n "$body" ]]; then args+=(--header 'Content-Type: application/json' --data-binary "$body"); fi
+            code="$(curl "${args[@]}" -X "$method" "$API_BASE/$path")"
+            if [[ ! "$code" =~ ^2 ]]; then echo "::error::Coolify API $method $path failed with HTTP $code." >&2; rm -f "$out"; return 1; fi
+            cat "$out"; rm -f "$out"
+          }
+
+          cleanup() {
+            if [[ -n "$probe_uuid" ]]; then
+              curl --silent --show-error --fail-with-body --connect-timeout 15 --max-time 120 \
+                --header "Authorization: Bearer $COOLIFY_API_TOKEN" --header 'Accept: application/json' \
+                -X DELETE "$API_BASE/applications/$probe_uuid?delete_configurations=true&delete_volumes=true&docker_cleanup=false&delete_connected_networks=true" \
+                >/dev/null || echo '::warning::Probe cleanup failed; manual cleanup may be required.'
+            fi
+          }
           trap cleanup EXIT
 
-          docker run -d \
-            --name taso-ui-runtime-probe \
-            -p 4173:80 \
-            -e TASO_CORE_UPSTREAM=http://127.0.0.1:9 \
-            -e TASO_GATEWAY_SECRET=probe-only-nonsecret \
-            taso-ui-runtime-probe >/dev/null
-          sleep 4
+          payload="$(jq -nc --arg project "$PROJECT_UUID" --arg server "$SERVER_UUID" --arg env "$ENVIRONMENT_UUID" --arg commit "$TARGET_COMMIT" '{project_uuid:$project,server_uuid:$server,environment_name:"production",environment_uuid:$env,git_repository:"https://github.com/hasanmertproje/tasarlayalim-infra",git_branch:"main",git_commit_sha:$commit,build_pack:"dockerfile",name:"taso-ui-env-probe",description:"Temporary TASO UI env injection probe",ports_exposes:"80",base_directory:"/taso-ui",dockerfile_location:"/Dockerfile",autogenerate_domain:false,is_auto_deploy_enabled:false,is_preview_deployments_enabled:false,instant_deploy:false,health_check_enabled:false,connect_to_docker_network:false,disable_build_cache:true,tags:["taso-diagnostic-probe"]}')"
+          create="$(api POST applications/public "$payload")"
+          probe_uuid="$(jq -r '.uuid // empty' <<<"$create")"
+          [[ -n "$probe_uuid" ]] || { echo '::error::No probe UUID returned.'; exit 1; }
 
-          running="$(docker inspect -f '{{.State.Running}}' taso-ui-runtime-probe)"
-          status="$(docker inspect -f '{{.State.Status}}' taso-ui-runtime-probe)"
-          health="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' taso-ui-runtime-probe)"
-          echo "container running: $running"
-          echo "container status: $status"
-          echo "container health: $health"
+          gateway_body='{"key":"TASO_GATEWAY_SECRET","value":"diagnostic-nonsecret-gateway","is_preview":false,"is_runtime":true,"is_buildtime":false,"is_shown_once":false}'
+          upstream_body='{"key":"TASO_CORE_UPSTREAM","value":"http://127.0.0.1:65535","is_preview":false,"is_runtime":true,"is_buildtime":false,"is_shown_once":false}'
+          api POST "applications/$probe_uuid/envs" "$gateway_body" >/dev/null
+          api POST "applications/$probe_uuid/envs" "$upstream_body" >/dev/null
 
-          if [[ "$running" != true ]]; then
-            echo 'Container logs (probe uses only non-secret dummy values):'
-            docker logs taso-ui-runtime-probe || true
-            exit 1
-          fi
+          envs="$(api GET "applications/$probe_uuid/envs")"
+          gateway_prod="$(jq '[.[]|select(.key=="TASO_GATEWAY_SECRET" and (.is_preview//false)==false)]|length' <<<"$envs")"
+          upstream_prod="$(jq '[.[]|select(.key=="TASO_CORE_UPSTREAM" and (.is_preview//false)==false)]|length' <<<"$envs")"
+          echo "probe production gateway rows: $gateway_prod"
+          echo "probe production upstream rows: $upstream_prod"
+          [[ "$gateway_prod" -eq 1 && "$upstream_prod" -eq 1 ]] || { echo '::error::Probe env rows were not created canonically.'; exit 1; }
 
-          curl -fsS http://127.0.0.1:4173/health | grep -q '^ok$'
-          curl -fsS http://127.0.0.1:4173/ >/dev/null
+          started="$(api POST "applications/$probe_uuid/start?force=true&instant_deploy=false")"
+          deployment_uuid="$(jq -r '.deployment_uuid // empty' <<<"$started")"
+          [[ -n "$deployment_uuid" ]] || { echo '::error::No deployment UUID returned.'; exit 1; }
 
-          for attempt in $(seq 1 8); do
-            health="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' taso-ui-runtime-probe)"
-            [[ "$health" == healthy ]] && break
-            [[ "$health" == unhealthy ]] && break
+          final=''
+          for attempt in $(seq 1 60); do
+            detail="$(api GET "deployments/$deployment_uuid")"
+            status="$(jq -r '.status // "unknown"' <<<"$detail")"
+            case "$status" in finished|failed|cancelled) final="$status"; break;; esac
             sleep 5
           done
-          health="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' taso-ui-runtime-probe)"
-          echo "final container health: $health"
-          [[ "$health" == healthy ]]
+          [[ -n "$final" ]] || { echo '::error::Probe deployment timed out.'; exit 1; }
+          runtime_state="$(api GET "applications/$probe_uuid" | jq -r '.status // "unknown"')"
+
+          {
+            echo '## TASO UI Coolify env injection probe'
+            echo "- target commit: $TARGET_COMMIT"
+            echo "- probe application UUID: $probe_uuid"
+            echo "- probe deployment UUID: $deployment_uuid"
+            echo "- deployment terminal status: $final"
+            echo "- runtime state: $runtime_state"
+            echo "- production gateway rows: $gateway_prod"
+            echo "- production upstream rows: $upstream_prod"
+            echo '- values used: non-secret diagnostic constants only'
+            echo '- domain assigned: false'
+            echo '- production resource modified: false'
+            echo '- cleanup: automatic on job exit'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
+          [[ "$final" == finished && "$runtime_state" == running:* && "$runtime_state" != running:unhealthy ]]
