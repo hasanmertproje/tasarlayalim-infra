@@ -1,1 +1,91 @@
 name: Taso Production Runtime Snapshot
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/taso-ui-prod-failure-discovery.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    env:
+      COOLIFY_BASE_URL: https://coolify.tasarlayalim.com
+      TASO_PUBLIC_URL: https://taso.tasarlayalim.com
+      TASO_SERVER_IPV4: 45.74.243.96
+      COOLIFY_API_TOKEN: ${{ secrets.COOLIFY_API_TOKEN }}
+    steps:
+      - name: Capture recovered production runtime state safely
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          set +x
+          : "${COOLIFY_API_TOKEN:?COOLIFY_API_TOKEN repository secret is required}"
+          API_BASE="${COOLIFY_BASE_URL%/}/api/v1"
+
+          api_get() {
+            curl --silent --show-error --fail-with-body \
+              --connect-timeout 5 --max-time 20 \
+              --resolve "coolify.tasarlayalim.com:443:$TASO_SERVER_IPV4" \
+              --header "Authorization: Bearer $COOLIFY_API_TOKEN" \
+              --header 'Accept: application/json' \
+              "$API_BASE/$1"
+          }
+
+          status_taso() {
+            local path="$1"
+            curl --silent --show-error --connect-timeout 5 --max-time 12 \
+              --resolve "taso.tasarlayalim.com:443:$TASO_SERVER_IPV4" \
+              --output /dev/null --write-out '%{http_code}' \
+              "https://taso.tasarlayalim.com$path" || true
+          }
+
+          apps="$(api_get applications)"
+          names=(taso-search-prod taso-browser-prod taso-speaker-prod taso-voice-prod taso-core-prod taso-ui-prod)
+          tmp="$(mktemp)"
+          trap 'rm -f "$tmp"' EXIT
+
+          {
+            echo '## Recovered TASO production runtime snapshot'
+            echo "- TASO root HTTP: $(status_taso /)"
+            echo "- TASO /health HTTP: $(status_taso /health)"
+            echo "- TASO /api/auth/session HTTP: $(status_taso /api/auth/session)"
+            echo
+            echo '| Application | App UUID | Runtime status | Latest finished deployment UUID | Commit SHA | Updated |'
+            echo '|---|---|---|---|---|---|'
+
+            for name in "${names[@]}"; do
+              uuid="$(jq -r --arg n "$name" '[.[] | select(.name==$n)] | if length==1 then .[0].uuid else empty end' <<<"$apps")"
+              if [[ -z "$uuid" ]]; then
+                echo "| $name | missing | missing | missing | missing | missing |"
+                echo fail >> "$tmp"
+                continue
+              fi
+
+              detail="$(api_get "applications/$uuid")"
+              runtime="$(jq -r '.status // "unknown"' <<<"$detail")"
+              history="$(api_get "deployments/applications/$uuid?skip=0&take=25")"
+              rows="$(jq -c 'if type=="array" then . elif (.deployments|type)=="array" then .deployments else [.. | arrays] | first // [] end' <<<"$history")"
+              latest="$(jq -c '[.[] | select((.status // "")=="finished") | select(((.commit // .git_commit_sha // "") | test("^[0-9A-Fa-f]{40}$")))] | sort_by(.updated_at // .created_at // "") | reverse | .[0] // {}' <<<"$rows")"
+              dep_uuid="$(jq -r '.deployment_uuid // .uuid // "none"' <<<"$latest")"
+              commit="$(jq -r '.commit // .git_commit_sha // "none"' <<<"$latest")"
+              updated="$(jq -r '.updated_at // .created_at // "unknown"' <<<"$latest")"
+
+              echo "| $name | $uuid | $runtime | $dep_uuid | $commit | $updated |"
+              if [[ "$name" == taso-core-prod || "$name" == taso-ui-prod ]]; then
+                [[ "$runtime" == running:healthy ]] || echo fail >> "$tmp"
+              fi
+            done
+
+            echo
+            echo 'Search/Voice may report running:unknown when no Docker healthcheck is defined; UI/Core are required to be running:healthy.'
+            echo 'Read-only snapshot: no deployment, restart, DNS, auth, environment, secret, or application configuration was changed.'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
+          [[ "$(status_taso /health)" == 200 ]] || exit 1
+          [[ ! -s "$tmp" ]] || exit 1
