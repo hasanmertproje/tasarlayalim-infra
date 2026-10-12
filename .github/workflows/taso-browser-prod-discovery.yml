@@ -1,7 +1,7 @@
-name: Taso Browser Production Discovery
+name: Taso Browser Production Failure Discovery
 
 on:
-  push:
+  pull_request:
     branches: [main]
     paths:
       - .github/workflows/taso-browser-prod-discovery.yml
@@ -13,17 +13,25 @@ permissions:
 jobs:
   discover:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 7
     env:
       COOLIFY_BASE_URL: https://coolify.tasarlayalim.com
       COOLIFY_API_TOKEN: ${{ secrets.COOLIFY_API_TOKEN }}
+      TARGET_APP_NAME: taso-browser-prod
+      EXPECTED_FAILED_COMMIT: 30a02ee9b1d2e3a9043c76eb9c72e03b42296f13
     steps:
-      - name: Inspect production browser deployment safely
+      - name: Checkout repository history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Inspect failed Browser deployment safely
         shell: bash
         run: |
           set -Eeuo pipefail
           set +x
           : "${COOLIFY_API_TOKEN:?COOLIFY_API_TOKEN repository secret is required}"
+
           api_get() {
             curl --silent --show-error --fail-with-body \
               --connect-timeout 15 --max-time 60 \
@@ -33,40 +41,72 @@ jobs:
           }
 
           apps="$(api_get applications)"
-          uuid="$(jq -r '.[]|select(.name=="taso-browser-prod")|.uuid' <<<"$apps" | head -n1)"
-          [[ -n "$uuid" ]] || { echo '::error::taso-browser-prod not found'; exit 1; }
-          detail="$(api_get "applications/$uuid")"
-          envs="$(api_get "applications/$uuid/envs")"
-          deployments="$(api_get "deployments/applications/$uuid?skip=0&take=10")"
-          deployment_summary="$(jq -c '[.. | objects | select(has("created_at") and (has("deployment_uuid") or has("uuid")))] | sort_by(.created_at // "") | reverse | .[0] // {}' <<<"$deployments")"
-          deployment_uuid="$(jq -r '.deployment_uuid // .uuid // empty' <<<"$deployment_summary")"
-          [[ -n "$deployment_uuid" ]] || { echo '::error::Latest browser deployment UUID is unavailable.'; exit 1; }
-          deployment_detail="$(api_get "deployments/$deployment_uuid")"
-          raw_logs="$(jq -r '.logs // empty' <<<"$deployment_detail")"
-          if [[ -z "$raw_logs" ]]; then raw_logs="$(jq -r '.logs // ""' <<<"$deployment_summary")"; fi
-          safe_logs="$(printf '%s\n' "$raw_logs" \
+          app_uuid="$(jq -r --arg n "$TARGET_APP_NAME" '[.[] | select(.name==$n)] | if length==1 then .[0].uuid else empty end' <<<"$apps")"
+          [[ -n "$app_uuid" ]] || { echo '::error::Unique taso-browser-prod application was not found.'; exit 1; }
+
+          detail="$(api_get "applications/$app_uuid")"
+          envs="$(api_get "applications/$app_uuid/envs")"
+          history="$(api_get "deployments/applications/$app_uuid?take=30")"
+          history_rows="$(jq -c 'if type=="array" then . elif (.deployments|type)=="array" then .deployments else [.. | arrays] | first // [] end' <<<"$history")"
+
+          failed="$(jq -c --arg c "$EXPECTED_FAILED_COMMIT" '[.[] | select((.commit // .git_commit_sha // "")==$c and (.status // "")=="failed")] | sort_by(.updated_at // .created_at // "") | reverse | .[0] // {}' <<<"$history_rows")"
+          failed_uuid="$(jq -r '.deployment_uuid // .uuid // empty' <<<"$failed")"
+          [[ -n "$failed_uuid" ]] || { echo '::error::Failed taso-browser-prod deployment for expected commit was not found.'; exit 1; }
+
+          predecessor="$(jq -c --arg failed "$failed_uuid" '[.[] | select((.deployment_uuid // .uuid // "") != $failed and (.status // "")=="finished")] | sort_by(.updated_at // .created_at // "") | reverse | .[0] // {}' <<<"$history_rows")"
+          predecessor_uuid="$(jq -r '.deployment_uuid // .uuid // empty' <<<"$predecessor")"
+          predecessor_commit="$(jq -r '.commit // .git_commit_sha // empty' <<<"$predecessor")"
+          [[ -n "$predecessor_uuid" && -n "$predecessor_commit" ]] || { echo '::error::No successful predecessor Browser deployment was found.'; exit 1; }
+
+          failed_detail="$(api_get "deployments/$failed_uuid")"
+          raw_logs="$(jq -r '[.. | objects | .logs? | select(type=="string" and length>0)] | .[0] // ""' <<<"$failed_detail")"
+          logs_available=false
+          [[ -n "$raw_logs" ]] && logs_available=true
+          safe_error_lines="$(printf '%s\n' "$raw_logs" \
+            | grep -Eai 'error|failed|failure|exit code|exited|enoent|eacces|cannot|unable|invalid|missing|not found|npm|node|docker|health|permission|module|compile|build|playwright|chrom|browser' \
+            | grep -Evai 'authorization|bearer|password|secret|token|api[_-]?key|private[_-]?key|totp|cookie|set-cookie' \
             | sed -E \
-              -e 's/([Aa]uthorization:[[:space:]]*[Bb]earer[[:space:]]+)[^[:space:]]+/\1[REDACTED]/g' \
-              -e 's/((SECRET|TOKEN|PASSWORD|API_KEY)[=:][[:space:]]*)[^[:space:]]+/\1[REDACTED]/Ig' \
+              -e 's#https?://[^[:space:]]+#[URL-REDACTED]#g' \
               -e 's/\b[0-9A-Fa-f]{32,}\b/[REDACTED-LONG-HEX]/g' \
-            | tail -n 220)"
+              -e 's/([A-Za-z0-9_+=\/.:-]{48,})/[REDACTED-LONG-VALUE]/g' \
+            | tail -n 160 || true)"
+
+          git cat-file -e "$predecessor_commit^{commit}" 2>/dev/null || git fetch --no-tags --depth=1 origin "$predecessor_commit"
+          browser_tree_same=false
+          if git diff --quiet "$predecessor_commit" "$EXPECTED_FAILED_COMMIT" -- docker/taso-browser; then browser_tree_same=true; fi
+
+          app_status="$(jq -r '.status // "unknown"' <<<"$detail")"
+          base_dir="$(jq -r '.base_directory // empty' <<<"$detail")"
+          dockerfile="$(jq -r '.dockerfile_location // empty' <<<"$detail")"
+          branch="$(jq -r '.git_branch // empty' <<<"$detail")"
+          build_pack="$(jq -r '.build_pack // empty' <<<"$detail")"
 
           {
-            echo '## TASO browser production deployment discovery'
-            jq -r '"- UUID: \(.uuid // "n/a")\n- status: \(.status // "unknown")\n- branch: \(.git_branch // "n/a")\n- base directory: \(.base_directory // "n/a")\n- dockerfile: \(.dockerfile_location // "n/a")\n- port: \(.ports_exposes // "n/a")\n- public fqdn: \(.fqdn // "none")"' <<<"$detail"
-            echo '- healthcheck metadata:'
-            jq -r '"  - enabled: \(.health_check_enabled // "n/a")\n  - path: \(.health_check_path // "n/a")\n  - port: \(.health_check_port // "n/a")\n  - method: \(.health_check_method // "n/a")\n  - return_code: \(.health_check_return_code // "n/a")\n  - interval: \(.health_check_interval // "n/a")\n  - timeout: \(.health_check_timeout // "n/a")\n  - retries: \(.health_check_retries // "n/a")\n  - start_period: \(.health_check_start_period // "n/a")"' <<<"$detail"
-            echo '- env key presence:'
+            echo '## TASO Browser production failure discovery'
+            echo "- application UUID: $app_uuid"
+            echo "- current runtime state: $app_status"
+            echo "- branch: $branch"
+            echo "- base directory: $base_dir"
+            echo "- Dockerfile location: $dockerfile"
+            echo "- build pack: $build_pack"
+            echo "- failed deployment UUID: $failed_uuid"
+            echo "- failed deployment commit: $(jq -r '.commit // .git_commit_sha // "unknown"' <<<"$failed")"
+            echo "- failed deployment status: $(jq -r '.status // "unknown"' <<<"$failed")"
+            echo "- failed deployment created: $(jq -r '.created_at // "unknown"' <<<"$failed")"
+            echo "- successful predecessor UUID: $predecessor_uuid"
+            echo "- successful predecessor commit: $predecessor_commit"
+            echo "- docker/taso-browser source unchanged vs predecessor: $browser_tree_same"
+            echo '- required env key presence:'
             jq -r '["PORT","TASO_BROWSER_WORKER_SECRET","TASO_BROWSER_ALLOWED_HOSTS"][] as $k | "  - " + $k + ": " + (any(.[];.key==$k)|tostring)' <<<"$envs"
-            jq -r '"- latest deployment UUID: \(.deployment_uuid // .uuid // "n/a")\n- latest deployment status: \(.status // "unknown")\n- latest deployment commit: \(.commit // .git_commit_sha // "n/a")"' <<<"$deployment_detail"
-            echo '- exact deployment diagnostic flags:'
-            jq -r '"  - restart_only: \(.restart_only // false)\n  - force_rebuild: \(.force_rebuild // false)\n  - deployment_type: \(.deployment_type // "n/a")\n  - created_at: \(.created_at // "n/a")\n  - updated_at: \(.updated_at // "n/a")\n  - finished_at: \(.finished_at // "n/a")"' <<<"$deployment_detail"
-            echo '- sanitized deployment logs:'
+            echo "- deployment response exposes log field: $logs_available"
+            if [[ "$logs_available" != true ]]; then
+              echo '- note: deployment logs are omitted by this API token/response; no sensitive permission was added or bypassed.'
+            fi
+            echo '- sanitized error-focused deployment log lines:'
             echo '```text'
-            if [[ -n "$safe_logs" ]]; then printf '%s\n' "$safe_logs"; else echo '[no logs returned]'; fi
+            if [[ -n "$safe_error_lines" ]]; then printf '%s\n' "$safe_error_lines"; else echo '[no safe deployment log lines available]'; fi
             echo '```'
-            echo
-            echo 'Read-only diagnostic: no Coolify resource was changed; secret-like values were redacted before output.'
+            echo 'Read-only diagnostic. No Coolify resource was changed and no secret value was printed.'
           } | tee -a "$GITHUB_STEP_SUMMARY"
 
-          [[ -n "$raw_logs" ]] || { echo '::error::Exact browser deployment returned no logs.'; exit 1; }
+          [[ "$(jq -r '.status // empty' <<<"$failed")" == failed ]] || exit 1
