@@ -64,14 +64,6 @@ jobs:
           raw_logs="$(jq -r '[.. | objects | .logs? | select(type=="string" and length>0)] | .[0] // ""' <<<"$failed_detail")"
           logs_available=false
           [[ -n "$raw_logs" ]] && logs_available=true
-          safe_error_lines="$(printf '%s\n' "$raw_logs" \
-            | grep -Eai 'error|failed|failure|exit code|exited|enoent|eacces|cannot|unable|invalid|missing|not found|npm|node|docker|health|permission|module|compile|build|vite|typescript|nginx' \
-            | grep -Evai 'authorization|bearer|password|secret|token|api[_-]?key|private[_-]?key|totp|cookie|set-cookie' \
-            | sed -E \
-              -e 's#https?://[^[:space:]]+#[URL-REDACTED]#g' \
-              -e 's/\b[0-9A-Fa-f]{32,}\b/[REDACTED-LONG-HEX]/g' \
-              -e 's/([A-Za-z0-9_+=\/.:-]{48,})/[REDACTED-LONG-VALUE]/g' \
-            | tail -n 160 || true)"
 
           git cat-file -e "$predecessor_commit^{commit}" 2>/dev/null || git fetch --no-tags --depth=1 origin "$predecessor_commit"
           ui_tree_same=false
@@ -85,21 +77,25 @@ jobs:
           build_pack="$(jq -r '.build_pack // empty' <<<"$detail")"
           ports="$(jq -r '.ports_exposes // empty' <<<"$detail")"
           health_enabled="$(jq -r '.health_check_enabled // false' <<<"$detail")"
-          health_path="$(jq -r '.health_check_path // empty' <<<"$detail")"
-          health_port="$(jq -r '.health_check_port // empty' <<<"$detail")"
-          health_method="$(jq -r '.health_check_method // empty' <<<"$detail")"
           force_rebuild="$(jq -r '.force_rebuild // false' <<<"$failed_detail")"
-          restart_only="$(jq -r '.restart_only // false' <<<"$failed_detail")"
-          rollback="$(jq -r '.rollback // false' <<<"$failed_detail")"
-          is_api="$(jq -r '.is_api // false' <<<"$failed_detail")"
-          git_type="$(jq -r '.git_type // "unknown"' <<<"$failed_detail")"
-          failed_keys="$(jq -r 'keys | sort | join(", ")' <<<"$failed_detail")"
-          snapshot_keys="$(jq -r '(.configuration_snapshot // {}) | keys | sort | join(", ")' <<<"$failed_detail")"
-          diff_keys="$(jq -r '(.configuration_diff // {}) | keys | sort | join(", ")' <<<"$failed_detail")"
+          image_tag_present=false
+          [[ -n "$(jq -r '.docker_registry_image_tag // empty' <<<"$failed_detail")" ]] && image_tag_present=true
+          predecessor_image_tag_present=false
+          [[ -n "$(jq -r '.docker_registry_image_tag // empty' <<<"$predecessor_detail")" ]] && predecessor_image_tag_present=true
+          process_id_present=false
+          [[ -n "$(jq -r '.current_process_id // empty' <<<"$failed_detail")" ]] && process_id_present=true
+          predecessor_process_id_present=false
+          [[ -n "$(jq -r '.current_process_id // empty' <<<"$predecessor_detail")" ]] && predecessor_process_id_present=true
+          build_server_present=false
+          [[ -n "$(jq -r '.build_server_id // empty' <<<"$failed_detail")" ]] && build_server_present=true
+          failed_parent_present=false
+          [[ -n "$(jq -r '.parent_deployment_uuid // empty' <<<"$failed_detail")" ]] && failed_parent_present=true
           config_same=false
           failed_hash="$(jq -r '.configuration_hash // empty' <<<"$failed_detail")"
           predecessor_hash="$(jq -r '.configuration_hash // empty' <<<"$predecessor_detail")"
           [[ -n "$failed_hash" && "$failed_hash" == "$predecessor_hash" ]] && config_same=true
+          failed_seconds="$(jq -r 'if (.created_at and .finished_at) then ((.finished_at|fromdateiso8601)-(.created_at|fromdateiso8601)) else -1 end' <<<"$failed_detail" 2>/dev/null || echo -1)"
+          predecessor_seconds="$(jq -r 'if (.created_at and .finished_at) then ((.finished_at|fromdateiso8601)-(.created_at|fromdateiso8601)) else -1 end' <<<"$predecessor_detail" 2>/dev/null || echo -1)"
 
           {
             echo '## TASO UI production failure discovery'
@@ -112,33 +108,22 @@ jobs:
             echo "- exposed ports: $ports"
             echo "- domain configured: $([[ -n "$fqdn" ]] && echo true || echo false)"
             echo "- health check enabled: $health_enabled"
-            echo "- health check path: ${health_path:-[empty]}"
-            echo "- health check port: ${health_port:-[empty]}"
-            echo "- health check method: ${health_method:-[empty]}"
             echo "- failed deployment UUID: $failed_uuid"
-            echo "- failed deployment commit: $(jq -r '.commit // .git_commit_sha // "unknown"' <<<"$failed")"
             echo "- failed deployment status: $(jq -r '.status // "unknown"' <<<"$failed")"
-            echo "- failed deployment created: $(jq -r '.created_at // "unknown"' <<<"$failed")"
             echo "- force rebuild recorded: $force_rebuild"
-            echo "- restart only: $restart_only"
-            echo "- rollback: $rollback"
-            echo "- API initiated: $is_api"
-            echo "- git type: $git_type"
+            echo "- failed deployment image tag present: $image_tag_present"
+            echo "- successful predecessor image tag present: $predecessor_image_tag_present"
+            echo "- failed deployment process id present: $process_id_present"
+            echo "- successful predecessor process id present: $predecessor_process_id_present"
+            echo "- build server id present: $build_server_present"
+            echo "- parent deployment UUID present: $failed_parent_present"
+            echo "- failed deployment elapsed seconds: $failed_seconds"
+            echo "- successful predecessor elapsed seconds: $predecessor_seconds"
             echo "- successful predecessor UUID: $predecessor_uuid"
             echo "- successful predecessor commit: $predecessor_commit"
             echo "- taso-ui source unchanged vs predecessor: $ui_tree_same"
             echo "- deployment configuration hash unchanged vs predecessor: $config_same"
-            echo "- failed deployment top-level keys: $failed_keys"
-            echo "- configuration snapshot key names: ${snapshot_keys:-[none]}"
-            echo "- configuration diff key names: ${diff_keys:-[none]}"
             echo "- deployment response exposes log field: $logs_available"
-            if [[ "$logs_available" != true ]]; then
-              echo '- note: deployment logs are omitted by this API token/response; no sensitive permission was added or bypassed.'
-            fi
-            echo '- sanitized error-focused deployment log lines:'
-            echo '```text'
-            if [[ -n "$safe_error_lines" ]]; then printf '%s\n' "$safe_error_lines"; else echo '[no safe deployment log lines available]'; fi
-            echo '```'
             echo 'Read-only diagnostic. No Coolify resource was changed and no secret value was printed.'
           } | tee -a "$GITHUB_STEP_SUMMARY"
 
