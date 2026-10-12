@@ -22,7 +22,7 @@ jobs:
       ENVIRONMENT_UUID: witrmsidlkntl6vbjgc9zxsl
       TARGET_COMMIT: a38f091bf03ab309e14f8ab8bfd6d78d112aca04
     steps:
-      - name: Verify isolated Coolify UI env injection
+      - name: Verify isolated Coolify UI env injection and inspect safe probe logs
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -37,7 +37,7 @@ jobs:
             local args=(--silent --show-error --connect-timeout 15 --max-time 120 --output "$out" --write-out '%{http_code}' --header "Authorization: Bearer $COOLIFY_API_TOKEN" --header 'Accept: application/json')
             if [[ -n "$body" ]]; then args+=(--header 'Content-Type: application/json' --data-binary "$body"); fi
             code="$(curl "${args[@]}" -X "$method" "$API_BASE/$path")"
-            if [[ ! "$code" =~ ^2 ]]; then echo "::error::Coolify API $method $path failed with HTTP $code." >&2; rm -f "$out"; return 1; fi
+            if [[ ! "$code" =~ ^2 ]]; then echo "::error::Coolify API $method $path failed with HTTP $code." >&2; cat "$out" | jq -r '.message // empty' 2>/dev/null || true; rm -f "$out"; return 1; fi
             cat "$out"; rm -f "$out"
           }
 
@@ -64,9 +64,7 @@ jobs:
           envs="$(api GET "applications/$probe_uuid/envs")"
           gateway_prod="$(jq '[.[]|select(.key=="TASO_GATEWAY_SECRET" and (.is_preview//false)==false)]|length' <<<"$envs")"
           upstream_prod="$(jq '[.[]|select(.key=="TASO_CORE_UPSTREAM" and (.is_preview//false)==false)]|length' <<<"$envs")"
-          echo "probe production gateway rows: $gateway_prod"
-          echo "probe production upstream rows: $upstream_prod"
-          [[ "$gateway_prod" -eq 1 && "$upstream_prod" -eq 1 ]] || { echo '::error::Probe env rows were not created canonically.'; exit 1; }
+          [[ "$gateway_prod" -eq 1 && "$upstream_prod" -eq 1 ]] || { echo '::error::Probe env rows were not canonical.'; exit 1; }
 
           started="$(api POST "applications/$probe_uuid/start?force=true&instant_deploy=false")"
           deployment_uuid="$(jq -r '.deployment_uuid // empty' <<<"$started")"
@@ -82,9 +80,24 @@ jobs:
           [[ -n "$final" ]] || { echo '::error::Probe deployment timed out.'; exit 1; }
           runtime_state="$(api GET "applications/$probe_uuid" | jq -r '.status // "unknown"')"
 
+          safe_logs='[not requested]'
+          if [[ "$final" != finished ]]; then
+            out="$(mktemp)"
+            code="$(curl --silent --show-error --connect-timeout 15 --max-time 60 --output "$out" --write-out '%{http_code}' \
+              --header "Authorization: Bearer $COOLIFY_API_TOKEN" --header 'Accept: application/json' \
+              "$API_BASE/applications/$probe_uuid/logs?lines=80&show_timestamps=false" || true)"
+            if [[ "$code" == 200 ]]; then
+              raw="$(jq -r '.logs // ""' "$out")"
+              safe_logs="$(printf '%s\n' "$raw" | grep -Eai 'emerg|error|unknown|envsubst|nginx|entrypoint|failed|unhealthy' | tail -n 80 || true)"
+              [[ -n "$safe_logs" ]] || safe_logs='[no matching safe error lines]'
+            else
+              safe_logs="[application log endpoint unavailable with current token: HTTP $code]"
+            fi
+            rm -f "$out"
+          fi
+
           {
             echo '## TASO UI Coolify env injection probe'
-            echo "- target commit: $TARGET_COMMIT"
             echo "- probe application UUID: $probe_uuid"
             echo "- probe deployment UUID: $deployment_uuid"
             echo "- deployment terminal status: $final"
@@ -92,7 +105,10 @@ jobs:
             echo "- production gateway rows: $gateway_prod"
             echo "- production upstream rows: $upstream_prod"
             echo '- values used: non-secret diagnostic constants only'
-            echo '- domain assigned: false'
+            echo '- safe runtime log result:'
+            echo '```text'
+            printf '%s\n' "$safe_logs"
+            echo '```'
             echo '- production resource modified: false'
             echo '- cleanup: automatic on job exit'
           } | tee -a "$GITHUB_STEP_SUMMARY"
