@@ -1,4 +1,4 @@
-name: Taso Coolify Runtime And Server Discovery
+name: Taso Coolify Diagnostic Probe Cleanup
 
 on:
   pull_request:
@@ -11,77 +11,86 @@ permissions:
   contents: read
 
 jobs:
-  discover:
+  cleanup:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:
       COOLIFY_BASE_URL: https://coolify.tasarlayalim.com
       COOLIFY_API_TOKEN: ${{ secrets.COOLIFY_API_TOKEN }}
       SERVER_UUID: h6e4ws8nwfi6stqjgrrhgaq6
+      PROBE_NAME: taso-ui-env-probe
     steps:
-      - name: Inspect env shape and server metadata without secret values
+      - name: Verify dummy env persistence and remove only stale diagnostic probe
         shell: bash
         run: |
           set -Eeuo pipefail
           set +x
           : "${COOLIFY_API_TOKEN:?COOLIFY_API_TOKEN repository secret is required}"
+          API_BASE="${COOLIFY_BASE_URL%/}/api/v1"
 
-          api_get() {
-            curl --silent --show-error --fail-with-body \
-              --connect-timeout 15 --max-time 60 \
-              --header "Authorization: Bearer $COOLIFY_API_TOKEN" \
-              --header 'Accept: application/json' \
-              "$COOLIFY_BASE_URL/api/v1/$1"
+          request() {
+            local method="$1" path="$2" out code
+            out="$(mktemp)"
+            code="$(curl --silent --show-error --connect-timeout 15 --max-time 60 --output "$out" --write-out '%{http_code}' \
+              --header "Authorization: Bearer $COOLIFY_API_TOKEN" --header 'Accept: application/json' \
+              -X "$method" "$API_BASE/$path" || true)"
+            REQUEST_CODE="$code"
+            REQUEST_FILE="$out"
           }
 
-          apps="$(api_get applications)"
-          app_uuid() { jq -r --arg n "$1" '[.[]|select(.name==$n)]|if length==1 then .[0].uuid else empty end' <<<"$apps"; }
+          request GET applications
+          [[ "$REQUEST_CODE" == 200 ]] || { echo "::error::Application listing failed HTTP $REQUEST_CODE"; rm -f "$REQUEST_FILE"; exit 1; }
+          apps="$(cat "$REQUEST_FILE")"; rm -f "$REQUEST_FILE"
+          matches="$(jq --arg n "$PROBE_NAME" '[.[]|select(.name==$n)]|length' <<<"$apps")"
+          echo "diagnostic probe matches before cleanup: $matches"
+          [[ "$matches" -le 1 ]] || { echo '::error::More than one exact diagnostic probe exists; refusing cleanup.'; exit 1; }
 
-          describe() {
-            local app_name="$1" key="$2" uuid envs status
-            uuid="$(app_uuid "$app_name")"
-            [[ -n "$uuid" ]] || { echo "::error::$app_name not found"; return 1; }
-            envs="$(api_get "applications/$uuid/envs")"
-            status="$(api_get "applications/$uuid" | jq -r '.status // "unknown"')"
-            echo "- $app_name status=$status key=$key count=$(jq --arg k "$key" '[.[]|select(.key==$k)]|length' <<<"$envs")"
-            jq -r --arg k "$key" '[.[]|select(.key==$k)]|to_entries[]|"  row="+((.key+1)|tostring)+" uuid="+(.value.uuid//"[none]")+" runtime="+((.value.is_runtime//false)|tostring)+" buildtime="+((.value.is_buildtime//false)|tostring)+" preview="+((.value.is_preview//false)|tostring)+" shared="+((.value.is_shared//false)|tostring)+" created="+(.value.created_at//"[none]")+" updated="+(.value.updated_at//"[none]")' <<<"$envs"
-          }
+          value_persistence='not-applicable'
+          probe_uuid=''
+          if [[ "$matches" -eq 1 ]]; then
+            probe_uuid="$(jq -r --arg n "$PROBE_NAME" '[.[]|select(.name==$n)][0].uuid' <<<"$apps")"
+            description="$(jq -r --arg n "$PROBE_NAME" '[.[]|select(.name==$n)][0].description // ""' <<<"$apps")"
+            [[ "$description" == 'Temporary TASO UI env injection probe' ]] || { echo '::error::Exact-name app is not our diagnostic probe; refusing cleanup.'; exit 1; }
 
-          server="$(api_get "servers/$SERVER_UUID")"
-          cleanup="$(api_get "servers/$SERVER_UUID/docker-cleanup")"
-          resources="$(api_get "servers/$SERVER_UUID/resources")"
+            request GET "applications/$probe_uuid/envs"
+            [[ "$REQUEST_CODE" == 200 ]] || { echo "::error::Probe env lookup failed HTTP $REQUEST_CODE"; rm -f "$REQUEST_FILE"; exit 1; }
+            envs="$(cat "$REQUEST_FILE")"; rm -f "$REQUEST_FILE"
+            gateway_match="$(jq '[.[]|select(.key=="TASO_GATEWAY_SECRET" and (.is_preview//false)==false and ((.value//"")=="diagnostic-nonsecret-gateway" or (.real_value//"")=="diagnostic-nonsecret-gateway"))]|length' <<<"$envs")"
+            upstream_match="$(jq '[.[]|select(.key=="TASO_CORE_UPSTREAM" and (.is_preview//false)==false and ((.value//"")=="http://127.0.0.1:65535" or (.real_value//"")=="http://127.0.0.1:65535"))]|length' <<<"$envs")"
+            if [[ "$gateway_match" -eq 1 && "$upstream_match" -eq 1 ]]; then value_persistence=true; else value_persistence=false; fi
+            echo "dummy diagnostic values readable and exact: $value_persistence"
+
+            request POST "applications/$probe_uuid/stop?docker_cleanup=false"
+            echo "probe stop request HTTP: $REQUEST_CODE"
+            rm -f "$REQUEST_FILE"
+            sleep 2
+
+            request DELETE "applications/$probe_uuid?delete_configurations=true&delete_volumes=true&docker_cleanup=false&delete_connected_networks=true"
+            if [[ "$REQUEST_CODE" != 200 && "$REQUEST_CODE" != 404 ]]; then
+              echo "::error::Probe delete failed HTTP $REQUEST_CODE"
+              rm -f "$REQUEST_FILE"
+              exit 1
+            fi
+            rm -f "$REQUEST_FILE"
+          fi
+
+          request GET applications
+          [[ "$REQUEST_CODE" == 200 ]] || { echo "::error::Post-cleanup app listing failed HTTP $REQUEST_CODE"; rm -f "$REQUEST_FILE"; exit 1; }
+          remaining="$(jq --arg n "$PROBE_NAME" '[.[]|select(.name==$n)]|length' "$REQUEST_FILE")"
+          rm -f "$REQUEST_FILE"
+          resources="$(curl --silent --show-error --fail-with-body --connect-timeout 15 --max-time 60 \
+            --header "Authorization: Bearer $COOLIFY_API_TOKEN" --header 'Accept: application/json' \
+            "$API_BASE/servers/$SERVER_UUID/resources")"
 
           {
-            echo '## TASO env row shape comparison'
-            describe taso-ui-prod TASO_GATEWAY_SECRET
-            describe taso-ui-prod TASO_CORE_UPSTREAM
-            describe taso-core-prod TASO_GATEWAY_SECRET
-            describe taso-browser-prod TASO_BROWSER_WORKER_SECRET
-            echo
-            echo '## Coolify deployment/build server metadata'
-            echo "- server role: $(jq -r '.settings.server_role // "unknown"' <<<"$server")"
-            echo "- deprecated is_build_server: $(jq -r '.settings.is_build_server // false' <<<"$server")"
-            echo "- reachable: $(jq -r '.settings.is_reachable // false' <<<"$server")"
-            echo "- usable: $(jq -r '.settings.is_usable // false' <<<"$server")"
-            echo "- force_disabled: $(jq -r '.settings.force_disabled // false' <<<"$server")"
-            echo "- concurrent_builds: $(jq -r '.settings.concurrent_builds // 0' <<<"$server")"
-            echo "- deployment_queue_limit: $(jq -r '.settings.deployment_queue_limit // 0' <<<"$server")"
-            echo "- dynamic_timeout: $(jq -r '.settings.dynamic_timeout // 0' <<<"$server")"
-            echo "- unreachable_count: $(jq -r '.unreachable_count // 0' <<<"$server")"
-            echo "- high_disk_usage_notification_sent: $(jq -r '.high_disk_usage_notification_sent // false' <<<"$server")"
-            echo "- docker_version_present: $(jq -r '((.settings.docker_version // "")|length)>0' <<<"$server")"
-            echo "- compose_version_present: $(jq -r '((.settings.compose_version // "")|length)>0' <<<"$server")"
-            echo "- metrics_enabled: $(jq -r '.settings.is_metrics_enabled // false' <<<"$server")"
-            echo "- sentinel_enabled: $(jq -r '.settings.is_sentinel_enabled // false' <<<"$server")"
-            echo "- cleanup frequency: $(jq -r '.docker_cleanup_frequency // "unset"' <<<"$cleanup")"
-            echo "- cleanup threshold: $(jq -r '.docker_cleanup_threshold // "unset"' <<<"$cleanup")"
-            echo "- force cleanup: $(jq -r '.force_docker_cleanup // false' <<<"$cleanup")"
-            echo "- delete unused volumes: $(jq -r '.delete_unused_volumes // false' <<<"$cleanup")"
-            echo "- delete unused networks: $(jq -r '.delete_unused_networks // false' <<<"$cleanup")"
-            echo "- disable application image retention: $(jq -r '.disable_application_image_retention // false' <<<"$cleanup")"
-            echo "- resource count: $(jq 'length' <<<"$resources")"
-            echo '- resource status counts:'
-            jq -r 'group_by(.status // "unknown")[] | "  "+((.[0].status // "unknown")|tostring)+": "+(length|tostring)' <<<"$resources"
-            echo 'No environment value, real_value, token, password, private key, validation log, IP, or user field was read or printed.'
-            echo 'Read-only diagnostic. No Coolify resource was changed.'
+            echo '## TASO diagnostic probe cleanup'
+            echo "- exact probe matches before cleanup: $matches"
+            echo "- dummy diagnostic values readable and exact: $value_persistence"
+            echo "- exact probe matches after cleanup: $remaining"
+            echo "- server resource count after cleanup: $(jq 'length' <<<"$resources")"
+            echo "- unhealthy/exited resources after cleanup: $(jq '[.[]|select((.status//"")|test("unhealthy|exited|failed";"i"))]|length' <<<"$resources")"
+            echo 'No production environment value was read or printed.'
+            echo 'Only the exact temporary diagnostic probe was eligible for deletion.'
           } | tee -a "$GITHUB_STEP_SUMMARY"
+
+          [[ "$remaining" -eq 0 ]]
