@@ -1,4 +1,4 @@
-name: Taso UI Runtime Env Discovery
+name: Taso Runtime Env Shape Discovery
 
 on:
   pull_request:
@@ -17,9 +17,8 @@ jobs:
     env:
       COOLIFY_BASE_URL: https://coolify.tasarlayalim.com
       COOLIFY_API_TOKEN: ${{ secrets.COOLIFY_API_TOKEN }}
-      TARGET_APP_NAME: taso-ui-prod
     steps:
-      - name: Inspect duplicate production UI env metadata without values
+      - name: Compare env row shapes without values
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -35,42 +34,24 @@ jobs:
           }
 
           apps="$(api_get applications)"
-          app_uuid="$(jq -r --arg n "$TARGET_APP_NAME" '[.[] | select(.name==$n)] | if length==1 then .[0].uuid else empty end' <<<"$apps")"
-          [[ -n "$app_uuid" ]] || { echo '::error::Unique taso-ui-prod application not found.'; exit 1; }
-          envs="$(api_get "applications/$app_uuid/envs")"
+          app_uuid() { jq -r --arg n "$1" '[.[]|select(.name==$n)]|if length==1 then .[0].uuid else empty end' <<<"$apps"; }
 
-          safe_rows() {
-            local key="$1"
-            jq -r --arg k "$key" '
-              [.[] | select(.key==$k)]
-              | to_entries[]
-              | "  row=" + ((.key+1)|tostring)
-                + " uuid=" + (.value.uuid // "[none]")
-                + " created_at=" + (.value.created_at // "[none]")
-                + " updated_at=" + (.value.updated_at // "[none]")
-                + " runtime=" + ((.value.is_runtime // false)|tostring)
-                + " buildtime=" + ((.value.is_buildtime // false)|tostring)
-                + " preview=" + ((.value.is_preview // false)|tostring)
-                + " shown_once=" + ((.value.is_shown_once // false)|tostring)
-                + " shared=" + ((.value.is_shared // false)|tostring)
-            ' <<<"$envs"
+          describe() {
+            local app_name="$1" key="$2" uuid envs status
+            uuid="$(app_uuid "$app_name")"
+            [[ -n "$uuid" ]] || { echo "::error::$app_name not found"; return 1; }
+            envs="$(api_get "applications/$uuid/envs")"
+            status="$(api_get "applications/$uuid" | jq -r '.status // "unknown"')"
+            echo "- $app_name status=$status key=$key count=$(jq --arg k "$key" '[.[]|select(.key==$k)]|length' <<<"$envs")"
+            jq -r --arg k "$key" '[.[]|select(.key==$k)]|to_entries[]|"  row="+((.key+1)|tostring)+" uuid="+(.value.uuid//"[none]")+" runtime="+((.value.is_runtime//false)|tostring)+" buildtime="+((.value.is_buildtime//false)|tostring)+" preview="+((.value.is_preview//false)|tostring)+" shared="+((.value.is_shared//false)|tostring)' <<<"$envs"
           }
 
-          gateway_count="$(jq '[.[] | select(.key=="TASO_GATEWAY_SECRET")] | length' <<<"$envs")"
-          upstream_count="$(jq '[.[] | select(.key=="TASO_CORE_UPSTREAM")] | length' <<<"$envs")"
-
           {
-            echo '## TASO UI duplicate env metadata'
-            echo "- application UUID: $app_uuid"
-            echo "- TASO_GATEWAY_SECRET rows: $gateway_count"
-            safe_rows TASO_GATEWAY_SECRET
-            echo "- TASO_CORE_UPSTREAM rows: $upstream_count"
-            safe_rows TASO_CORE_UPSTREAM
+            echo '## TASO env row shape comparison'
+            describe taso-ui-prod TASO_GATEWAY_SECRET
+            describe taso-ui-prod TASO_CORE_UPSTREAM
+            describe taso-core-prod TASO_GATEWAY_SECRET
+            describe taso-browser-prod TASO_BROWSER_WORKER_SECRET
             echo 'No environment value or real_value field was read or printed.'
             echo 'Read-only diagnostic. No Coolify resource was changed.'
           } | tee -a "$GITHUB_STEP_SUMMARY"
-
-          [[ "$gateway_count" -eq 2 && "$upstream_count" -eq 2 ]] || {
-            echo '::error::Duplicate shape changed; refusing to infer.'
-            exit 1
-          }
