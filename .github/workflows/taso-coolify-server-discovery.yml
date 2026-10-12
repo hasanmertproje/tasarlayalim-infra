@@ -19,7 +19,7 @@ jobs:
       COOLIFY_API_TOKEN: ${{ secrets.COOLIFY_API_TOKEN }}
       TARGET_APP_NAME: taso-ui-prod
     steps:
-      - name: Inspect production UI env metadata without values
+      - name: Inspect duplicate production UI env metadata without values
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -37,44 +37,40 @@ jobs:
           apps="$(api_get applications)"
           app_uuid="$(jq -r --arg n "$TARGET_APP_NAME" '[.[] | select(.name==$n)] | if length==1 then .[0].uuid else empty end' <<<"$apps")"
           [[ -n "$app_uuid" ]] || { echo '::error::Unique taso-ui-prod application not found.'; exit 1; }
-
           envs="$(api_get "applications/$app_uuid/envs")"
-          detail="$(api_get "applications/$app_uuid")"
 
-          describe_key() {
-            local key="$1" row count
-            count="$(jq --arg k "$key" '[.[] | select(.key==$k)] | length' <<<"$envs")"
-            echo "- $key count: $count"
-            if [[ "$count" -gt 0 ]]; then
-              row="$(jq -c --arg k "$key" '[.[] | select(.key==$k)][0]' <<<"$envs")"
-              echo "- $key is_runtime: $(jq -r '.is_runtime // "unset"' <<<"$row")"
-              echo "- $key is_buildtime: $(jq -r '.is_buildtime // "unset"' <<<"$row")"
-              echo "- $key is_preview: $(jq -r '.is_preview // "unset"' <<<"$row")"
-              echo "- $key is_literal: $(jq -r '.is_literal // "unset"' <<<"$row")"
-              echo "- $key is_shared: $(jq -r '.is_shared // "unset"' <<<"$row")"
-              echo "- $key is_shown_once: $(jq -r '.is_shown_once // "unset"' <<<"$row")"
-              value_present="$(jq -r 'if ((.value // "")|length)>0 or ((.real_value // "")|length)>0 then "true" else "false" end' <<<"$row")"
-              echo "- $key stored value present: $value_present"
-            fi
+          safe_rows() {
+            local key="$1"
+            jq -r --arg k "$key" '
+              [.[] | select(.key==$k)]
+              | to_entries[]
+              | "  row=" + ((.key+1)|tostring)
+                + " uuid=" + (.value.uuid // "[none]")
+                + " created_at=" + (.value.created_at // "[none]")
+                + " updated_at=" + (.value.updated_at // "[none]")
+                + " runtime=" + ((.value.is_runtime // false)|tostring)
+                + " buildtime=" + ((.value.is_buildtime // false)|tostring)
+                + " preview=" + ((.value.is_preview // false)|tostring)
+                + " shown_once=" + ((.value.is_shown_once // false)|tostring)
+                + " shared=" + ((.value.is_shared // false)|tostring)
+            ' <<<"$envs"
           }
-
-          {
-            echo '## TASO UI runtime env metadata'
-            echo "- application UUID: $app_uuid"
-            echo "- current runtime state: $(jq -r '.status // "unknown"' <<<"$detail")"
-            echo "- connect_to_docker_network: $(jq -r '.settings.connect_to_docker_network // false' <<<"$detail")"
-            echo "- inject_build_args_to_dockerfile: $(jq -r '.inject_build_args_to_dockerfile // false' <<<"$detail")"
-            echo "- use_build_secrets: $(jq -r '.use_build_secrets // false' <<<"$detail")"
-            echo "- env key count total: $(jq 'length' <<<"$envs")"
-            describe_key TASO_GATEWAY_SECRET
-            describe_key TASO_CORE_UPSTREAM
-            echo 'No environment value was printed. Only key presence and non-secret metadata flags were inspected.'
-            echo 'Read-only diagnostic. No Coolify resource was changed.'
-          } | tee -a "$GITHUB_STEP_SUMMARY"
 
           gateway_count="$(jq '[.[] | select(.key=="TASO_GATEWAY_SECRET")] | length' <<<"$envs")"
           upstream_count="$(jq '[.[] | select(.key=="TASO_CORE_UPSTREAM")] | length' <<<"$envs")"
-          [[ "$gateway_count" -eq 1 && "$upstream_count" -eq 1 ]] || {
-            echo '::error::Required TASO UI runtime environment key is missing or duplicated.'
+
+          {
+            echo '## TASO UI duplicate env metadata'
+            echo "- application UUID: $app_uuid"
+            echo "- TASO_GATEWAY_SECRET rows: $gateway_count"
+            safe_rows TASO_GATEWAY_SECRET
+            echo "- TASO_CORE_UPSTREAM rows: $upstream_count"
+            safe_rows TASO_CORE_UPSTREAM
+            echo 'No environment value or real_value field was read or printed.'
+            echo 'Read-only diagnostic. No Coolify resource was changed.'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
+          [[ "$gateway_count" -eq 2 && "$upstream_count" -eq 2 ]] || {
+            echo '::error::Duplicate shape changed; refusing to infer.'
             exit 1
           }
