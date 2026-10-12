@@ -81,6 +81,24 @@ jobs:
           npx playwright install --with-deps chromium
       - name: Capture and assert visual acceptance
         run: node scripts/taso-visual-acceptance.mjs
+      - name: Reset isolated stack for voice history acceptance
+        run: |
+          docker rm -f taso-visual-ui taso-visual-core 2>/dev/null || true
+          docker run -d --rm --name taso-visual-core --network taso-visual --network-alias taso-core \
+            -e TASO_GATEWAY_SECRET=ci-gateway-secret \
+            -e TASO_OWNER_EMAIL=owner@ci.local \
+            -e TASO_OWNER_PASSWORD=ci-password \
+            -e TASO_AUTH_ALLOW_INSECURE_BOOTSTRAP=1 \
+            tasarlayalim-taso-core
+          docker run -d --rm --name taso-visual-ui --network taso-visual -p 4173:80 \
+            -e TASO_CORE_UPSTREAM=http://taso-core:3000 \
+            -e TASO_GATEWAY_SECRET=ci-gateway-secret \
+            tasarlayalim-taso-ui
+          for i in $(seq 1 30); do curl -fsS http://127.0.0.1:4173/health >/dev/null && exit 0; sleep 1; done
+          echo "Voice-history isolated stack did not become ready." >&2
+          docker logs taso-visual-core || true
+          docker logs taso-visual-ui || true
+          exit 1
       - name: Assert voice history persistence and reopen
         run: node scripts/taso-voice-history-acceptance.mjs
       - name: Upload visual evidence
