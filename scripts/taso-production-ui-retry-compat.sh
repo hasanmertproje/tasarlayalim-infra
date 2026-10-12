@@ -89,6 +89,19 @@ new = '''elif [[ "${owner_credential_mode:-}" == persisted ]]; then
   echo "Production Core persisted auth boundary remains in force with no plaintext owner credential configured."
 fi
 
+deploy_force_no_cache() {
+  local name="$1" uuid="$2" result deployment_uuid
+  echo "Force rebuilding $name without build cache."
+  result="$(api POST "deploy?uuid=$uuid&force=true")"
+  deployment_uuid="$(jq -r --arg u "$uuid" '[.deployments[]? | select(.resource_uuid==$u)][0].deployment_uuid // empty' <<<"$result")"
+  [[ -n "$deployment_uuid" ]] || {
+    echo "::error::Force deployment was not queued for $name."
+    return 1
+  }
+  wait_deployment "$deployment_uuid" "$name" || return 1
+  wait_running "$uuid" "$name"
+}
+
 deploy_ui_for_release() {
   if deploy taso-ui-prod "$ui"; then
     return 0
@@ -109,9 +122,9 @@ deploy_ui_for_release() {
       ;;
   esac
 
-  echo "::notice::taso-ui-prod first deployment failed while the previous runtime remained healthy; retrying exactly once."
+  echo "::notice::taso-ui-prod normal deployment failed while the previous runtime remained healthy; retrying exactly once as a cacheless force rebuild."
   sleep 5
-  deploy taso-ui-prod "$ui"
+  deploy_force_no_cache taso-ui-prod "$ui"
 }
 deploy_ui_for_release
 '''
@@ -122,5 +135,5 @@ path.write_text(text.replace(old, new, 1))
 PY
 
 bash -n "$src"
-echo "Production UI single-retry compatibility patch validated."
+echo "Production UI bounded cacheless-force retry compatibility patch validated."
 exec bash scripts/taso-production-api-retry-compat.sh
