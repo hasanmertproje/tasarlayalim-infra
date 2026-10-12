@@ -1,13 +1,10 @@
-name: Taso UI Production Failure Discovery
+name: Taso Coolify Version And Probe State
 
 on:
   pull_request:
     branches: [main]
     paths:
       - .github/workflows/taso-ui-prod-failure-discovery.yml
-      - scripts/taso-production-core-clone-compat.sh
-      - scripts/taso-production-deploy.sh
-      - taso-ui/**
   workflow_dispatch:
 
 permissions:
@@ -16,19 +13,13 @@ permissions:
 jobs:
   discover:
     runs-on: ubuntu-latest
-    timeout-minutes: 7
+    timeout-minutes: 5
     env:
       COOLIFY_BASE_URL: https://coolify.tasarlayalim.com
       COOLIFY_API_TOKEN: ${{ secrets.COOLIFY_API_TOKEN }}
-      TARGET_APP_NAME: taso-ui-prod
-      EXPECTED_FAILED_COMMIT: 86da9451827e1e7ef2757023dda6810007303159
+      PROBE_NAME: taso-ui-env-probe
     steps:
-      - name: Checkout repository history
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Inspect failed UI deployment safely
+      - name: Read Coolify version and stale probe state safely
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -43,71 +34,29 @@ jobs:
               "$COOLIFY_BASE_URL/api/v1/$1"
           }
 
+          version_raw="$(api_get version)"
           apps="$(api_get applications)"
-          app_uuid="$(jq -r --arg n "$TARGET_APP_NAME" '[.[] | select(.name==$n)] | if length==1 then .[0].uuid else empty end' <<<"$apps")"
-          [[ -n "$app_uuid" ]] || { echo '::error::Unique taso-ui-prod application was not found.'; exit 1; }
-
-          detail="$(api_get "applications/$app_uuid")"
-          history="$(api_get "deployments/applications/$app_uuid?take=20")"
-          history_rows="$(jq -c 'if type=="array" then . elif (.deployments|type)=="array" then .deployments else [.. | arrays] | first // [] end' <<<"$history")"
-          failed="$(jq -c --arg c "$EXPECTED_FAILED_COMMIT" '[.[] | select((.commit // .git_commit_sha // "")==$c and (.status // "")=="failed")] | sort_by(.updated_at // .created_at // "") | reverse | .[0] // {}' <<<"$history_rows")"
-          failed_uuid="$(jq -r '.deployment_uuid // .uuid // empty' <<<"$failed")"
-          [[ -n "$failed_uuid" ]] || { echo '::error::Failed taso-ui-prod deployment for expected commit was not found.'; exit 1; }
-
-          predecessor="$(jq -c --arg failed "$failed_uuid" '[.[] | select((.deployment_uuid // .uuid // "") != $failed and (.status // "")=="finished")] | sort_by(.updated_at // .created_at // "") | reverse | .[0] // {}' <<<"$history_rows")"
-          predecessor_uuid="$(jq -r '.deployment_uuid // .uuid // empty' <<<"$predecessor")"
-          predecessor_commit="$(jq -r '.commit // .git_commit_sha // empty' <<<"$predecessor")"
-          [[ -n "$predecessor_uuid" && -n "$predecessor_commit" ]] || { echo '::error::No successful predecessor UI deployment was found.'; exit 1; }
-
-          failed_detail="$(api_get "deployments/$failed_uuid")"
-          raw_logs="$(jq -r '[.. | objects | .logs? | select(type=="string" and length>0)] | .[0] // ""' <<<"$failed_detail")"
-          logs_available=false
-          [[ -n "$raw_logs" ]] && logs_available=true
-          safe_error_lines="$(printf '%s\n' "$raw_logs" \
-            | grep -Eai 'error|failed|failure|exit code|exited|enoent|eacces|cannot|unable|invalid|missing|not found|npm|node|docker|health|permission|module|compile|build|vite|typescript|nginx' \
-            | grep -Evai 'authorization|bearer|password|secret|token|api[_-]?key|private[_-]?key|totp|cookie|set-cookie' \
-            | sed -E \
-              -e 's#https?://[^[:space:]]+#[URL-REDACTED]#g' \
-              -e 's/\b[0-9A-Fa-f]{32,}\b/[REDACTED-LONG-HEX]/g' \
-              -e 's/([A-Za-z0-9_+=\/.:-]{48,})/[REDACTED-LONG-VALUE]/g' \
-            | tail -n 160 || true)"
-
-          git cat-file -e "$predecessor_commit^{commit}" 2>/dev/null || git fetch --no-tags --depth=1 origin "$predecessor_commit"
-          ui_tree_same=false
-          if git diff --quiet "$predecessor_commit" "$EXPECTED_FAILED_COMMIT" -- taso-ui; then ui_tree_same=true; fi
-
-          app_status="$(jq -r '.status // "unknown"' <<<"$detail")"
-          base_dir="$(jq -r '.base_directory // empty' <<<"$detail")"
-          dockerfile="$(jq -r '.dockerfile_location // empty' <<<"$detail")"
-          branch="$(jq -r '.git_branch // empty' <<<"$detail")"
-          fqdn="$(jq -r '.fqdn // empty' <<<"$detail")"
-          build_pack="$(jq -r '.build_pack // empty' <<<"$detail")"
+          version="$(jq -r 'if type=="string" then . else (.version // .coolify_version // "unknown") end' <<<"$version_raw")"
+          probe_count="$(jq --arg n "$PROBE_NAME" '[.[]|select(.name==$n)]|length' <<<"$apps")"
+          probe_status='[none]'
+          probe_uuid='[none]'
+          probe_description_match='not-applicable'
+          if [[ "$probe_count" -eq 1 ]]; then
+            probe_uuid="$(jq -r --arg n "$PROBE_NAME" '[.[]|select(.name==$n)][0].uuid' <<<"$apps")"
+            probe_status="$(jq -r --arg n "$PROBE_NAME" '[.[]|select(.name==$n)][0].status // "unknown"' <<<"$apps")"
+            desc="$(jq -r --arg n "$PROBE_NAME" '[.[]|select(.name==$n)][0].description // ""' <<<"$apps")"
+            if [[ "$desc" == 'Temporary TASO UI env injection probe' ]]; then probe_description_match=true; else probe_description_match=false; fi
+          fi
 
           {
-            echo '## TASO UI production failure discovery'
-            echo "- application UUID: $app_uuid"
-            echo "- current runtime state: $app_status"
-            echo "- branch: $branch"
-            echo "- base directory: $base_dir"
-            echo "- Dockerfile location: $dockerfile"
-            echo "- build pack: $build_pack"
-            echo "- domain configured: $([[ -n "$fqdn" ]] && echo true || echo false)"
-            echo "- failed deployment UUID: $failed_uuid"
-            echo "- failed deployment commit: $(jq -r '.commit // .git_commit_sha // "unknown"' <<<"$failed")"
-            echo "- failed deployment status: $(jq -r '.status // "unknown"' <<<"$failed")"
-            echo "- failed deployment created: $(jq -r '.created_at // "unknown"' <<<"$failed")"
-            echo "- successful predecessor UUID: $predecessor_uuid"
-            echo "- successful predecessor commit: $predecessor_commit"
-            echo "- taso-ui source unchanged vs predecessor: $ui_tree_same"
-            echo "- deployment response exposes log field: $logs_available"
-            if [[ "$logs_available" != true ]]; then
-              echo '- note: deployment logs are omitted by this API token/response; no sensitive permission was added or bypassed.'
-            fi
-            echo '- sanitized error-focused deployment log lines:'
-            echo '```text'
-            if [[ -n "$safe_error_lines" ]]; then printf '%s\n' "$safe_error_lines"; else echo '[no safe deployment log lines available]'; fi
-            echo '```'
-            echo 'Read-only diagnostic. No Coolify resource was changed and no secret value was printed.'
+            echo '## Coolify version and diagnostic probe state'
+            echo "- Coolify version: $version"
+            echo "- exact taso-ui-env-probe count: $probe_count"
+            echo "- probe UUID: $probe_uuid"
+            echo "- probe status: $probe_status"
+            echo "- probe description matches our diagnostic resource: $probe_description_match"
+            echo 'No secret, environment value, IP, password, private key, or sensitive log was read or printed.'
+            echo 'Read-only diagnostic. No Coolify resource was changed.'
           } | tee -a "$GITHUB_STEP_SUMMARY"
 
-          [[ "$(jq -r '.status // empty' <<<"$failed")" == failed ]] || exit 1
+          [[ "$probe_count" -le 1 ]] || { echo '::error::Multiple exact diagnostic probes found; refusing inference.'; exit 1; }
