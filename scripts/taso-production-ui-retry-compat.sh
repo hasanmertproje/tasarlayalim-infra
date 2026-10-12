@@ -30,6 +30,11 @@ deploy_heavy_worker taso-voice-prod \"$voice\" docker/taso-voice
 '''"""
 new_browser = """'''deploy taso-search-prod \"$search\"
 deploy_browser_for_release() {
+  if heavy_worker_unchanged_and_running \"$browser\" docker/taso-browser; then
+    echo \"Skipping taso-browser-prod rebuild: source path 'docker/taso-browser' is unchanged since its latest successful deployment and the current runtime is already running.\"
+    return 0
+  fi
+
   if deploy taso-browser-prod \"$browser\"; then
     return 0
   fi
@@ -49,7 +54,7 @@ deploy_browser_for_release() {
       ;;
   esac
 
-  echo \"::notice::taso-browser-prod first deployment failed while the previous runtime remained healthy; retrying exactly once.\"
+  echo \"::notice::taso-browser-prod changed since its latest successful deployment, but the first deployment failed while the previous runtime remained healthy; retrying exactly once.\"
   sleep 5
   deploy taso-browser-prod \"$browser\"
 }
@@ -59,13 +64,13 @@ deploy_heavy_worker taso-voice-prod \"$voice\" docker/taso-voice
 '''"""
 browser_count = text.count(old_browser)
 if browser_count != 1:
-    raise SystemExit(f"Browser retry compatibility patch refused: expected guarded worker deploy target once, found {browser_count}")
+    raise SystemExit(f"Browser release compatibility patch refused: expected guarded worker deploy target once, found {browser_count}")
 text = text.replace(old_browser, new_browser, 1)
 path.write_text(text)
 PY
 
 bash -n "$bootstrap_src"
-echo "Production deployment failure propagation and Browser single-retry compatibility patches validated."
+echo "Production deployment failure propagation and Browser unchanged-worker/retry compatibility patches validated."
 
 src="scripts/taso-production-core-clone-compat.sh"
 
