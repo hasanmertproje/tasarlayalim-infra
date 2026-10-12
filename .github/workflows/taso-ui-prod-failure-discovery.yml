@@ -21,7 +21,7 @@ jobs:
       COOLIFY_BASE_URL: https://coolify.tasarlayalim.com
       COOLIFY_API_TOKEN: ${{ secrets.COOLIFY_API_TOKEN }}
       TARGET_APP_NAME: taso-ui-prod
-      EXPECTED_FAILED_COMMIT: 86da9451827e1e7ef2757023dda6810007303159
+      EXPECTED_FAILED_COMMIT: a38f091bf03ab309e14f8ab8bfd6d78d112aca04
     steps:
       - name: Checkout repository history
         uses: actions/checkout@v4
@@ -48,7 +48,7 @@ jobs:
           [[ -n "$app_uuid" ]] || { echo '::error::Unique taso-ui-prod application was not found.'; exit 1; }
 
           detail="$(api_get "applications/$app_uuid")"
-          history="$(api_get "deployments/applications/$app_uuid?take=20")"
+          history="$(api_get "deployments/applications/$app_uuid?take=30")"
           history_rows="$(jq -c 'if type=="array" then . elif (.deployments|type)=="array" then .deployments else [.. | arrays] | first // [] end' <<<"$history")"
           failed="$(jq -c --arg c "$EXPECTED_FAILED_COMMIT" '[.[] | select((.commit // .git_commit_sha // "")==$c and (.status // "")=="failed")] | sort_by(.updated_at // .created_at // "") | reverse | .[0] // {}' <<<"$history_rows")"
           failed_uuid="$(jq -r '.deployment_uuid // .uuid // empty' <<<"$failed")"
