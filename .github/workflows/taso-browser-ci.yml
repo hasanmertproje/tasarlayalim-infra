@@ -81,6 +81,8 @@ jobs:
           npx playwright install --with-deps chromium
       - name: Capture and assert visual acceptance
         run: node scripts/taso-visual-acceptance.mjs
+      - name: Assert voice history persistence and reopen
+        run: node scripts/taso-voice-history-acceptance.mjs
       - name: Upload visual evidence
         if: always()
         uses: actions/upload-artifact@v4
