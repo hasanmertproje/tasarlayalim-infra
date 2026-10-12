@@ -11,12 +11,24 @@ import sys
 
 path = Path(sys.argv[1])
 text = path.read_text()
-old = """'''deploy taso-search-prod \"$search\"
+
+old_failure_flow = ''' wait_deployment "$deployment_uuid" "$name"
+ wait_running "$uuid" "$name"
+'''
+new_failure_flow = ''' wait_deployment "$deployment_uuid" "$name" || return 1
+ wait_running "$uuid" "$name"
+'''
+flow_count = text.count(old_failure_flow)
+if flow_count != 1:
+    raise SystemExit(f"Deployment failure propagation patch refused: expected deploy wait sequence once, found {flow_count}")
+text = text.replace(old_failure_flow, new_failure_flow, 1)
+
+old_browser = """'''deploy taso-search-prod \"$search\"
 deploy taso-browser-prod \"$browser\"
 deploy_heavy_worker taso-speaker-prod \"$speaker\" docker/taso-speaker
 deploy_heavy_worker taso-voice-prod \"$voice\" docker/taso-voice
 '''"""
-new = """'''deploy taso-search-prod \"$search\"
+new_browser = """'''deploy taso-search-prod \"$search\"
 deploy_browser_for_release() {
   if deploy taso-browser-prod \"$browser\"; then
     return 0
@@ -45,14 +57,15 @@ deploy_browser_for_release
 deploy_heavy_worker taso-speaker-prod \"$speaker\" docker/taso-speaker
 deploy_heavy_worker taso-voice-prod \"$voice\" docker/taso-voice
 '''"""
-count = text.count(old)
-if count != 1:
-    raise SystemExit(f"Browser retry compatibility patch refused: expected guarded worker deploy target once, found {count}")
-path.write_text(text.replace(old, new, 1))
+browser_count = text.count(old_browser)
+if browser_count != 1:
+    raise SystemExit(f"Browser retry compatibility patch refused: expected guarded worker deploy target once, found {browser_count}")
+text = text.replace(old_browser, new_browser, 1)
+path.write_text(text)
 PY
 
 bash -n "$bootstrap_src"
-echo "Production Browser single-retry compatibility patch validated."
+echo "Production deployment failure propagation and Browser single-retry compatibility patches validated."
 
 src="scripts/taso-production-core-clone-compat.sh"
 
