@@ -43,6 +43,14 @@ Updated: 2026-10-13
 - Before integrating new NEXUS, FORGE or CORTEX PRs, inspect changed files, CI and Browser CI on exact head SHA, security/blast radius, merge conflicts and production release implications.
 - Re-check this index against live GitHub state before making decisions; status is a snapshot, not an automatic lock.
 
+## Cycle 3 P0 — health/agent regression and Coolify preview evidence
+
+- CORE PR #175 at head `0f8538ef03ac2a32ba513f39eaee3ae75d222c38`: **Taso CI `38450328138` PASS**, **Browser CI `38450328723` PASS**. HTTP `/health` versus `/v1/operations` readiness consistency, recovery-time phantom busy-agent prevention and existing browser acceptance are green in isolated CI.
+- **Urgent Preview `38450328281` FAILED** before application-level smoke tests. Log: search deployment finished; Coolify `GET deployments/bghzhnrj7ylqpujxgtg8l6fv` returned HTTP 404 `Deployment not found`. Previous preview `38449011920` failed at the same lookup with a different deployment UUID. Immediate failure is Coolify deployment polling / resource lookup; underlying record-disappearance/UUID mismatch/concurrency cause remains **unverified**.
+- **PR #175 NOT MERGED** until preview gate resolution or a documented, authorized nonblocking classification. CORE requested FORGE to investigate Coolify deployment polling and furnish rerun evidence. No production deploy, no verified production health behavior.
+- FORGE PR #177 at `fab2fde7dc2292f68722c758b20534bf4ebbf6bf`: GitHub now reports `mergeable=true`; an earlier false state was not reproducible at last check. Dedicated search-healthcheck, Taso CI and Browser CI PASS; Urgent Preview CANCELLED. Branch remains untouched pending FORGE explanation and integration acceptance.
+- CORTEX PRs #166 and #171 remain DRAFT; CORE will not integrate without provider-policy consistency and preview/merge readiness evidence. Branches remain untouched.
+
 ## Current Package A blockers
 
 1. Production Coolify API reachability, confirmed manual deployment and post-deploy health/authenticated smoke tests.
