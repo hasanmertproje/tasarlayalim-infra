@@ -47,26 +47,41 @@ A scenario is PASS only with executable evidence: CI/test log, runtime response,
 - PR #153 final head: `fd1d0ec0e76eee133f917ba1b096a2d09d98df20`.
 - `Taso Browser CI` run #196, run ID `38188656465`: **PASS**.
 - `visual-acceptance` job `114630481945`: **PASS**.
-- `Capture and assert visual acceptance` step: **PASS**.
-- `scripts/taso-visual-acceptance.mjs` `voiceCoreAcceptance()` explicitly verifies:
-  - interim transcript -> exactly 0 conversation POSTs;
-  - interim transcript -> exactly 0 Mission POSTs;
-  - the same final transcript event delivered twice -> exactly 1 Core conversation POST;
-  - the Core POST includes the selected project and exact final transcript text;
-  - voice-originated research preserves `webSearch=true`;
-  - exactly 0 direct provider voice-session POSTs;
-  - exactly 0 automatic Mission POSTs;
-  - sourced Core response renders a source link;
-  - dashboard voice policy is `core-conversation`.
+- `scripts/taso-visual-acceptance.mjs` `voiceCoreAcceptance()` verifies interim=0 conversation/Mission POST, duplicate final=1 Core POST, `webSearch=true`, no direct provider bypass, no Mission auto-create, source rendering, and `core-conversation` policy.
 - Status: **IMPLEMENTED + MERGED + CI VERIFIED**.
-- Production voice-originated web research with a real authenticated production user is still **NOT RUN / NOT LIVE VERIFIED** and remains part of production acceptance, not an implementation blocker for this slice.
+- Production voice-originated web research with a real authenticated production user is still **NOT RUN / NOT LIVE VERIFIED**.
+
+## Package A — voice history persistence + reopen
+### Implementation boundary
+- Package A deliberately reuses the authoritative project-scoped `ConversationStore`; it does not introduce the Package B `ConversationThread` model early.
+- `POST /v1/conversations/messages` persists the voice-originated final user turn and assistant response through the same Core path used by typed text.
+- `GET /v1/conversations?projectId=...` remains the authoritative reopen source for this stabilization slice.
+
+### Executable acceptance evidence
+- PR #157: `test: verify voice history persistence and reopen`.
+- PR #157 merge SHA: `4f346fda621da16583eba8b7b18e1c4338e3970f`.
+- `Taso CI` run #747, run ID `38225154677`: **PASS**.
+- `Taso Browser CI` run #230, run ID `38225154692`: **PASS**.
+- `visual-acceptance` job `114730731705`: **PASS**.
+- `Assert voice history persistence and reopen` step: **PASS**.
+- Exact test evidence:
+  - one final voice turn -> `conversationPosts=1`;
+  - persisted user ID `message_57149885-896e-4918-a2e1-660a8ae212ac`;
+  - persisted assistant ID `message_092b601c-7357-4781-a063-ac9c60fa018f`;
+  - `reloadRestoredSameIds=true`;
+  - `crossProjectLeakage=false`;
+  - `resubmittedOnReopen=false`.
+- The test uses the real isolated Core/UI stack, resets only ephemeral CI containers between suites to avoid sharing TOTP enrollment state, and uploads evidence artifact `11736501145`.
+- Existing visual, voice final-transcript, auth, and browser-worker gates remained green.
+- Status: **IMPLEMENTED + MERGED + CI VERIFIED**.
+- This does not claim Package B archive/trash/pagination/thread data-model work is implemented.
 
 ## Production platform acceptance — 2026-10-12
 ### Main/deploy identity
 - The currently active LIVE VERIFIED UI/Core deployment was established from SHA `5aa4035387b82e934005e9fc85bf2d2f3d6a1466` (PR #143 merge).
 - `Taso Production Deploy` run #14, run ID `38178848246`: **PASS**.
 - Post-deploy read-only Coolify snapshot: **PASS**.
-- Repository application-code baseline had advanced to `a38f091bf03ab309e14f8ab8bfd6d78d112aca04` when the 2026-10-12 infrastructure recovery was verified; this does not imply that SHA is the active UI/Core runtime.
+- Repository changes through PR #157 are merged but are not automatically considered deployed or LIVE VERIFIED.
 
 ### Production routing and auth boundary
 - DNS preflight: PASS.
@@ -92,13 +107,7 @@ A scenario is PASS only with executable evidence: CI/test log, runtime response,
 - Only unused Docker build cache was reclaimed first; about 2.54 GB was freed and `/` fell to about 92% usage.
 - After explicit HIGH_IMPACT approval, only `coolify-db` was restarted.
 - PostgreSQL automatic WAL recovery completed and logged `database system is ready to accept connections`.
-- Independent GitHub-hosted post-recovery probe: PASS:
-  - Coolify direct `:8000 /api/v1/health` -> 200;
-  - Coolify public `/api/v1/health` -> 200;
-  - authenticated Coolify `/api/v1/version` -> 200;
-  - authenticated Coolify `/api/v1/applications` -> 200;
-  - TASO public `/`, `/health`, `/api/auth/session` -> 200;
-  - TASO direct-IP with correct Host/SNI `/`, `/health`, `/api/auth/session` -> 200.
+- Independent GitHub-hosted post-recovery probe: PASS for Coolify health/version/applications and TASO public/direct-IP `/`, `/health`, `/api/auth/session`.
 - Diagnostic PR #155 was closed without merge after the incident was recovered.
 
 ### Production acceptance boundary
@@ -119,10 +128,9 @@ The production dashboard route, unauthenticated security boundary, recovered UI/
 - Disk capacity remains an operational risk: after emergency cache reclamation root usage was still about 92%; capacity guard/retention and additional headroom are REQUIRED hardening work.
 
 ## Package A — remaining slices
-- Voice web parity + final transcript: **IMPLEMENTED + CI VERIFIED**.
-- Voice history/thread persistence: **NEXT / NOT VERIFIED**.
-- Voice reopen behavior: **NEXT / NOT VERIFIED**.
-- Safe markdown rendering: NOT VERIFIED.
+- Voice web parity + final transcript: **IMPLEMENTED + MERGED + CI VERIFIED**.
+- Voice history/thread persistence + reopen: **IMPLEMENTED + MERGED + CI VERIFIED**.
+- Safe markdown rendering: **NEXT / NOT VERIFIED**.
 - Mobile safe-area / dock overlap: implementation exists in multiple CSS surfaces; dedicated acceptance still NOT VERIFIED.
 - Project archive/trash/restore lifecycle: NOT VERIFIED.
 - 2FA persistence across deploy/restart: PARTIAL CI COVERAGE EXISTS; production restart/deploy persistence still NOT VERIFIED.
@@ -132,13 +140,13 @@ The production dashboard route, unauthenticated security boundary, recovered UI/
 - Disk-capacity guard/retention policy and production storage headroom: PENDING.
 - Application-level build/version endpoint: OPTIONAL HARDENING / PENDING.
 
-## Next slice acceptance target — voice history/thread persistence + reopen
-1. A voice-originated final turn is persisted in the same authoritative conversation history used by typed turns — REQUIRED.
-2. Reopening/reloading the same project restores the persisted voice-originated user and assistant messages — REQUIRED.
-3. Reopen must not resubmit the prior voice turn or create a duplicate conversation POST — REQUIRED.
-4. Switching projects must not leak history across project boundaries — REQUIRED.
-5. Existing text/voice recovery, final-transcript, web-search, auth, browser, and visual gates remain green — REQUIRED.
-6. Do not introduce the Package B `ConversationThread` data model early unless current Package A acceptance proves the existing project-scoped history cannot satisfy this stabilization requirement.
+## Next slice acceptance target — safe markdown rendering
+1. Confirm the active assistant-message renderer and the exact formatting subset required by the product — REQUIRED.
+2. Render the approved markdown subset without using `dangerouslySetInnerHTML` or weakening React escaping — REQUIRED.
+3. Raw HTML/script/event-handler payloads remain inert text and cannot create executable DOM — REQUIRED.
+4. Dangerous URL schemes such as `javascript:` are never rendered as navigable links — REQUIRED.
+5. Safe HTTPS/source links remain usable and include appropriate external-link isolation — REQUIRED.
+6. Add executable browser/XSS acceptance while keeping existing voice/history/auth/visual gates green — REQUIRED.
 
 ## TASO v1.0 final acceptance
 Still required before v1.0 can be called complete:
