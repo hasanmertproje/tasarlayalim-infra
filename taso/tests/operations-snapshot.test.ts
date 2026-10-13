@@ -217,3 +217,27 @@ test('terminal missions cannot create phantom busy workers from persisted stale 
   assert.equal(snapshot.agents.find(agent => agent.id === 'watchdog')?.status, 'degraded');
   assert.equal(snapshot.projects[0]?.activeMissions, 0);
 });
+
+test('queued or planning missions with recovered running agent records never claim busy workers', () => {
+  for (const status of ['queued','planning','waiting_approval'] as const) {
+    const recovered = mission('recovered_'+status, status);
+    recovered.execution = { agentRuns: [{
+      id: 'stale_running_'+status,
+      missionId: recovered.id,
+      role: 'builder',
+      label: 'Recovered agent',
+      status: 'running',
+      action: 'Orphaned before restart',
+      progress: 20,
+      startedAt: '2026-10-08T10:00:00.000Z',
+      updatedAt: '2026-10-08T10:02:00.000Z',
+    }] };
+    const snapshot = buildOperationsSnapshot({
+      projects:[project],milestones:[],missions:[recovered],events:[],
+      readiness:{readyForRead:true,readyForWrite:true,activeMissionIds:[]},
+      watchdogRunning:true,
+    });
+    assert.equal(snapshot.agents.filter(agent => agent.id.startsWith('worker:')).length, 0, status);
+    assert.equal(snapshot.agents.find(agent=>agent.id==='executor')?.status,'ready');
+  }
+});
