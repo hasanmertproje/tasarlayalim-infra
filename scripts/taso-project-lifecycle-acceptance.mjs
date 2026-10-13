@@ -42,7 +42,7 @@ try {
  if(pending.status!==201||pending.data.mission.status!=='waiting_approval')throw Error('Expected approval-pending mission');
  const blocked=await api('/v1/projects/'+id+'/lifecycle',{method:'POST',body:JSON.stringify({action:'archive'})});
  if(blocked.status!==409)throw Error('Archive must reject pending missions');
- const cancelled=await api('/v1/missions/'+pending.data.mission.id+'/cancel',{method:'POST'});
+ const cancelled=await api('/v1/missions/'+pending.data.mission.id+'/cancel',{method:'POST',body:JSON.stringify({})});
  if(cancelled.status!==200)throw Error('Failed to cancel test mission');
  await page.goto(base+'/?screen=Projects',{waitUntil:'networkidle'});
  const shell=page.locator('.pc9-shell');
