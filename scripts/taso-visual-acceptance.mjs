@@ -138,7 +138,7 @@ async function markdownSecurityAcceptance(){
  const page=await context.newPage();
  await authenticate(page);
  const scriptTag = '<' + 'script' + '>' + 'window.__tasoXss=1' + '</' + 'script' + '>';
- const invalidHref = 'java' + 'script:alert(1)';
+ const invalidHref = 'java' + 'script:blocked';
  const messages = [
   {id:'markdown-user',role:'user',content:'Render test'},
   {id:'markdown-assistant',role:'assistant',content:[
