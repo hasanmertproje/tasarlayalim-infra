@@ -75,6 +75,7 @@ export class TaskEngine {
   createMission(input: MissionInput): Mission {
     const project = this.projects.get(input.projectId);
     if (!project) throw new Error('Project not found.');
+    if ((project.lifecycleStatus ?? 'active') !== 'active') throw new Error('Project must be restored before starting missions.');
     if (!input.objective.trim()) throw new Error('Mission objective is required.');
 
     const autonomous: AutonomousPolicy = {
@@ -134,6 +135,7 @@ export class TaskEngine {
   approveMission(id: string): Mission {
     const mission = this.missions.get(id);
     if (!mission) throw new Error('Mission not found.');
+    if ((this.projects.get(mission.projectId)?.lifecycleStatus ?? 'active') !== 'active') throw new Error('Project must be restored before approving missions.');
     if (!mission.approvalRequired) return mission;
     if (mission.status !== 'waiting_approval') throw new Error(`Mission cannot be approved from status ${mission.status}.`);
     mission.approvedAt = nowIso();
@@ -165,6 +167,7 @@ export class TaskEngine {
     if (mission.status !== 'failed') throw new Error(`Mission cannot be retried from status ${mission.status}.`);
 
     const project = this.projects.get(mission.projectId);
+    if ((project?.lifecycleStatus ?? 'active') !== 'active') throw new Error('Project must be restored before retrying missions.');
     const requiresFreshApproval = project?.slug === 'taso-self-improvement' && mission.approvalRequired;
     if (requiresFreshApproval) mission.approvedAt = undefined;
 

@@ -7,6 +7,7 @@ type Project = {
   name: string;
   repository: string;
   isExisting?: boolean;
+  lifecycleStatus?: 'active' | 'archived' | 'trashed';
 };
 
 type Mission = {
@@ -138,7 +139,8 @@ export default function App() {
   const [executorReady, setExecutorReady] = useState(false);
   const recognitionRef = useRef<any>(null);
 
-  const activeProject = useMemo(() => projects.find((project) => project.id === activeProjectId) ?? projects[0], [projects, activeProjectId]);
+  const activeProjects = useMemo(() => projects.filter((project) => (project.lifecycleStatus ?? 'active') === 'active'), [projects]);
+  const activeProject = useMemo(() => activeProjects.find((project) => project.id === activeProjectId) ?? activeProjects[0], [activeProjects, activeProjectId]);
   const selectedMission = useMemo(() => missions.find((mission) => mission.id === selectedMissionId), [missions, selectedMissionId]);
   const projectMissions = useMemo(() => missions.filter((mission) => mission.projectId === activeProject?.id), [missions, activeProject?.id]);
   const pendingApprovals = useMemo(() => missions.filter((mission) => mission.status === 'waiting_approval'), [missions]);
@@ -264,6 +266,22 @@ export default function App() {
     finally { setBusy(false); }
   }
 
+  async function changeProjectLifecycle(project: Project, action: 'archive' | 'trash' | 'restore') {
+    if (busy) return;
+    if (action === 'trash' && !window.confirm('Bu projeyi çöp kutusuna taşımak istiyor musun? Veriler silinmeyecek.')) return;
+    setBusy(true);
+    try {
+      const payload = await api<{ project: Project }>(`/v1/projects/${encodeURIComponent(project.id)}/lifecycle`, {
+        method: 'POST', body: JSON.stringify({ action }),
+      });
+      setProjects((current) => current.map((item) => item.id === project.id ? payload.project : item));
+      if (action !== 'restore' && activeProjectId === project.id) setActiveProjectId('');
+      setNotice(`${project.name}: ${action === 'archive' ? 'arşivlendi' : action === 'trash' ? 'çöp kutusuna taşındı' : 'geri yüklendi'}.`);
+    } catch (cause) {
+      showError(`Proje durumu değiştirilemedi: ${(cause as Error).message}`);
+    } finally { setBusy(false); }
+  }
+
   function startVoice() {
     if (isListening) { recognitionRef.current?.stop?.(); setIsListening(false); return; }
     const Recognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
@@ -288,7 +306,7 @@ export default function App() {
   }
 
   function ProjectSwitcher() {
-    return <section className="project-strip" aria-label="Proje seçici"><div className="project-switcher-label">ACTIVE WORKSPACE</div><div className="project-tabs">{projects.map((project) => <button key={project.id} type="button" onClick={() => setActiveProjectId(project.id)} className={project.id === activeProject?.id ? 'project-tab active' : 'project-tab'}><span className="project-signal" />{project.name}</button>)}{projects.length === 0 && <span className="empty-inline">Workspace bulunamadı</span>}</div></section>;
+    return <section className="project-strip" aria-label="Proje seçici"><div className="project-switcher-label">ACTIVE WORKSPACE</div><div className="project-tabs">{activeProjects.map((project) => <button key={project.id} type="button" onClick={() => setActiveProjectId(project.id)} className={project.id === activeProject?.id ? 'project-tab active' : 'project-tab'}><span className="project-signal" />{project.name}</button>)}{activeProjects.length === 0 && <span className="empty-inline">Workspace bulunamadı</span>}</div></section>;
   }
 
   function MissionTable({ items = missions }: { items?: Mission[] }) {
@@ -302,11 +320,51 @@ export default function App() {
   }
 
   function CommandCenter() {
-    return <><ProjectSwitcher /><section className="command-grid"><article className="taso-panel panel"><div className="panel-kicker"><span className={`live-dot ${apiStatus}`} /> {apiStatus === 'online' ? 'TASO ONLINE' : apiStatus === 'checking' ? 'CONNECTING' : 'TASO OFFLINE'}</div><div className="orb-stage"><TasoOrb mode={orbMode} /><div className="orb-copy"><span>{stateLabel(orbMode)}</span><h2>{isListening ? 'Seni dinliyorum.' : 'Ne inşa ediyoruz?'}</h2><p>{notice}</p></div></div><form className="command-composer" onSubmit={submitCommand}><button type="button" className={isListening ? 'voice-button listening' : 'voice-button'} onClick={startVoice} aria-pressed={isListening} aria-label="Taso ile konuş"><Icon name="mic" /></button><input value={command} onChange={(event) => setCommand(event.target.value)} placeholder={`${activeProject?.name ?? 'Workspace'} için Taso'ya görev ver…`} aria-label="Taso görevi" disabled={apiStatus !== 'online'} /><select value={riskLevel} onChange={(event) => setRiskLevel(event.target.value as RiskLevel)} aria-label="Risk seviyesi"><option value="READ">READ</option><option value="WRITE">WRITE</option><option value="HIGH_IMPACT">HIGH IMPACT</option></select><button className="send-button" type="submit" aria-label="Gönder" disabled={apiStatus !== 'online' || busy}><Icon name="send" /></button></form><div className="command-hints"><span>↵ Gönder</span><span>🎙 Türkçe sesli giriş</span><button type="button" onClick={() => setVoiceReplies((value) => !value)}>Sesli yanıt: {voiceReplies ? 'Açık' : 'Kapalı'}</button><span>Project isolated</span></div></article><aside className="mission-rail"><article className="panel context-panel"><div className="section-head"><span>WORKSPACE</span><small>isolated context</small></div><h3>{activeProject?.name ?? 'Workspace yok'}</h3><div className="meta-row"><Icon name="git" /><div><span>Repository</span><strong>{shortRepo(activeProject?.repository ?? '—')}</strong></div></div><div className="meta-row"><Icon name="shield" /><div><span>Policy</span><strong>{activeProject?.isExisting === false ? 'Best-fit architecture' : 'Preserve existing'}</strong></div></div><div className="meta-row"><Icon name="server" /><div><span>Core</span><strong>{apiStatus === 'online' ? `v${health.version ?? '?'}` : 'Offline'}</strong></div></div></article><article className="panel approval-panel"><div className="section-head"><span>APPROVALS</span><small>{pendingApprovals.length} pending</small></div>{pendingApprovals[0] ? <><div className="approval-glow" /><strong>{pendingApprovals[0].objective}</strong><p>{projects.find((item) => item.id === pendingApprovals[0].projectId)?.name ?? pendingApprovals[0].projectId} • {pendingApprovals[0].id}</p><div className="risk-line"><span>HIGH IMPACT</span><b>Human approval</b></div><button type="button" className="ghost-button" onClick={() => switchNav('Approvals')}>İncele →</button></> : <div className="empty-mini">Bekleyen onay yok.</div>}</article></aside></section><section className="live-metrics" aria-label="Canlı operasyon özeti"><article className="panel live-metric"><span>WORKSPACES</span><strong>{projects.length}</strong><small>Core üzerinden kayıtlı</small></article><article className="panel live-metric"><span>GÖREVLER</span><strong>{projectMissions.length}</strong><small>Seçili workspace</small></article><article className="panel live-metric"><span>AKTİF İŞLEMLER</span><strong>{projectMissions.filter((mission) => ['queued', 'planning', 'running', 'testing'].includes(mission.status)).length}</strong><small>Core görev durumları</small></article><article className="panel live-metric"><span>ONAY BEKLEYEN</span><strong>{pendingApprovals.length}</strong><small>Tüm workspace'ler</small></article></section><section className="lower-grid"><article className="panel tasks-panel"><div className="section-head"><span>ACTIVE MISSIONS</span><small>{projectMissions.length} workspace</small></div><MissionTable items={projectMissions.slice(0, 4)} /></article><article className="panel systems-panel"><div className="section-head"><span>SYSTEMS</span><small>verified state</small></div><div className="systems-grid"><div className="system-card"><span className={`system-pulse ${apiStatus}`} /><div><strong>Taso Core</strong><small>{apiStatus === 'online' ? 'Connected' : 'Unavailable'}</small></div></div><div className="system-card"><span className={`system-pulse ${executorReady ? 'online' : 'offline'}`} /><div><strong>Executor</strong><small>{executorReady ? 'Ready' : 'Not ready'}</small></div></div><div className="system-card"><span className="system-pulse offline" /><div><strong>GitHub CI</strong><small>Canlı CI durumu doğrulanmadı</small></div></div></div></article></section></>;
+    return <><ProjectSwitcher /><section className="command-grid"><article className="taso-panel panel"><div className="panel-kicker"><span className={`live-dot ${apiStatus}`} /> {apiStatus === 'online' ? 'TASO ONLINE' : apiStatus === 'checking' ? 'CONNECTING' : 'TASO OFFLINE'}</div><div className="orb-stage"><TasoOrb mode={orbMode} /><div className="orb-copy"><span>{stateLabel(orbMode)}</span><h2>{isListening ? 'Seni dinliyorum.' : 'Ne inşa ediyoruz?'}</h2><p>{notice}</p></div></div><form className="command-composer" onSubmit={submitCommand}><button type="button" className={isListening ? 'voice-button listening' : 'voice-button'} onClick={startVoice} aria-pressed={isListening} aria-label="Taso ile konuş"><Icon name="mic" /></button><input value={command} onChange={(event) => setCommand(event.target.value)} placeholder={`${activeProject?.name ?? 'Workspace'} için Taso'ya görev ver…`} aria-label="Taso görevi" disabled={apiStatus !== 'online'} /><select value={riskLevel} onChange={(event) => setRiskLevel(event.target.value as RiskLevel)} aria-label="Risk seviyesi"><option value="READ">READ</option><option value="WRITE">WRITE</option><option value="HIGH_IMPACT">HIGH IMPACT</option></select><button className="send-button" type="submit" aria-label="Gönder" disabled={apiStatus !== 'online' || busy}><Icon name="send" /></button></form><div className="command-hints"><span>↵ Gönder</span><span>🎙 Türkçe sesli giriş</span><button type="button" onClick={() => setVoiceReplies((value) => !value)}>Sesli yanıt: {voiceReplies ? 'Açık' : 'Kapalı'}</button><span>Project isolated</span></div></article><aside className="mission-rail"><article className="panel context-panel"><div className="section-head"><span>WORKSPACE</span><small>isolated context</small></div><h3>{activeProject?.name ?? 'Workspace yok'}</h3><div className="meta-row"><Icon name="git" /><div><span>Repository</span><strong>{shortRepo(activeProject?.repository ?? '—')}</strong></div></div><div className="meta-row"><Icon name="shield" /><div><span>Policy</span><strong>{activeProject?.isExisting === false ? 'Best-fit architecture' : 'Preserve existing'}</strong></div></div><div className="meta-row"><Icon name="server" /><div><span>Core</span><strong>{apiStatus === 'online' ? `v${health.version ?? '?'}` : 'Offline'}</strong></div></div></article><article className="panel approval-panel"><div className="section-head"><span>APPROVALS</span><small>{pendingApprovals.length} pending</small></div>{pendingApprovals[0] ? <><div className="approval-glow" /><strong>{pendingApprovals[0].objective}</strong><p>{projects.find((item) => item.id === pendingApprovals[0].projectId)?.name ?? pendingApprovals[0].projectId} • {pendingApprovals[0].id}</p><div className="risk-line"><span>HIGH IMPACT</span><b>Human approval</b></div><button type="button" className="ghost-button" onClick={() => switchNav('Approvals')}>İncele →</button></> : <div className="empty-mini">Bekleyen onay yok.</div>}</article></aside></section><section className="live-metrics" aria-label="Canlı operasyon özeti"><article className="panel live-metric"><span>WORKSPACES</span><strong>{activeProjects.length}</strong><small>Aktif workspace</small></article><article className="panel live-metric"><span>GÖREVLER</span><strong>{projectMissions.length}</strong><small>Seçili workspace</small></article><article className="panel live-metric"><span>AKTİF İŞLEMLER</span><strong>{projectMissions.filter((mission) => ['queued', 'planning', 'running', 'testing'].includes(mission.status)).length}</strong><small>Core görev durumları</small></article><article className="panel live-metric"><span>ONAY BEKLEYEN</span><strong>{pendingApprovals.length}</strong><small>Tüm workspace'ler</small></article></section><section className="lower-grid"><article className="panel tasks-panel"><div className="section-head"><span>ACTIVE MISSIONS</span><small>{projectMissions.length} workspace</small></div><MissionTable items={projectMissions.slice(0, 4)} /></article><article className="panel systems-panel"><div className="section-head"><span>SYSTEMS</span><small>verified state</small></div><div className="systems-grid"><div className="system-card"><span className={`system-pulse ${apiStatus}`} /><div><strong>Taso Core</strong><small>{apiStatus === 'online' ? 'Connected' : 'Unavailable'}</small></div></div><div className="system-card"><span className={`system-pulse ${executorReady ? 'online' : 'offline'}`} /><div><strong>Executor</strong><small>{executorReady ? 'Ready' : 'Not ready'}</small></div></div><div className="system-card"><span className="system-pulse offline" /><div><strong>GitHub CI</strong><small>Canlı CI durumu doğrulanmadı</small></div></div></div></article></section></>;
   }
 
+
   function ProjectsScreen() {
-    return <><ProjectSwitcher /><section className="screen-grid two"><article className="panel screen-panel"><div className="section-head"><span>WORKSPACES</span><small>{projects.length} isolated</small></div><div className="project-cards">{projects.map((project) => <button type="button" className={project.id === activeProject?.id ? 'project-card active' : 'project-card'} key={project.id} onClick={() => setActiveProjectId(project.id)}><div><span className="project-signal" /><strong>{project.name}</strong></div><p>{project.repository}</p><small>{project.isExisting === false ? 'NEW / BEST-FIT' : 'EXISTING / PRESERVE'}</small></button>)}</div></article><article className="panel screen-panel"><div className="section-head"><span>NEW WORKSPACE</span><small>project scoped</small></div><form className="stack-form" onSubmit={createProject}><label>Proje adı<input value={newProject.name} onChange={(e) => setNewProject((v) => ({ ...v, name: e.target.value }))} placeholder="Örn. Reksa Reklam" /></label><label>Slug<input value={newProject.slug} onChange={(e) => setNewProject((v) => ({ ...v, slug: e.target.value }))} placeholder="reksa-reklam" /></label><label>Repository / logical id<input value={newProject.repository} onChange={(e) => setNewProject((v) => ({ ...v, repository: e.target.value }))} placeholder="owner/repo veya repo adı" /></label><label className="check-line"><input type="checkbox" checked={newProject.isExisting} onChange={(e) => setNewProject((v) => ({ ...v, isExisting: e.target.checked }))} /> Mevcut projeyi koru</label><button className="primary-button" type="submit" disabled={busy || apiStatus !== 'online'}><Icon name="plus" /> Workspace oluştur</button></form><p className="callout">Repository alanı şu an proje bağlamı tanımlayıcısıdır; GitHub Tool Broker bağlantısı ayrı yürütme katmanında yapılacak.</p></article></section></>;
+    const archived = projects.filter((project) => project.lifecycleStatus === 'archived');
+    const trashed = projects.filter((project) => project.lifecycleStatus === 'trashed');
+    return <><ProjectSwitcher /><section className="screen-grid two">
+      <article className="panel screen-panel">
+        <div className="section-head"><span>AKTİF WORKSPACES</span><small>{activeProjects.length} aktif</small></div>
+        <div className="project-cards">{activeProjects.map((project) => <div key={project.id} className="project-lifecycle-card">
+          <button type="button" className={project.id === activeProject?.id ? 'project-card active' : 'project-card'} onClick={() => setActiveProjectId(project.id)}>
+            <div><span className="project-signal" /><strong>{project.name}</strong></div><p>{project.repository}</p><small>{project.isExisting === false ? 'NEW / BEST-FIT' : 'EXISTING / PRESERVE'}</small>
+          </button>
+          <div className="project-lifecycle-actions">
+            <button type="button" className="ghost-button compact-button" disabled={busy} onClick={() => void changeProjectLifecycle(project, 'archive')}>Arşivle</button>
+            <button type="button" className="ghost-button compact-button" disabled={busy} onClick={() => void changeProjectLifecycle(project, 'trash')}>Çöpe taşı</button>
+          </div>
+        </div>)}</div>
+        {!activeProjects.length && <p className="muted-copy">Aktif workspace bulunmuyor.</p>}
+        <div className="section-head"><span>ARŞİV</span><small>{archived.length} proje</small></div>
+        {archived.map((project) => <div className="project-lifecycle-row" key={project.id}>
+          <span>{project.name} · {project.repository}</span>
+          <button type="button" className="ghost-button compact-button" disabled={busy} onClick={() => void changeProjectLifecycle(project, 'restore')}>Geri yükle</button>
+          <button type="button" className="ghost-button compact-button" disabled={busy} onClick={() => void changeProjectLifecycle(project, 'trash')}>Çöpe taşı</button>
+        </div>)}
+        <div className="section-head"><span>ÇÖP KUTUSU</span><small>{trashed.length} proje</small></div>
+        {trashed.map((project) => <div className="project-lifecycle-row" key={project.id}>
+          <span>{project.name} · {project.repository}</span>
+          <button type="button" className="ghost-button compact-button" disabled={busy} onClick={() => void changeProjectLifecycle(project, 'restore')}>Geri yükle</button>
+        </div>)}
+        <p className="callout">Arşivleme ve çöp kutusu verileri silmez. Aktif görevi olan projeler taşınamaz.</p>
+      </article>
+      <article className="panel screen-panel">
+        <div className="section-head"><span>NEW WORKSPACE</span><small>project scoped</small></div>
+        <form className="stack-form" onSubmit={createProject}>
+          <label>Proje adı<input value={newProject.name} onChange={(e) => setNewProject((v) => ({ ...v, name: e.target.value }))} placeholder="Örn. Reksa Reklam" /></label>
+          <label>Slug<input value={newProject.slug} onChange={(e) => setNewProject((v) => ({ ...v, slug: e.target.value }))} placeholder="reksa-reklam" /></label>
+          <label>Repository / logical id<input value={newProject.repository} onChange={(e) => setNewProject((v) => ({ ...v, repository: e.target.value }))} placeholder="owner/repo veya repo adı" /></label>
+          <label className="check-line"><input type="checkbox" checked={newProject.isExisting} onChange={(e) => setNewProject((v) => ({ ...v, isExisting: e.target.checked }))} /> Mevcut projeyi koru</label>
+          <button className="primary-button" type="submit" disabled={busy || apiStatus !== 'online'}><Icon name="plus" /> Workspace oluştur</button>
+        </form>
+        <p className="callout">Repository alanı şu an proje bağlamı tanımlayıcısıdır; GitHub Tool Broker bağlantısı ayrı yürütme katmanında yapılacak.</p>
+      </article>
+    </section></>;
   }
 
   function TasksScreen() { return <><ProjectSwitcher /><section className="screen-grid task-layout"><article className="panel screen-panel"><div className="section-head"><span>MISSIONS</span><small>{missions.length} total</small></div><MissionTable /></article><article className="panel screen-panel"><MissionDetail /></article></section></>; }

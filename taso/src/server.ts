@@ -137,6 +137,7 @@ export function buildServer() {
     if(text.length>16000)return reply.code(400).send({error:'Mesaj en fazla 16000 karakter olabilir.'});
     const project = projects.get(projectId);
     if (!project) return reply.code(404).send({ error: 'Project not found.' });
+    if ((project.lifecycleStatus ?? 'active') !== 'active') return reply.code(409).send({ error: 'Project must be restored before sending messages.' });
 
     const decision = classifyConversationIntent(text);
     const previousTurns = conversations
@@ -223,6 +224,28 @@ export function buildServer() {
     }
   });
 
+  app.post<{ Params: { id: string }; Body: { action?: 'archive' | 'trash' | 'restore' } }>('/v1/projects/:id/lifecycle', async (request, reply) => {
+    const project = projects.get(request.params.id);
+    if (!project) return reply.code(404).send({ error: 'Project not found.' });
+    const action = request.body?.action;
+    if (action !== 'archive' && action !== 'trash' && action !== 'restore') {
+      return reply.code(400).send({ error: 'action must be archive, trash, or restore.' });
+    }
+    if (action !== 'restore') {
+      const unfinished = tasks.listMissions().filter(
+        (mission) => mission.projectId === project.id && !['completed', 'failed', 'cancelled'].includes(mission.status),
+      );
+      if (unfinished.length > 0) {
+        return reply.code(409).send({ error: 'Complete or cancel pending missions before changing project lifecycle.', unfinishedMissions: unfinished.length });
+      }
+    }
+    try {
+      return { project: projects.setLifecycle(project.id, action) };
+    } catch (error) {
+      return reply.code(409).send({ error: (error as Error).message });
+    }
+  });
+
   app.get<{ Params: { id: string } }>('/v1/projects/:id/manifest', async (request, reply) => {
     if (!projects.get(request.params.id)) return reply.code(404).send({ error: 'Project not found.' });
     const manifest = projects.getManifest(request.params.id);
@@ -231,6 +254,9 @@ export function buildServer() {
   });
 
   app.put<{ Params: { id: string }; Body: UpsertProjectManifestInput }>('/v1/projects/:id/manifest', async (request, reply) => {
+    const mutableProject = projects.get(request.params.id);
+    if (!mutableProject) return reply.code(404).send({ error: 'Project not found.' });
+    if ((mutableProject.lifecycleStatus ?? 'active') !== 'active') return reply.code(409).send({ error: 'Restore project before editing it.' });
     try {
       return { manifest: projects.upsertManifest(request.params.id, request.body ?? {}) };
     } catch (error) {
@@ -247,6 +273,9 @@ export function buildServer() {
   });
 
   app.post<{ Params: { id: string }; Body: CreateProjectKnowledgeInput }>('/v1/projects/:id/knowledge', async (request, reply) => {
+    const mutableProject = projects.get(request.params.id);
+    if (!mutableProject) return reply.code(404).send({ error: 'Project not found.' });
+    if ((mutableProject.lifecycleStatus ?? 'active') !== 'active') return reply.code(409).send({ error: 'Restore project before editing it.' });
     try {
       return reply.code(201).send({ knowledge: knowledge.create(request.params.id, request.body ?? ({} as CreateProjectKnowledgeInput)) });
     } catch (error) {
@@ -255,6 +284,9 @@ export function buildServer() {
   });
 
   app.patch<{ Params: { id: string; knowledgeId: string }; Body: UpdateProjectKnowledgeInput }>('/v1/projects/:id/knowledge/:knowledgeId', async (request, reply) => {
+    const mutableProject = projects.get(request.params.id);
+    if (!mutableProject) return reply.code(404).send({ error: 'Project not found.' });
+    if ((mutableProject.lifecycleStatus ?? 'active') !== 'active') return reply.code(409).send({ error: 'Restore project before editing it.' });
     try {
       return { knowledge: knowledge.update(request.params.id, request.params.knowledgeId, request.body ?? {}) };
     } catch (error) {
@@ -275,6 +307,9 @@ export function buildServer() {
   });
 
   app.post<{ Params: { id: string }; Body: CreateProjectMilestoneInput }>('/v1/projects/:id/milestones', async (request, reply) => {
+    const mutableProject = projects.get(request.params.id);
+    if (!mutableProject) return reply.code(404).send({ error: 'Project not found.' });
+    if ((mutableProject.lifecycleStatus ?? 'active') !== 'active') return reply.code(409).send({ error: 'Restore project before editing it.' });
     try {
       return reply.code(201).send({ milestone: milestones.create(request.params.id, request.body ?? ({} as CreateProjectMilestoneInput)) });
     } catch (error) {
@@ -283,6 +318,9 @@ export function buildServer() {
   });
 
   app.patch<{ Params: { id: string; milestoneId: string }; Body: UpdateProjectMilestoneInput }>('/v1/projects/:id/milestones/:milestoneId', async (request, reply) => {
+    const mutableProject = projects.get(request.params.id);
+    if (!mutableProject) return reply.code(404).send({ error: 'Project not found.' });
+    if ((mutableProject.lifecycleStatus ?? 'active') !== 'active') return reply.code(409).send({ error: 'Restore project before editing it.' });
     try {
       return { milestone: milestones.update(request.params.id, request.params.milestoneId, request.body ?? {}) };
     } catch (error) {
@@ -345,6 +383,7 @@ export function buildServer() {
     const mission = tasks.getMission(request.params.id);
     if (!mission) return reply.code(404).send({ error: 'Mission not found.' });
     if (mission.status !== 'queued') return reply.code(409).send({ error: `Mission cannot execute from status ${mission.status}.` });
+    if ((projects.get(mission.projectId)?.lifecycleStatus ?? 'active') !== 'active') return reply.code(409).send({ error: 'Project must be restored before executing missions.' });
     executor.executeSoon(mission.id);
     return reply.code(202).send({ mission });
   });

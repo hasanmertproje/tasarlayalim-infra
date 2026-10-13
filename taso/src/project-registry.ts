@@ -1,4 +1,4 @@
-import { createId, nowIso, type Project, type TechnologyPolicy } from './domain.js';
+import { createId, nowIso, type Project, type ProjectLifecycleStatus, type TechnologyPolicy } from './domain.js';
 import {
   createManifest,
   type ProjectManifest,
@@ -51,11 +51,36 @@ export class ProjectRegistry {
       defaultBranch: input.defaultBranch?.trim() || 'main',
       technology: { ...defaults, ...input.technology },
       createdAt: nowIso(),
+      lifecycleStatus: 'active',
     };
 
     this.projects.set(project.id, project);
     this.onChange();
     return project;
+  }
+
+  setLifecycle(id: string, action: 'archive' | 'trash' | 'restore'): Project {
+    const project = this.projects.get(id);
+    if (!project) throw new Error('Project not found.');
+    const current: ProjectLifecycleStatus = project.lifecycleStatus ?? 'active';
+    const next: ProjectLifecycleStatus = action === 'archive' ? 'archived' : action === 'trash' ? 'trashed' : 'active';
+    if (action === 'archive' && current !== 'active') throw new Error('Only active projects can be archived.');
+    if (action === 'restore' && current === 'active') throw new Error('Project is already active.');
+    if (action === 'trash' && current === 'trashed') throw new Error('Project is already in trash.');
+    const timestamp = nowIso();
+    const updated: Project = {
+      ...project,
+      lifecycleStatus: next,
+      archivedAt: next === 'archived' ? timestamp : undefined,
+      trashedAt: next === 'trashed' ? timestamp : undefined,
+    };
+    this.projects.set(id, updated);
+    this.onChange();
+    return structuredClone(updated);
+  }
+
+  listByLifecycle(status: ProjectLifecycleStatus): Project[] {
+    return this.list().filter((project) => (project.lifecycleStatus ?? 'active') === status);
   }
 
   list(): Project[] { return [...this.projects.values()]; }
