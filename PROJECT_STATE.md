@@ -26,6 +26,8 @@ Updated: 2026-10-13
 | #165 | Package A acceptance ledger update | `3b8380125dc2` | CI + Browser CI PASS | Docs only |
 | #167 | 2FA restart persistence + fail-closed corrupted state | `4da70312a0c1` | CI + Browser CI PASS | Production restart + persistent volume unverified |
 | #168 | Backup freshness and integrity probe | `424611ea332a` | Dedicated backup CI + CI + Browser CI PASS | Off-site storage and scheduled execution unverified |
+| #169 | Multi-agent coordination state file | `6c1f9380facb` | Taso CI + Browser CI PASS | Docs only |
+| #172 | Fail-closed monitoring and command-center health indicators | `e9b0ea7417d` | Taso CI `38446118004` + Browser CI `38446118345` PASS | Live worker-health probes pending |
 
 ## Active parallel agent work
 
@@ -39,6 +41,6 @@ Updated: 2026-10-13
 1. Production Coolify API reachability, confirmed manual deployment and post-deploy health/authenticated smoke tests.
 2. TOTP persistence through **real production restart** (local file-store restart CI is not production proof).
 3. Off-site encrypted backup/restore, backup freshness alerting, VPS disk headroom and retention.
-4. Real logged-in text, voice and web-research acceptance and truthful worker health states.
+4. Real logged-in text, voice and web-research acceptance; full worker-health probes and monitoring freshness on actual production runtime remain pending despite the #172 UI fail-closed state.
 
 No agent is authorized by this document alone to perform production deployment, delete volumes, bypass 2FA, extract secrets or approve a HIGH_IMPACT action.
