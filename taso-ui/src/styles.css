@@ -295,3 +295,11 @@ body::before {
   .taso-panel { min-height: min(620px,calc(100svh - 190px)); }
   .mobile-nav { background: color-mix(in srgb,var(--panel) 94%,transparent); }
 }
+
+/* Non-destructive workspace lifecycle controls */
+.project-lifecycle-card{min-width:0;display:grid;gap:8px}
+.project-lifecycle-card>.project-card{width:100%;text-align:left}
+.project-lifecycle-actions{display:flex;flex-wrap:wrap;gap:7px}
+.project-lifecycle-row{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:12px 0;border-bottom:1px solid var(--taso-border)}
+.project-lifecycle-row>span{flex:1 1 180px;min-width:0;overflow-wrap:anywhere}
+.project-lifecycle-row button{flex:0 0 auto}
