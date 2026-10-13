@@ -91,7 +91,7 @@ test('inactive projects reject existing mission approval and retry', () => {
   const engine = new TaskEngine(projects,new ProviderRouter(providers));
   const approval = engine.createMission({projectId:project.id,objective:'Approval',riskLevel:'HIGH_IMPACT',dataClass:'private_code'});
   const failed = engine.createMission({projectId:project.id,objective:'Retry',riskLevel:'READ',dataClass:'public'});
-  engine.failMission(failed.id,'Test failure');
+  engine.transitionMission(failed.id,'failed','Test failure');
   projects.setLifecycle(project.id,'archive');
   assert.throws(() => engine.approveMission(approval.id), /restored/);
   assert.throws(() => engine.retryMission(failed.id), /restored/);
