@@ -75,6 +75,7 @@ export class TaskEngine {
   createMission(input: MissionInput): Mission {
     const project = this.projects.get(input.projectId);
     if (!project) throw new Error('Project not found.');
+    if ((project.lifecycleStatus ?? 'active') !== 'active') throw new Error('Project must be restored before starting missions.');
     if (!input.objective.trim()) throw new Error('Mission objective is required.');
 
     const autonomous: AutonomousPolicy = {
