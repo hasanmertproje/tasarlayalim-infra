@@ -8,7 +8,10 @@ Last updated: 2026-10-13
 - Completed slices: **conversation transport recovery parity (text + voice)**, **voice web parity / final-transcript behavior**, and **voice conversation history persistence + reopen behavior**.
 - Safe Markdown security slice: **IMPLEMENTED + MERGED (PR #160) + CI/BROWSER VERIFIED** on branch; production deployment #24 FAILED due Coolify API timeouts, therefore **NOT LIVE VERIFIED**.
 - Mobile safe-area / dock acceptance: **IMPLEMENTED + MERGED (PR #161) + CI/BROWSER VERIFIED**; no production app source changed by the acceptance PR.
-- Current next slice: **project archive / trash / restore lifecycle** (feature branch, NOT MERGED / NOT DEPLOYED).
+- Project lifecycle: **IMPLEMENTED + MERGED (PR #162, SHA `bb1e4f583e69880842d4852ff942be07e683d0d9`) + CI/BROWSER VERIFIED**; production not deployed.
+- Production deploy gate: PR #163 merged; `main` pushes skip production deploy, manual `workflow_dispatch` required.
+- Disk headroom guard: PR #164 merged; CI verified read-only disk threshold checks, not yet operationally wired to production.
+- Current next slice: **production 2FA persistence + authenticated restart/deploy acceptance**.
 - Next package after Paket A: **PAKET B — CONVERSATION FOUNDATION**.
 
 ## Development Ledger
@@ -124,12 +127,12 @@ Last updated: 2026-10-13
 ## Open blockers / remaining acceptance
 - Safe Markdown production deployment + authenticated live acceptance after Coolify recovery (PR #160 merged; CI/BROWSER passed).
 - Mobile safe-area/dock-overlap: dedicated 360px/390px Chromium acceptance merged in PR #161; production device verification remains separate.
-- Project archive/trash/restore lifecycle.
+- Project archive/trash/restore: merged and CI/Browser verified in PR #162; production live behavior still NOT VERIFIED.
 - 2FA persistence across a real production restart/deploy.
 - Active health-state truthfulness across all product surfaces, including workers that currently surface `running:unknown` without a Docker healthcheck.
 - Production authenticated login/TOTP + real AI/web-search acceptance, including a real voice-originated research turn.
 - Off-site S3 backup target.
-- Disk-capacity guard/retention policy and production storage headroom.
+- Disk guard script merged and CI-tested (PR #164); production enforcement, retention and added storage headroom remain NOT VERIFIED.
 - Optional application-level runtime build/version endpoint for simpler future diagnostics.
 
 ## Architecture decisions
@@ -153,4 +156,4 @@ Last updated: 2026-10-13
 - HIGH_IMPACT actions remain subject to explicit approval in the TASO product policy boundary.
 
 ## Next Package A slice
-Proceed with **mobile safe-area / dock-overlap browser acceptance** after PR #160's source and XSS acceptance merged. First verify the active message renderer and required formatting scope. The implementation must keep raw HTML/script inert, reject dangerous link schemes, preserve safe source links, and add executable XSS/rendering acceptance without introducing `dangerouslySetInnerHTML` or bypassing React escaping.
+Validate TOTP enrollment, recovery and trusted-device persistence across a real Core/agent restart with unchanged secure storage; add explicit CI negative cases and verify the production wiring. Keep runtime and production deployment evidence separate. Manual `workflow_dispatch` remains required for production releases.
