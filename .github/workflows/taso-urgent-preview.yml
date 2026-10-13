@@ -12,10 +12,15 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: taso-urgent-preview
+  group: taso-urgent-preview-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: true
 jobs:
   deploy-and-verify:
+    # Preview domain/apps/storage are shared: serialize access across PRs.
+    # Do not cancel another PR's active deployment.
+    concurrency:
+      group: taso-urgent-preview-shared-resources
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
