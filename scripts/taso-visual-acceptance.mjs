@@ -234,7 +234,8 @@ async function projectLifecycleAcceptance(){
   return response.status;
  },firstMission.body.mission.id);
  if(cancel!==200)throw new Error('Cancellation of pending mission failed');
- await page.goto(base+'/?screen=Projects',{waitUntil:'networkidle'});
+ await page.goto(base,{waitUntil:'networkidle'});
+ await page.locator('.taso-mobile-dock').getByRole('button',{name:'Projeler'}).click();
  const card=page.locator('.project-lifecycle-card').filter({hasText:name});
  await card.waitFor({state:'visible'});
  await card.getByRole('button',{name:'Arşivle'}).click();
@@ -247,6 +248,7 @@ async function projectLifecycleAcceptance(){
  },projectId);
  if(trashStatus!=='trashed')throw new Error('Project not persisted in trash');
  await page.reload({waitUntil:'networkidle'});
+ await page.locator('.taso-mobile-dock').getByRole('button',{name:'Projeler'}).click();
  const trashed=page.locator('.project-lifecycle-row').filter({hasText:name});
  await trashed.getByRole('button',{name:'Geri yükle'}).click();
  const restored=await page.evaluate(async id=>{
