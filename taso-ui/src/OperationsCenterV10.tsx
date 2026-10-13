@@ -61,6 +61,8 @@ export default function OperationsCenterV10({ mode }: { mode: 'deployments' | 'm
   const [projects, setProjects] = useState<Project[]>([]);
   const [operations, setOperations] = useState<Operations>({ generatedAt: '', agents: [], activity: [] });
   const [health, setHealth] = useState<CoreHealth>({});
+  const [lastHealthyAt, setLastHealthyAt] = useState(0);
+  const [clock, setClock] = useState(() => Date.now());
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
 
@@ -77,8 +79,12 @@ export default function OperationsCenterV10({ mode }: { mode: 'deployments' | 'm
       setProjects(projectsPayload.projects ?? []);
       setOperations(operationsPayload.operations ?? { generatedAt: '', agents: [], activity: [] });
       setHealth(healthPayload);
+      setLastHealthyAt(Date.now());
+      setClock(Date.now());
       setError('');
     } catch (cause) {
+      setHealth({});
+      setOperations({ generatedAt: '', agents: [], activity: [] });
       setError((cause as Error).message);
     } finally {
       if (!silent) setLoading(false);
@@ -87,10 +93,13 @@ export default function OperationsCenterV10({ mode }: { mode: 'deployments' | 'm
 
   useEffect(() => {
     void refresh();
-    const timer = window.setInterval(() => void refresh(true), 12_000);
+    const timer = window.setInterval(() => { setClock(Date.now()); if (!document.hidden) void refresh(true); }, 12_000);
     return () => window.clearInterval(timer);
   }, []);
 
+  const healthFresh = !error && lastHealthyAt > 0 && clock - lastHealthyAt < 30_000;
+  const verifiedHealth = healthFresh ? health : ({} as CoreHealth);
+  const verifiedOperations = healthFresh ? operations : { generatedAt: '', agents: [] as AgentItem[], activity: [] as ActivityItem[] };
   const projectById = useMemo(() => new Map(projects.map((project) => [project.id, project])), [projects]);
   const deploymentMissions = useMemo(() => missions
     .filter((mission) => mission.execution?.previewUrl || mission.execution?.productionUrl || mission.execution?.pullRequestUrl || mission.execution?.commitSha)
@@ -167,16 +176,17 @@ export default function OperationsCenterV10({ mode }: { mode: 'deployments' | 'm
       ) : (
         <div className="oc10-layout monitoring">
           <main className="oc10-main">
+            <div role="status" aria-live="polite" className="oc10-section-head"><span>{healthFresh ? "Core health: son doğrulama güncel" : "Core health: doğrulanamadı / eski veri"}</span><small>{healthFresh ? new Date(lastHealthyAt).toLocaleTimeString() : "Geçerli health kanıtı yok"}</small></div>
             <div className="oc10-health-grid">
-              <article><span>CORE</span><b className={health.ok ? 'ok' : 'bad'}>{health.ok ? 'ONLINE' : 'UNKNOWN'}</b><small>{health.service ?? 'taso-core'} · {health.version ?? '—'}</small></article>
-              <article><span>STATE</span><b>{health.state ?? '—'}</b><small>Gateway: {health.gateway ?? '—'}</small></article>
-              <article><span>READ / WRITE</span><b className={health.executor?.read && health.executor?.write ? 'ok' : 'warn'}>{health.executor?.read ? 'R' : '—'} / {health.executor?.write ? 'W' : '—'}</b><small>Deterministic executor readiness</small></article>
-              <article><span>DEPLOY</span><b className={health.executor?.deploy ? 'ok' : 'warn'}>{health.executor?.deploy ? 'READY' : 'NOT READY'}</b><small>Deployment capability</small></article>
+              <article><span>CORE</span><b className={verifiedHealth.ok ? 'ok' : 'bad'}>{verifiedHealth.ok ? 'ONLINE' : 'UNKNOWN'}</b><small>{verifiedHealth.service ?? 'taso-core'} · {verifiedHealth.version ?? '—'}</small></article>
+              <article><span>STATE</span><b>{verifiedHealth.state ?? '—'}</b><small>Gateway: {verifiedHealth.gateway ?? '—'}</small></article>
+              <article><span>READ / WRITE</span><b className={verifiedHealth.executor?.read && verifiedHealth.executor?.write ? 'ok' : 'warn'}>{verifiedHealth.executor?.read ? 'R' : '—'} / {verifiedHealth.executor?.write ? 'W' : '—'}</b><small>Deterministic executor readiness</small></article>
+              <article><span>DEPLOY</span><b className={verifiedHealth.executor?.deploy ? 'ok' : 'warn'}>{verifiedHealth.executor?.deploy ? 'READY' : 'NOT READY'}</b><small>Deployment capability</small></article>
             </div>
 
-            <div className="oc10-section-head"><h2>Agent & broker health</h2><span>{operations.agents.length} birim</span></div>
+            <div className="oc10-section-head"><h2>Agent & broker health</h2><span>{verifiedOperations.agents.length} birim</span></div>
             <div className="oc10-agent-grid">
-              {operations.agents.map((agent) => (
+              {verifiedOperations.agents.map((agent) => (
                 <article key={agent.id}>
                   <div><span className={`oc10-dot ${agent.status}`} /><b>{agent.label}</b></div>
                   <span className={`oc10-state ${statusTone(agent.status)}`}>{agent.status}</span>
