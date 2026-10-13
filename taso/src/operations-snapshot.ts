@@ -126,6 +126,8 @@ function summarizeProject(project: Project, missions: Mission[], milestones: Pro
 function liveWorkerAgents(missions: Mission[], projects: Project[]): AgentOperationsItem[] {
   const projectById = new Map(projects.map((project) => [project.id, project]));
   return missions.flatMap((mission) => {
+    // A stale agentRun may survive state recovery; terminal missions are never live workers.
+    if (terminalStatuses.has(mission.status)) return [];
     const runs = mission.execution?.agentRuns ?? [];
     const activeRuns = runs.filter((run) => run.status === 'running');
     return activeRuns.map((run) => ({
