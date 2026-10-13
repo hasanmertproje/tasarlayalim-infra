@@ -1,0 +1,22 @@
+{
+  "components": {
+    "core_state": {
+      "status": "unverified"
+    },
+    "coolify_config": {
+      "status": "unverified"
+    },
+    "postgresql": {
+      "status": "unverified"
+    },
+    "critical_volumes": {
+      "status": "unverified"
+    },
+    "offsite_copy": {
+      "status": "unverified"
+    },
+    "isolated_restore": {
+      "status": "unverified"
+    }
+  }
+}
