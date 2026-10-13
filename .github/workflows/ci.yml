@@ -35,6 +35,9 @@ jobs:
         with:
           python-version: '3.12'
 
+      - name: Assert production release requires manual dispatch
+        run: node scripts/taso-production-workflow-gate-check.mjs
+
       - name: Validate shell scripts
         run: |
           sh -n scripts/healthcheck.sh
