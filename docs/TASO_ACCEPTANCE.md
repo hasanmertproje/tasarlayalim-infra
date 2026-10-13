@@ -1,6 +1,6 @@
 # TASO v1.0 Acceptance Ledger
 
-Last updated: 2026-10-12
+Last updated: 2026-10-13
 
 ## Evidence policy
 A scenario is PASS only with executable evidence: CI/test log, runtime response, health probe, browser acceptance, deployment record, or equivalent. Source-code presence alone is not PASS.
@@ -132,13 +132,23 @@ The production dashboard route, unauthenticated security boundary, recovered UI/
 - Voice history/thread persistence + reopen: **IMPLEMENTED + MERGED + CI VERIFIED**.
 - Safe markdown rendering: **IMPLEMENTED + MERGED (PR #160, squash SHA `50df7d44091ea298a9b3d63d40ab9a414460f4fd`) + CI #755 AND BROWSER #238 VERIFIED**. Production Deploy #24 for this SHA **FAILED** due Coolify API 504 / SSL timeouts: **NOT DEPLOYED / NOT LIVE VERIFIED**.
 - Mobile safe-area / dock overlap: dedicated Chromium viewport and touch-target acceptance **IMPLEMENTED + MERGED (PR #161, SHA `9966d72d8878d0e1aa60c8554b2a553925235a10`) + CI/BROWSER VERIFIED**; production device verification remains separate.
-- Project archive/trash/restore lifecycle: NOT VERIFIED.
+- Project archive/trash/restore: **IMPLEMENTED + MERGED** PR #162 (`bb1e4f583e69880842d4852ff942be07e683d0d9`); **Taso CI #38443213301 PASS** and **Browser CI #38443212565 PASS**, including authenticated browser create/active-mission conflict/cancel/archive/trash/restore and data-retention checks. Live production acceptance **NOT VERIFIED**.
 - 2FA persistence across deploy/restart: PARTIAL CI COVERAGE EXISTS; production restart/deploy persistence still NOT VERIFIED.
 - Active health-state truthfulness: NOT VERIFIED as a dedicated slice.
 - Production authenticated login/TOTP + real AI/web-search acceptance: NOT VERIFIED.
 - Off-site S3 backup: PENDING.
-- Disk-capacity guard/retention policy and production storage headroom: PENDING.
+- Disk-capacity guard: PR #164 (`f1f70516b6d8faaa7bd65a2852d97e4c0e6dcfa0`) merged, read-only `taso-capacity-guard.sh` with negative CI tests **PASS**; VPS enforcement / retention policy / storage expansion **PENDING**.
 - Application-level build/version endpoint: OPTIONAL HARDENING / PENDING.
+
+## Production deployment safety gate (2026-10-13)
+- PR #163 (`55815417dfd14bba81dc545ee9c0146938f18427`) merged with CI, Browser CI and Production Patch CI PASS.
+- GitHub Actions Production Deploy after merge: **SKIPPED** (run `38435656354`), verifying that push-to-main no longer automatically deploys. Explicit workflow dispatch is required.
+- Production Deploy #24 previously failed on Coolify API 504 / SSL timeout; this safety change does not repair Coolify or verify production.
+
+## Completed project lifecycle acceptance (2026-10-13)
+- `active` / `archived` / `trashed` project lifecycle in existing persistent Core snapshot. Active missions prevent archive/trash via API, passive projects reject new mission and conversation writes, and approval/retry/execute guards reject inactive projects.
+- Browser acceptance tests authenticated project create, pending-mission conflict, mission cancel, archive/trash/restore and preserved repository identity. All Browser and Core gates passed before PR #162 merge.
+- Production deployment for PR #162 **SKIPPED** due explicit manual release gate; live acceptance remains NOT VERIFIED.
 
 ## Completed Safe Markdown branch acceptance (2026-10-13)
 - React-node rendering integrated into active `DashboardChat`; source links restricted to HTTP(S).
