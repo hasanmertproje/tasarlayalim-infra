@@ -205,10 +205,65 @@ async function mobileDockAcceptance(){
  }
 }
 
+
+async function projectLifecycleAcceptance(){
+ const context=await browser.newContext({viewport:{width:390,height:844}});
+ const page=await context.newPage();
+ await authenticate(page);
+ const name='Lifecycle QA Project';
+ const create=await page.evaluate(async()=>{
+  const response=await fetch('/api/v1/projects',{method:'POST',headers:{'content-type':'application/json'},
+   body:JSON.stringify({slug:'lifecycle-ci-project',name:'Lifecycle QA Project',repository:'example/lifecycle-ci-project',isExisting:true})});
+  return {status:response.status,body:await response.json()};
+ });
+ if(create.status!==201||!create.body.project?.id)throw new Error('Lifecycle project creation failed');
+ const projectId=create.body.project.id;
+ const firstMission=await page.evaluate(async id=>{
+  const response=await fetch('/api/v1/missions',{method:'POST',headers:{'content-type':'application/json'},
+   body:JSON.stringify({projectId:id,objective:'Review lifecycle status',riskLevel:'HIGH_IMPACT',dataClass:'private_code'})});
+  return {status:response.status,body:await response.json()};
+ },projectId);
+ if(firstMission.status!==201||firstMission.body.mission?.status!=='waiting_approval')throw new Error('Expected pending approval mission');
+ const blocked=await page.evaluate(async id=>{
+  const response=await fetch('/api/v1/projects/'+id+'/lifecycle',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action:'archive'})});
+  return response.status;
+ },projectId);
+ if(blocked!==409)throw new Error('Project with pending mission could be archived');
+ const cancel=await page.evaluate(async id=>{
+  const response=await fetch('/api/v1/missions/'+id+'/cancel',{method:'POST'});
+  return response.status;
+ },firstMission.body.mission.id);
+ if(cancel!==200)throw new Error('Cancellation of pending mission failed');
+ await page.goto(base+'/?screen=Projects',{waitUntil:'networkidle'});
+ const card=page.locator('.project-lifecycle-card').filter({hasText:name});
+ await card.waitFor({state:'visible'});
+ await card.getByRole('button',{name:'Arşivle'}).click();
+ const archive=page.locator('.project-lifecycle-row').filter({hasText:name});
+ await archive.getByRole('button',{name:'Çöpe taşı'}).click();
+ const trashStatus=await page.evaluate(async id=>{
+  const response=await fetch('/api/v1/projects');
+  const result=await response.json();
+  return result.projects.find(project=>project.id===id)?.lifecycleStatus;
+ },projectId);
+ if(trashStatus!=='trashed')throw new Error('Project not persisted in trash');
+ await page.reload({waitUntil:'networkidle'});
+ const trashed=page.locator('.project-lifecycle-row').filter({hasText:name});
+ await trashed.getByRole('button',{name:'Geri yükle'}).click();
+ const restored=await page.evaluate(async id=>{
+  const response=await fetch('/api/v1/projects');
+  const result=await response.json();
+  return result.projects.find(project=>project.id===id);
+ },projectId);
+ if(restored?.lifecycleStatus!=='active'||restored?.repository!=='example/lifecycle-ci-project')throw new Error('Restore lost identity or data');
+ results.push({name:'project-lifecycle-archive-trash-restore',nonDestructive:true,activeMissionGuard:true});
+ await context.close();
+}
+
 const screens=[undefined,'Projects','Tasks','Approvals','Deployments','Monitoring','AI Agents','Knowledge','Integrations','Notifications','Settings'];
 for(const viewport of[{width:390,height:844},{width:1440,height:1000}])for(const theme of['dark','light'])for(const screen of screens)await shot({viewport,theme,screen});
 await voiceCoreAcceptance();
 await markdownSecurityAcceptance();
 await mobileDockAcceptance();
+await projectLifecycleAcceptance();
 writeFileSync(`${out}/report.json`,JSON.stringify({generatedAt:new Date().toISOString(),screens:screens.map(v=>v||'Dashboard'),results},null,2));
 await browser.close();
