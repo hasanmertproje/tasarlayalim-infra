@@ -15,6 +15,7 @@ type Project = {
     forbidden?: string[];
   };
   createdAt?: string;
+  lifecycleStatus?: 'active' | 'archived' | 'trashed';
 };
 
 type Mission = {
@@ -149,11 +150,12 @@ export default function ProjectCenterV9() {
         requestJson<{ missions: Mission[] }>('/v1/missions'),
       ]);
       const nextProjects = projectPayload.projects ?? [];
+      const nextActive = nextProjects.filter((project) => (project.lifecycleStatus ?? 'active') === 'active');
       setProjects(nextProjects);
       setMissions(missionPayload.missions ?? []);
-      setSelectedId((current) => current && nextProjects.some((project) => project.id === current)
+      setSelectedId((current) => current && nextActive.some((project) => project.id === current)
         ? current
-        : nextProjects[0]?.id ?? '');
+        : nextActive[0]?.id ?? '');
       setError('');
     } catch (cause) {
       setError((cause as Error).message);
@@ -182,7 +184,10 @@ export default function ProjectCenterV9() {
 
   useEffect(() => { void refreshProject(selectedId); }, [selectedId]);
 
-  const selected = useMemo(() => projects.find((project) => project.id === selectedId) ?? projects[0], [projects, selectedId]);
+  const activeProjects = useMemo(() => projects.filter((project) => (project.lifecycleStatus ?? 'active') === 'active'), [projects]);
+  const archivedProjects = useMemo(() => projects.filter((project) => project.lifecycleStatus === 'archived'), [projects]);
+  const trashedProjects = useMemo(() => projects.filter((project) => project.lifecycleStatus === 'trashed'), [projects]);
+  const selected = useMemo(() => activeProjects.find((project) => project.id === selectedId) ?? activeProjects[0], [activeProjects, selectedId]);
   const projectMissions = useMemo(() => missions.filter((mission) => mission.projectId === selected?.id), [missions, selected?.id]);
   const activeMission = projectMissions.find((mission) => activeStates.has(mission.status));
   const recentMissions = [...projectMissions].sort((a, b) => (b.updatedAt ?? '').localeCompare(a.updatedAt ?? '')).slice(0, 6);
@@ -216,6 +221,19 @@ export default function ProjectCenterV9() {
     }
   }
 
+  async function changeLifecycle(project: Project, action: 'archive' | 'trash' | 'restore') {
+    if (busy) return;
+    if (action === 'trash' && !window.confirm('Projeyi çöp kutusuna taşımak istiyor musun? Veriler silinmez.')) return;
+    setBusy(true);
+    try {
+      await requestJson<{ project: Project }>(`/v1/projects/${encodeURIComponent(project.id)}/lifecycle`,{
+        method:'POST',body:JSON.stringify({action}),
+      });
+      await refreshBase();
+    } catch(cause) { setError((cause as Error).message); }
+    finally { setBusy(false); }
+  }
+
   return (
     <section className="pc9-shell" aria-label="Projects">
       <header className="pc9-topbar">
@@ -237,9 +255,9 @@ export default function ProjectCenterV9() {
 
       <div className="pc9-layout">
         <aside className="pc9-project-list">
-          <div className="pc9-list-head"><span>WORKSPACES</span><strong>{projects.length}</strong></div>
+          <div className="pc9-list-head"><span>WORKSPACES</span><strong>{activeProjects.length}</strong></div>
           <div className="pc9-list-scroll">
-            {projects.map((project) => {
+            {activeProjects.map((project) => {
               const missionsForProject = missions.filter((mission) => mission.projectId === project.id);
               const active = missionsForProject.find((mission) => activeStates.has(mission.status));
               return (
@@ -250,8 +268,18 @@ export default function ProjectCenterV9() {
                 </button>
               );
             })}
-            {!projects.length && <div className="pc9-empty">Henüz proje yok.</div>}
+            {!activeProjects.length && <div className="pc9-empty">Aktif proje yok.</div>}
           </div>
+          <div className="pc9-list-head"><span>ARŞİV</span><strong>{archivedProjects.length}</strong></div>
+          <div className="pc9-lifecycle-list">{archivedProjects.map((project)=><div key={project.id} className="pc9-lifecycle-row">
+            <span>{project.name}</span>
+            <button disabled={busy} type="button" onClick={()=>void changeLifecycle(project,'restore')}>Geri yükle</button>
+            <button disabled={busy} type="button" onClick={()=>void changeLifecycle(project,'trash')}>Çöpe taşı</button>
+          </div>)}</div>
+          <div className="pc9-list-head"><span>ÇÖP KUTUSU</span><strong>{trashedProjects.length}</strong></div>
+          <div className="pc9-lifecycle-list">{trashedProjects.map((project)=><div key={project.id} className="pc9-lifecycle-row">
+            <span>{project.name}</span><button disabled={busy} type="button" onClick={()=>void changeLifecycle(project,'restore')}>Geri yükle</button>
+          </div>)}</div>
         </aside>
 
         <main className="pc9-main">
@@ -261,6 +289,8 @@ export default function ProjectCenterV9() {
                 <div><span>{selected.slug}</span><h2>{selected.name}</h2><p>{selected.repository} · {selected.isExisting ? 'mevcut proje' : 'yeni proje'}</p></div>
                 <div className="pc9-actions">
                   <button type="button" onClick={() => navigateTaso('Knowledge')}>Knowledge</button>
+                  <button type="button" disabled={busy} onClick={() => void changeLifecycle(selected,'archive')}>Arşivle</button>
+                  <button type="button" disabled={busy} onClick={() => void changeLifecycle(selected,'trash')}>Çöpe taşı</button>
                   {activeMission && <button type="button" className="accent" onClick={() => openMission(activeMission.id)}>Mission Control</button>}
                 </div>
               </div>
