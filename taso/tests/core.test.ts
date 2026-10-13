@@ -35,6 +35,56 @@ const providers: ProviderDescriptor[] = [
   },
 ];
 
+
+test('project lifecycle is non-destructive, persisted, and legacy projects default to active', () => {
+  let saves = 0;
+  const projects = new ProjectRegistry([], [], () => { saves += 1; });
+  const project = projects.create({
+    slug: 'lifecycle-project',
+    name: 'Lifecycle Project',
+    repository: 'example/lifecycle-project',
+    isExisting: true,
+  });
+  assert.equal(project.lifecycleStatus, 'active');
+  assert.equal(projects.listByLifecycle('active').length, 1);
+  const archived = projects.setLifecycle(project.id, 'archive');
+  assert.equal(archived.lifecycleStatus, 'archived');
+  assert.ok(archived.archivedAt);
+  assert.throws(() => projects.setLifecycle(project.id, 'archive'));
+  const trashed = projects.setLifecycle(project.id, 'trash');
+  assert.equal(trashed.lifecycleStatus, 'trashed');
+  assert.ok(trashed.trashedAt);
+  assert.equal(projects.get(project.id)?.repository, 'example/lifecycle-project');
+  assert.equal(projects.listByLifecycle('active').length, 0);
+  const restored = projects.setLifecycle(project.id, 'restore');
+  assert.equal(restored.lifecycleStatus, 'active');
+  assert.equal(restored.trashedAt, undefined);
+  assert.equal(restored.archivedAt, undefined);
+  assert.equal(saves, 4);
+  const reloaded = new ProjectRegistry(projects.list(), []);
+  assert.equal(reloaded.get(project.id)?.lifecycleStatus, 'active');
+  const legacy = new ProjectRegistry([{ ...restored, lifecycleStatus: undefined }], []);
+  assert.equal(legacy.listByLifecycle('active').length, 1);
+});
+
+test('archived or trashed projects cannot create new missions', () => {
+  const projects = new ProjectRegistry();
+  const project = projects.create({
+    slug: 'mission-lifecycle',
+    name: 'Mission lifecycle',
+    repository: 'example/mission-lifecycle',
+    isExisting: true,
+  });
+  const engine = new TaskEngine(projects, new ProviderRouter(providers));
+  const input = {projectId:project.id,objective:'Inspect repository',riskLevel:'READ' as const,dataClass:'public' as const};
+  projects.setLifecycle(project.id,'archive');
+  assert.throws(()=>engine.createMission(input), /restored/);
+  projects.setLifecycle(project.id,'trash');
+  assert.throws(()=>engine.createMission(input), /restored/);
+  projects.setLifecycle(project.id,'restore');
+  assert.equal(engine.createMission(input).projectId,project.id);
+});
+
 test('router prefers free providers for public data', () => {
   const router = new ProviderRouter(providers);
   const route = router.route({ dataClass: 'public', paidAi: false, preferFree: true });
