@@ -43,6 +43,11 @@ jobs:
           bash -n scripts/taso-backup-verify.sh
           bash -n scripts/taso-restore.sh
 
+      - name: Validate disk headroom guard without server mutations
+        run: |
+          bash -n scripts/taso-capacity-guard.sh
+          bash scripts/taso-capacity-guard-test.sh
+
       - name: Smoke test Taso recovery tools
         run: |
           set -eu
