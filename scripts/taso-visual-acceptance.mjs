@@ -207,7 +207,7 @@ async function mobileDockAcceptance(){
 
 
 async function projectLifecycleAcceptance(){
- const context=await browser.newContext({viewport:{width:390,height:844}});
+ const context=await browser.newContext({viewport:{width:1440,height:900}});
  const page=await context.newPage();
  await authenticate(page);
  const name='Lifecycle QA Project';
@@ -235,7 +235,7 @@ async function projectLifecycleAcceptance(){
  },firstMission.body.mission.id);
  if(cancel!==200)throw new Error('Cancellation of pending mission failed');
  await page.goto(base,{waitUntil:'networkidle'});
- await page.locator('.taso-mobile-dock').getByRole('button',{name:'Projeler'}).click();
+ await page.locator('.main-nav').getByRole('button',{name:/Projects/}).click();
  const card=page.locator('.project-lifecycle-card').filter({hasText:name});
  await card.waitFor({state:'visible'});
  await card.getByRole('button',{name:'Arşivle'}).click();
@@ -248,7 +248,7 @@ async function projectLifecycleAcceptance(){
  },projectId);
  if(trashStatus!=='trashed')throw new Error('Project not persisted in trash');
  await page.reload({waitUntil:'networkidle'});
- await page.locator('.taso-mobile-dock').getByRole('button',{name:'Projeler'}).click();
+ await page.locator('.main-nav').getByRole('button',{name:/Projects/}).click();
  const trashed=page.locator('.project-lifecycle-row').filter({hasText:name});
  await trashed.getByRole('button',{name:'Geri yükle'}).click();
  const restored=await page.evaluate(async id=>{
