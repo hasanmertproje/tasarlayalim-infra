@@ -1,0 +1,21 @@
+name: TASO Isolated Restore Drill
+on:
+  pull_request:
+    paths:
+      - "scripts/taso-restore.sh"
+      - "scripts/taso-backup-verify.sh"
+      - "tests/taso-restore-drill-test.sh"
+      - ".github/workflows/taso-restore-drill-ci.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  restore-drill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check syntax
+        run: bash -n scripts/taso-restore.sh scripts/taso-backup-verify.sh tests/taso-restore-drill-test.sh
+      - name: Exercise isolated backup restore
+        run: bash tests/taso-restore-drill-test.sh
