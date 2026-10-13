@@ -28,7 +28,7 @@ class SearchHealthcheckTest(unittest.TestCase):
         thread.start()
         try:
             command = PROBE.group(1).replace('127.0.0.1:8080/', f'127.0.0.1:{server.server_port}/')
-            for status, expected in [(200, True), (302, True), (503, False)]:
+            for status, expected in [(200, True), (204, True), (503, False)]:
                 Handler.response = status
                 result = subprocess.run(["python3", "-c", command], capture_output=True, text=True, timeout=5)
                 self.assertEqual(result.returncode == 0, expected, f"{status}: {result.stderr}")
