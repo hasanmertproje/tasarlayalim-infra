@@ -28,10 +28,15 @@ Updated: 2026-10-13
 | #168 | Backup freshness and integrity probe | `424611ea332a` | Dedicated backup CI + CI + Browser CI PASS | Off-site storage and scheduled execution unverified |
 | #169 | Multi-agent coordination state file | `6c1f9380facb` | Taso CI + Browser CI PASS | Docs only |
 | #172 | Fail-closed monitoring and command-center health indicators | `e9b0ea7417d` | Taso CI `38446118004` + Browser CI `38446118345` PASS | Live worker-health probes pending |
+| #173 | Package A integration ledger update | `931f45ec6b0e` | CI `38446700377` + Browser CI `38446700892` PASS; check-runs validate/visual-acceptance/browser-worker PASS | Docs only |
 
 ## Active parallel agent work
 
-- CORTEX AI work: PR #166, branch `feat/ai-provider-fallback-guards-20261013`, still DRAFT at last review. Preserve branch, avoid cherry-picking without coordination; CI and Browser CI passed on recorded head, preview failure does not establish production readiness.
+- CORTEX AI work: PR #166 (`feat/ai-provider-fallback-guards-20261013`) DRAFT, Taso CI / Browser CI PASS, Urgent Preview FAIL (Coolify API HTTP 000 / SSL timeout). CORE requested root-cause evidence in PR discussion; preserve branch.
+- CORTEX AI work: PR #171 (`feat/ai-conversation-fallback-20261013`) DRAFT, CI / Browser CI PASS, Urgent Preview CANCELLED; policy/config dependency with #166 needs review, rebase and clean mergeability before integration. CORE review recorded in PR discussion.
+- FORGE restore safety drill: PR #170 (`infra/restore-drill-ci-20261013`) BLOCKED, dedicated restore drill FAIL (verifier permission denied, exit 126); branch preserved pending FORGE repair and negative checks.
+- FORGE voice liveness: PR #174 (`infra/voice-liveness-healthcheck-20261013`) open, independent review/test evidence pending.
+- CORE Cycle 2: PR #175 (`test/core-health-agent-consistency-cycle2-20261013`) open, regression tests for actual health/operations HTTP contract and phantom running worker in terminal mission. Do not mark completed until required checks pass.
 - Historical PR #16, `feature/taso-v2`: do not merge wholesale because it is outdated; selectively assess relevant work with independent acceptance tests.
 - Before integrating new NEXUS, FORGE or CORTEX PRs, inspect changed files, CI and Browser CI on exact head SHA, security/blast radius, merge conflicts and production release implications.
 - Re-check this index against live GitHub state before making decisions; status is a snapshot, not an automatic lock.
