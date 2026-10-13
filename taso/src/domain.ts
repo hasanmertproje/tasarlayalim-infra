@@ -123,7 +123,12 @@ export interface TechnologyPolicy {
   forbidden?: string[];
 }
 
+export type ProjectLifecycleStatus = 'active' | 'archived' | 'trashed';
+
 export interface Project {
+  lifecycleStatus?: ProjectLifecycleStatus;
+  archivedAt?: string;
+  trashedAt?: string;
   id: string;
   slug: string;
   name: string;
