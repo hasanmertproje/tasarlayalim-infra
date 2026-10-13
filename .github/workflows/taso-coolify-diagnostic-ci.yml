@@ -1,0 +1,17 @@
+name: TASO Coolify Diagnostic CI
+on:
+  pull_request:
+    paths:
+      - "scripts/taso-coolify-deployment-diagnostic.py"
+      - "tests/taso-coolify-deployment-diagnostic-test.py"
+      - ".github/workflows/taso-coolify-diagnostic-ci.yml"
+permissions:
+  contents: read
+jobs:
+  read-only-diagnostic:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 -m py_compile scripts/taso-coolify-deployment-diagnostic.py
+      - run: python3 tests/taso-coolify-deployment-diagnostic-test.py
