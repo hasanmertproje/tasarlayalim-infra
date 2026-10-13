@@ -132,8 +132,63 @@ async function voiceCoreAcceptance(){
  await context.close();
 }
 
+
+async function markdownSecurityAcceptance(){
+ const context=await browser.newContext({viewport:{width:390,height:844}});
+ const page=await context.newPage();
+ await authenticate(page);
+ const malicious = [
+  '# Başlık',
+  '**kalın** ve *italik*',
+  '- birinci',
+  '- ikinci',
+  '> alıntı',
+  '\`kod\`',
+  '\`\`\`js',
+  'const safe = true;',
+  '\`\`\`',
+  '<img src=x onerror="window.__tasoXss=1">',
+  '<script>window.__tasoXss=2</script>',
+  '[Tehlikeli](javascript:alert(1))',
+  '[Güvenli](https://example.org/path)'
+ ].join('\\n');
+ await page.route('**/api/v1/conversations?*', async route=>{
+   if(route.request().method()!=='GET')return route.continue();
+   await route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({messages:[
+    {id:'md-user',role:'user',content:'Formatla'},
+    {id:'md-assistant',role:'assistant',content:malicious,sources:[
+     {title:'Güvenilir kaynak',url:'https://example.org/source'},
+     {title:'Tehlikeli kaynak',url:'javascript:alert(2)'}
+    ]}
+   ]})});
+ });
+ const check = async label=>{
+  await page.goto(base,{waitUntil:'networkidle'});
+  const assistant=page.locator('.dashboard-chat-messages .from-taso');
+  await assistant.waitFor({state:'visible'});
+  if(await assistant.locator('h3').count()!==1)throw new Error(label+': Markdown heading missing');
+  if(await assistant.locator('strong').count()!==1)throw new Error(label+': Markdown strong missing');
+  if(await assistant.locator('em').count()!==1)throw new Error(label+': Markdown italic missing');
+  if(await assistant.locator('li').count()!==2)throw new Error(label+': Markdown list missing');
+  if(await assistant.locator('blockquote').count()!==1)throw new Error(label+': Markdown quote missing');
+  if(await assistant.locator('pre code').count()!==1)throw new Error(label+': fenced code missing');
+  if(await assistant.locator('script, img').count()!==0)throw new Error(label+': unsafe HTML rendered as DOM');
+  if(await page.evaluate(()=>window.__tasoXss)!==undefined)throw new Error(label+': XSS executed');
+  const links=await assistant.locator('a').evaluateAll(nodes=>nodes.map(node=>node.getAttribute('href')));
+  if(links.some(href=>!href||!/^https?:\\/\\//.test(href)))throw new Error(label+': unsafe link rendered');
+  if(links.length!==2)throw new Error(label+': expected safe markdown and source links only, found '+links.length);
+  if(await assistant.locator('.markdown-unsafe-link').count()!==1)throw new Error(label+': unsafe link not rejected');
+ };
+ await check('initial');
+ await check('history-reopen');
+ results.push({name:'SafeMarkdown-XSS-history-reopen',htmlInert:true,unsafeLinksRejected:true,validLinks:2});
+ await page.screenshot({path:`${out}/safe-markdown-390.png`,fullPage:true});
+ await context.close();
+}
+
 const screens=[undefined,'Projects','Tasks','Approvals','Deployments','Monitoring','AI Agents','Knowledge','Integrations','Notifications','Settings'];
 for(const viewport of[{width:390,height:844},{width:1440,height:1000}])for(const theme of['dark','light'])for(const screen of screens)await shot({viewport,theme,screen});
 await voiceCoreAcceptance();
+await markdownSecurityAcceptance();
 writeFileSync(`${out}/report.json`,JSON.stringify({generatedAt:new Date().toISOString(),screens:screens.map(v=>v||'Dashboard'),results},null,2));
 await browser.close();
