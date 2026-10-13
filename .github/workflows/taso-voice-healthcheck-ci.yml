@@ -1,0 +1,21 @@
+name: TASO Voice Liveness CI
+
+on:
+  pull_request:
+    paths:
+      - "docker/taso-voice/Dockerfile"
+      - "tests/taso-voice-healthcheck-test.py"
+      - ".github/workflows/taso-voice-healthcheck-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  voice-healthcheck:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate Voice Dockerfile liveness behavior
+        run: python3 tests/taso-voice-healthcheck-test.py
