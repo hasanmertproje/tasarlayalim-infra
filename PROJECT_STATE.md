@@ -29,12 +29,13 @@ Updated: 2026-10-13
 | #169 | Multi-agent coordination state file | `6c1f9380facb` | Taso CI + Browser CI PASS | Docs only |
 | #172 | Fail-closed monitoring and command-center health indicators | `e9b0ea7417d` | Taso CI `38446118004` + Browser CI `38446118345` PASS | Live worker-health probes pending |
 | #173 | Package A integration ledger update | `931f45ec6b0e` | CI `38446700377` + Browser CI `38446700892` PASS; check-runs validate/visual-acceptance/browser-worker PASS | Docs only |
+| #170 | FORGE isolated restore safety drill | `812b27835cab` | Restore Drill `38448056942`, CI `38448057107`, Browser CI `38448056982` PASS | CI ephemeral restore only; production restore NOT RUN |
 
 ## Active parallel agent work
 
 - CORTEX AI work: PR #166 (`feat/ai-provider-fallback-guards-20261013`) DRAFT, Taso CI / Browser CI PASS, Urgent Preview FAIL (Coolify API HTTP 000 / SSL timeout). CORE requested root-cause evidence in PR discussion; preserve branch.
 - CORTEX AI work: PR #171 (`feat/ai-conversation-fallback-20261013`) DRAFT, CI / Browser CI PASS, Urgent Preview CANCELLED; policy/config dependency with #166 needs review, rebase and clean mergeability before integration. CORE review recorded in PR discussion.
-- FORGE restore safety drill: PR #170 (`infra/restore-drill-ci-20261013`) BLOCKED, dedicated restore drill FAIL (verifier permission denied, exit 126); branch preserved pending FORGE repair and negative checks.
+- FORGE restore safety drill PR #170: **MERGED** after permission-related CI failure was corrected; isolated safe-restore/backup negative tests passed. No production restore performed.
 - FORGE voice liveness: PR #174 (`infra/voice-liveness-healthcheck-20261013`) open, independent review/test evidence pending.
 - CORE Cycle 2: PR #175 (`test/core-health-agent-consistency-cycle2-20261013`) open, regression tests for actual health/operations HTTP contract and phantom running worker in terminal mission. Do not mark completed until required checks pass.
 - Historical PR #16, `feature/taso-v2`: do not merge wholesale because it is outdated; selectively assess relevant work with independent acceptance tests.
