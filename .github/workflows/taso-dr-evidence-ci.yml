@@ -1,0 +1,24 @@
+name: TASO DR Evidence CI
+on:
+  pull_request:
+    paths:
+      - "scripts/taso-dr-evidence-audit.py"
+      - "tests/taso-dr-evidence-audit-test.py"
+      - "docs/taso-dr-evidence-template.json"
+      - "docs/taso-disaster-recovery-evidence.md"
+      - ".github/workflows/taso-dr-evidence-ci.yml"
+permissions:
+  contents: read
+jobs:
+  dr-evidence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 tests/taso-dr-evidence-audit-test.py
+      - name: Verify unproven production template fails closed
+        run: |
+          if python3 scripts/taso-dr-evidence-audit.py docs/taso-dr-evidence-template.json; then
+            echo "::error::Unverified DR evidence incorrectly passed"
+            exit 1
+          fi
