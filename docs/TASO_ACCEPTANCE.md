@@ -130,7 +130,7 @@ The production dashboard route, unauthenticated security boundary, recovered UI/
 ## Package A — remaining slices
 - Voice web parity + final transcript: **IMPLEMENTED + MERGED + CI VERIFIED**.
 - Voice history/thread persistence + reopen: **IMPLEMENTED + MERGED + CI VERIFIED**.
-- Safe markdown rendering: **NEXT / NOT VERIFIED**.
+- Safe markdown rendering: **IMPLEMENTED + MERGED (PR #160, squash SHA `50df7d44091ea298a9b3d63d40ab9a414460f4fd`) + CI #755 AND BROWSER #238 VERIFIED**. Production Deploy #24 for this SHA **FAILED** due Coolify API 504 / SSL timeouts: **NOT DEPLOYED / NOT LIVE VERIFIED**.
 - Mobile safe-area / dock overlap: implementation exists in multiple CSS surfaces; dedicated acceptance still NOT VERIFIED.
 - Project archive/trash/restore lifecycle: NOT VERIFIED.
 - 2FA persistence across deploy/restart: PARTIAL CI COVERAGE EXISTS; production restart/deploy persistence still NOT VERIFIED.
@@ -139,6 +139,11 @@ The production dashboard route, unauthenticated security boundary, recovered UI/
 - Off-site S3 backup: PENDING.
 - Disk-capacity guard/retention policy and production storage headroom: PENDING.
 - Application-level build/version endpoint: OPTIONAL HARDENING / PENDING.
+
+## Completed Safe Markdown branch acceptance (2026-10-13)
+- React-node rendering integrated into active `DashboardChat`; source links restricted to HTTP(S).
+- Chromium acceptance covers inert script markup, denied URL schemes, safe source links and persisted history reopen.
+- PR #160 merged after CI #755 and Browser CI #238 passed. Production Deploy #24 failed during Coolify API preflight, not during a confirmed application runtime test.
 
 ## Next slice acceptance target — safe markdown rendering
 1. Confirm the active assistant-message renderer and the exact formatting subset required by the product — REQUIRED.
