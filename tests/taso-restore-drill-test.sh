@@ -5,6 +5,9 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TMP="$(mktemp -d)"
 trap 'rm -rf -- "$TMP"' EXIT
 mkdir -p "$TMP/state" "$TMP/backups"
+# Checkout currently lacks executable mode for the verifier; restore invokes it directly.
+# Prepare executable permission for this isolated drill without changing production scripts.
+chmod +x "$ROOT/scripts/taso-backup-verify.sh"
 export TASO_STATE_FILE="$TMP/state/taso-state.json"
 export TASO_BACKUP_DIR="$TMP/backups"
 archive="$TMP/backups/taso-state-test.json.gz"
