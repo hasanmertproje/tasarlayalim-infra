@@ -131,7 +131,7 @@ The production dashboard route, unauthenticated security boundary, recovered UI/
 - Voice web parity + final transcript: **IMPLEMENTED + MERGED + CI VERIFIED**.
 - Voice history/thread persistence + reopen: **IMPLEMENTED + MERGED + CI VERIFIED**.
 - Safe markdown rendering: **IMPLEMENTED + MERGED (PR #160, squash SHA `50df7d44091ea298a9b3d63d40ab9a414460f4fd`) + CI #755 AND BROWSER #238 VERIFIED**. Production Deploy #24 for this SHA **FAILED** due Coolify API 504 / SSL timeouts: **NOT DEPLOYED / NOT LIVE VERIFIED**.
-- Mobile safe-area / dock overlap: implementation exists in multiple CSS surfaces; dedicated acceptance still NOT VERIFIED.
+- Mobile safe-area / dock overlap: dedicated Chromium viewport and touch-target acceptance **IMPLEMENTED + MERGED (PR #161, SHA `9966d72d8878d0e1aa60c8554b2a553925235a10`) + CI/BROWSER VERIFIED**; production device verification remains separate.
 - Project archive/trash/restore lifecycle: NOT VERIFIED.
 - 2FA persistence across deploy/restart: PARTIAL CI COVERAGE EXISTS; production restart/deploy persistence still NOT VERIFIED.
 - Active health-state truthfulness: NOT VERIFIED as a dedicated slice.
