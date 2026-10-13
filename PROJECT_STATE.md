@@ -51,6 +51,15 @@ Updated: 2026-10-13
 - FORGE PR #177 at `fab2fde7dc2292f68722c758b20534bf4ebbf6bf`: GitHub now reports `mergeable=true`; an earlier false state was not reproducible at last check. Dedicated search-healthcheck, Taso CI and Browser CI PASS; Urgent Preview CANCELLED. Branch remains untouched pending FORGE explanation and integration acceptance.
 - CORTEX PRs #166 and #171 remain DRAFT; CORE will not integrate without provider-policy consistency and preview/merge readiness evidence. Branches remain untouched.
 
+## CORE-01 release-readiness checkpoint (2026-10-13)
+
+- Release acceptance matrix: [`docs/TASO_PACKAGE_A_CORE01_RELEASE_READINESS.md`](docs/TASO_PACKAGE_A_CORE01_RELEASE_READINESS.md). **NOT RELEASE READY / DO NOT DEPLOY**.
+- FORGE PR #179 polling retry: Taso CI, Browser CI and Preview Poll Contract CI PASS on `e6c349850160`, but isolated Urgent Preview run `38451835769` still FAILED: Core deployment UUID HTTP 404 after bounded retries. Escalated to FORGE; bounded read-after-write is insufficient as a proven root-cause fix.
+- CORE PR #181 mission lifecycle terminal-cancellation and inactive-project auto-retry safeguards: OPEN; exact-head CI/Browser/Preview required, unmerged.
+- FORGE PR #182 off-site archive/sidecar verification: independent agent branch, OPEN pending integration review.
+- #175 remains unmerged with CI/Browser PASS and Urgent Preview FAIL; #166/#171/#178 CORTEX branches remain independent and unmerged.
+- Last historically LIVE VERIFIED production UI/Core SHA is `5aa4035387b82e934005e9fc85bf2d2f3d6a1466`; do not treat it as a current runtime probe. Production rollback and new live SHA not verified.
+
 ## Current Package A blockers
 
 1. Production Coolify API reachability, confirmed manual deployment and post-deploy health/authenticated smoke tests.
