@@ -55,8 +55,8 @@ Updated: 2026-10-13
 
 - Release acceptance matrix: [`docs/TASO_PACKAGE_A_CORE01_RELEASE_READINESS.md`](docs/TASO_PACKAGE_A_CORE01_RELEASE_READINESS.md). **NOT RELEASE READY / DO NOT DEPLOY**.
 - FORGE PR #179 polling retry: Taso CI, Browser CI and Preview Poll Contract CI PASS on `e6c349850160`, but isolated Urgent Preview run `38451835769` still FAILED: Core deployment UUID HTTP 404 after bounded retries. Escalated to FORGE; bounded read-after-write is insufficient as a proven root-cause fix.
-- CORE PR #181 mission lifecycle terminal-cancellation and inactive-project auto-retry safeguards: OPEN; exact-head CI/Browser/Preview required, unmerged.
-- FORGE PR #182 off-site archive/sidecar verification: independent agent branch, OPEN pending integration review.
+- CORE PR #181 mission lifecycle terminal-cancellation and inactive-project auto-retry safeguards: exact head `eb5ba7fa70b4` Taso CI `38454902765` PASS and Browser CI `38454902903` PASS; Urgent Preview `38454902793` CANCELLED, NOT MERGED.
+- FORGE PR #182 off-site archive/sidecar verification: **MERGED** at `4e69aeed53a02ec8276d56c0b37d31e28f4b8c49` following Taso CI, Browser CI and dedicated Offsite Integrity CI PASS; real production backup/restore still NOT VERIFIED.
 - #175 remains unmerged with CI/Browser PASS and Urgent Preview FAIL; #166/#171/#178 CORTEX branches remain independent and unmerged.
 - Last historically LIVE VERIFIED production UI/Core SHA is `5aa4035387b82e934005e9fc85bf2d2f3d6a1466`; do not treat it as a current runtime probe. Production rollback and new live SHA not verified.
 
