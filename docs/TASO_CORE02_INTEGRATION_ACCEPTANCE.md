@@ -27,6 +27,9 @@ The scripts prove synthetic/read-only contract behavior. They do not prove that 
 | #184 | CORTEX quota ledger / costs | New quota/cost accounting modules; budget boundaries must be wired to routing policy | DRAFT; Core/Browser PASS, Preview CANCELLED; hard quota/cost acceptance required |
 | #187 | CORTEX provider-wide RPM/TPM admission gate | New provider-rate-limiter module; interacts with #184 budgets and #178 retries | DRAFT; Core/Browser PASS; combined policy, token usage and reset behavior unverified |
 
+| #190 | CORTEX cancellable bounded provider execution guard | New runtime primitive; must compose with retry and circuit-breaker policies | DRAFT; validate/browser-worker PASS, visual pending, preview CANCELLED |
+| #191 | CORTEX private-code provider negative-policy tests | Test-only, complements both provider fallback surfaces | DRAFT; validate/Browser PASS, preview CANCELLED; combined policy test still pending |
+
 **Mergeability and branch status are not static.** Check fresh GitHub status and exact-head required checks immediately before every merge. A successful static test does not override a failing preview. No agent-owned branch was modified by CORE-02.
 
 ## CORE regression and failure model
