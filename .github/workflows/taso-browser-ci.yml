@@ -81,6 +81,8 @@ jobs:
           npx playwright install --with-deps chromium
       - name: Capture and assert visual acceptance
         run: node scripts/taso-visual-acceptance.mjs
+      - name: Assert project lifecycle archive trash and restore
+        run: node scripts/taso-project-lifecycle-acceptance.mjs
       - name: Reset isolated stack for voice history acceptance
         run: |
           docker rm -f taso-visual-ui taso-visual-core 2>/dev/null || true
