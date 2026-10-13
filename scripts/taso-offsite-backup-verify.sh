@@ -12,7 +12,7 @@ dir="$(cd "$(dirname "$archive")" && pwd)"
 base="$(basename "$archive")"
 [[ "$base" == taso-state-*.json.gz ]] || fail 'unexpected backup filename'
 # Validate local source before trusting its reference digest.
-"$(dirname "${BASH_SOURCE[0]}")/taso-backup-verify.sh" "$archive" >/dev/null || fail 'local archive integrity/schema invalid'
+bash "$(dirname "${BASH_SOURCE[0]}")/taso-backup-verify.sh" "$archive" >/dev/null || fail 'local archive integrity/schema invalid'
 digest="$(awk 'NR==1 {print $1}' "$archive.sha256")"
 [[ "$digest" =~ ^[0-9a-fA-F]{64}$ ]] || fail 'invalid local digest'
 # A remote copy is never considered successful based solely on file existence.
