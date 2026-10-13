@@ -137,6 +137,7 @@ export function buildServer() {
     if(text.length>16000)return reply.code(400).send({error:'Mesaj en fazla 16000 karakter olabilir.'});
     const project = projects.get(projectId);
     if (!project) return reply.code(404).send({ error: 'Project not found.' });
+    if ((project.lifecycleStatus ?? 'active') !== 'active') return reply.code(409).send({ error: 'Project must be restored before sending messages.' });
 
     const decision = classifyConversationIntent(text);
     const previousTurns = conversations
@@ -220,6 +221,28 @@ export function buildServer() {
       return reply.code(201).send({ project: projects.create(body) });
     } catch (error) {
       return reply.code(400).send({ error: (error as Error).message });
+    }
+  });
+
+  app.post<{ Params: { id: string }; Body: { action?: 'archive' | 'trash' | 'restore' } }>('/v1/projects/:id/lifecycle', async (request, reply) => {
+    const project = projects.get(request.params.id);
+    if (!project) return reply.code(404).send({ error: 'Project not found.' });
+    const action = request.body?.action;
+    if (action !== 'archive' && action !== 'trash' && action !== 'restore') {
+      return reply.code(400).send({ error: 'action must be archive, trash, or restore.' });
+    }
+    if (action !== 'restore') {
+      const unfinished = tasks.listMissions().filter(
+        (mission) => mission.projectId === project.id && !['completed', 'failed', 'cancelled'].includes(mission.status),
+      );
+      if (unfinished.length > 0) {
+        return reply.code(409).send({ error: 'Complete or cancel pending missions before changing project lifecycle.', unfinishedMissions: unfinished.length });
+      }
+    }
+    try {
+      return { project: projects.setLifecycle(project.id, action) };
+    } catch (error) {
+      return reply.code(409).send({ error: (error as Error).message });
     }
   });
 
