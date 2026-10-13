@@ -389,8 +389,12 @@ export function buildServer() {
   });
 
   app.post<{ Params: { id: string } }>('/v1/missions/:id/cancel', async (request, reply) => {
-    try { return { mission: tasks.cancelMission(request.params.id) }; }
-    catch (error) { return reply.code(400).send({ error: (error as Error).message }); }
+    const mission = tasks.getMission(request.params.id);
+    if (!mission) return reply.code(404).send({ error: 'Mission not found.' });
+    if (['completed', 'preview_ready', 'failed'].includes(mission.status)) {
+      return reply.code(409).send({ error: `Terminal mission cannot be cancelled from ${mission.status}.` });
+    }
+    return { mission: tasks.cancelMission(request.params.id) };
   });
 
   return app;
