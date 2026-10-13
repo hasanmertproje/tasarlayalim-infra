@@ -235,11 +235,12 @@ async function projectLifecycleAcceptance(){
  },firstMission.body.mission.id);
  if(cancel!==200)throw new Error('Cancellation of pending mission failed');
  await page.goto(base,{waitUntil:'networkidle'});
- await page.locator('.main-nav').getByRole('button',{name:/Projects/}).click();
- const card=page.locator('.project-lifecycle-card').filter({hasText:name});
- await card.waitFor({state:'visible'});
- await card.getByRole('button',{name:'Arşivle'}).click();
- const archive=page.locator('.project-lifecycle-row').filter({hasText:name});
+ await page.locator('.pc9-shell').waitFor({state:'visible'});
+ const projectButton=page.locator('.pc9-project-list .pc9-list-scroll button').filter({hasText:name});
+ await projectButton.waitFor({state:'visible'});
+ await projectButton.click();
+ await page.locator('.pc9-hero').getByRole('button',{name:'Arşivle'}).click();
+ const archive=page.locator('.pc9-lifecycle-row').filter({hasText:name});
  await archive.getByRole('button',{name:'Çöpe taşı'}).click();
  const trashStatus=await page.evaluate(async id=>{
   const response=await fetch('/api/v1/projects');
@@ -249,7 +250,7 @@ async function projectLifecycleAcceptance(){
  if(trashStatus!=='trashed')throw new Error('Project not persisted in trash');
  await page.reload({waitUntil:'networkidle'});
  await page.locator('.main-nav').getByRole('button',{name:/Projects/}).click();
- const trashed=page.locator('.project-lifecycle-row').filter({hasText:name});
+ const trashed=page.locator('.pc9-lifecycle-row').filter({hasText:name});
  await trashed.getByRole('button',{name:'Geri yükle'}).click();
  const restored=await page.evaluate(async id=>{
   const response=await fetch('/api/v1/projects');
