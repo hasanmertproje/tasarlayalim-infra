@@ -85,6 +85,21 @@ test('archived or trashed projects cannot create new missions', () => {
   assert.equal(engine.createMission(input).projectId,project.id);
 });
 
+test('inactive projects reject existing mission approval and retry', () => {
+  const projects = new ProjectRegistry();
+  const project = projects.create({slug:'lifecycle-guard',name:'Guard',repository:'test/guard',isExisting:true});
+  const engine = new TaskEngine(projects,new ProviderRouter(providers));
+  const approval = engine.createMission({projectId:project.id,objective:'Approval',riskLevel:'HIGH_IMPACT',dataClass:'private_code'});
+  const failed = engine.createMission({projectId:project.id,objective:'Retry',riskLevel:'READ',dataClass:'public'});
+  engine.failMission(failed.id,'Test failure');
+  projects.setLifecycle(project.id,'archive');
+  assert.throws(() => engine.approveMission(approval.id), /restored/);
+  assert.throws(() => engine.retryMission(failed.id), /restored/);
+  projects.setLifecycle(project.id,'restore');
+  assert.equal(engine.approveMission(approval.id).status,'queued');
+  assert.equal(engine.retryMission(failed.id).status,'queued');
+});
+
 test('router prefers free providers for public data', () => {
   const router = new ProviderRouter(providers);
   const route = router.route({ dataClass: 'public', paidAi: false, preferFree: true });
