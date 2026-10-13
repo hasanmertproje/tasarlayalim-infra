@@ -1,0 +1,18 @@
+name: TASO Search Healthcheck CI
+on:
+  pull_request:
+    paths:
+      - "docker/taso-search/Dockerfile"
+      - "tests/taso-search-healthcheck-test.py"
+      - ".github/workflows/taso-search-healthcheck-ci.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  search-healthcheck:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Isolated liveness tests
+        run: python3 tests/taso-search-healthcheck-test.py
