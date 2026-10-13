@@ -1,0 +1,16 @@
+name: TASO Preview Concurrency CI
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/taso-urgent-preview.yml"
+      - ".github/workflows/taso-preview-concurrency-ci.yml"
+      - "tests/taso-preview-concurrency.test.mjs"
+permissions:
+  contents: read
+jobs:
+  preview-concurrency:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - run: node --test tests/taso-preview-concurrency.test.mjs
