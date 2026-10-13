@@ -7,7 +7,8 @@ Last updated: 2026-10-13
 - Active work package: **PAKET A — STABILIZATION**.
 - Completed slices: **conversation transport recovery parity (text + voice)**, **voice web parity / final-transcript behavior**, and **voice conversation history persistence + reopen behavior**.
 - Safe Markdown security slice: **IMPLEMENTED + MERGED (PR #160) + CI/BROWSER VERIFIED** on branch; production deployment #24 FAILED due Coolify API timeouts, therefore **NOT LIVE VERIFIED**.
-- Current next slice: **mobile safe-area / dock overlap acceptance** (browser acceptance in PR #161).
+- Mobile safe-area / dock acceptance: **IMPLEMENTED + MERGED (PR #161) + CI/BROWSER VERIFIED**; no production app source changed by the acceptance PR.
+- Current next slice: **project archive / trash / restore lifecycle** (feature branch, NOT MERGED / NOT DEPLOYED).
 - Next package after Paket A: **PAKET B — CONVERSATION FOUNDATION**.
 
 ## Development Ledger
@@ -122,7 +123,7 @@ Last updated: 2026-10-13
 
 ## Open blockers / remaining acceptance
 - Safe Markdown production deployment + authenticated live acceptance after Coolify recovery (PR #160 merged; CI/BROWSER passed).
-- Mobile safe-area/dock-overlap acceptance (safe-area CSS exists, but dedicated acceptance remains required).
+- Mobile safe-area/dock-overlap: dedicated 360px/390px Chromium acceptance merged in PR #161; production device verification remains separate.
 - Project archive/trash/restore lifecycle.
 - 2FA persistence across a real production restart/deploy.
 - Active health-state truthfulness across all product surfaces, including workers that currently surface `running:unknown` without a Docker healthcheck.
