@@ -38,7 +38,7 @@ Updated: 2026-10-13
 - CORTEX AI work: PR #171 (`feat/ai-conversation-fallback-20261013`) DRAFT, CI / Browser CI PASS, Urgent Preview CANCELLED; policy/config dependency with #166 needs review, rebase and clean mergeability before integration. CORE review recorded in PR discussion.
 - FORGE restore safety drill PR #170: **MERGED** after permission-related CI failure was corrected; isolated safe-restore/backup negative tests passed. No production restore performed.
 - FORGE voice liveness PR #174: **MERGED** after Voice Liveness, Taso CI and Browser CI passed; does not establish live production readiness.
-- CORE Cycle 2: PR #175 (`test/core-health-agent-consistency-cycle2-20261013`) open, regression tests for actual health/operations HTTP contract and phantom running worker in terminal mission. Do not mark completed until required checks pass.
+- CORE Cycle 2 PR #175 (`test/core-health-agent-consistency-cycle2-20261013`): CI `38449011820` + Browser CI `38449011776` PASS; Urgent Preview `38449011920` FAIL on Coolify API deployment UUID HTTP 404. Merge BLOCKED pending FORGE deployment-id root cause/rerun or accepted non-blocking classification. Source and regression tests remain in protected PR branch.
 - Historical PR #16, `feature/taso-v2`: do not merge wholesale because it is outdated; selectively assess relevant work with independent acceptance tests.
 - Before integrating new NEXUS, FORGE or CORTEX PRs, inspect changed files, CI and Browser CI on exact head SHA, security/blast radius, merge conflicts and production release implications.
 - Re-check this index against live GitHub state before making decisions; status is a snapshot, not an automatic lock.
