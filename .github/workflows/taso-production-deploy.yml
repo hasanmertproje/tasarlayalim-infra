@@ -34,6 +34,9 @@ concurrency:
 
 jobs:
   deploy:
+    # Production releases require an operator-triggered workflow_dispatch.
+    # A push to main may still schedule this workflow but must never deploy.
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 180
     env:
