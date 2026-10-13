@@ -225,6 +225,8 @@ export class AuthSecurityStore {
     if (!this.file || !existsSync(this.file)) return { version: 2, users: {} };
     try {
       const parsed = JSON.parse(readFileSync(this.file, 'utf8')) as AuthSecurityStateV2 | AuthSecurityStateV1;
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('Invalid auth security document.');
+      if ((parsed as AuthSecurityStateV2).version === 2 && (!('users' in parsed) || typeof (parsed as AuthSecurityStateV2).users !== 'object' || (parsed as AuthSecurityStateV2).users === null)) throw new Error('Invalid auth security users.');
       if ((parsed as AuthSecurityStateV2).version === 2 && (parsed as AuthSecurityStateV2).users) {
         const source = parsed as AuthSecurityStateV2;
         const users: Record<string, UserSecurityState> = {};
@@ -249,8 +251,8 @@ export class AuthSecurityStore {
           : [],
       };
       return { version: 2, users: { [this.ownerUserId]: owner } };
-    } catch {
-      return { version: 2, users: {} };
+    } catch (error) {
+      throw new Error('Taso auth security state could not be loaded; refusing to reset enrolled 2FA.', { cause: error });
     }
   }
 
