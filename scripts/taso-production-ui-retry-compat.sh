@@ -28,9 +28,9 @@ deploy taso-browser-prod \"$browser\"
 deploy_heavy_worker taso-speaker-prod \"$speaker\" docker/taso-speaker
 deploy_heavy_worker taso-voice-prod \"$voice\" docker/taso-voice
 '''"""
-new_browser = """'''deploy taso-search-prod \"$search\"
+new_browser = """'''deploy_heavy_worker taso-search-prod \"$search\" docker/taso-search
 deploy_browser_for_release() {
-  if heavy_worker_unchanged_and_running \"$browser\" docker/taso-browser; then
+  if [[ "${TASO_FORCE_HEAVY_WORKER_DEPLOY:-0}" != 1 ]] && heavy_worker_unchanged_and_running \"$browser\" docker/taso-browser; then
     echo \"Skipping taso-browser-prod rebuild: source path 'docker/taso-browser' is unchanged since its latest successful deployment and the current runtime is already running.\"
     return 0
   fi
