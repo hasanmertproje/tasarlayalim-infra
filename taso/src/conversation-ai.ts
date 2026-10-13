@@ -63,7 +63,8 @@ async function webContext(input:string,forceSearch=false){
 
 export class ConversationAi{
   constructor(private readonly router:ProviderRouter, private readonly personalization=new PersonalizationStore()){}
-  private select(dataClass:DataClass='private_code'){const eligible=this.router.route({dataClass,paidAi:false,preferFree:true});for(const provider of eligible){const runtime=runtimeProvider(provider.id);if(runtime)return runtime}return undefined}
+  private candidates(dataClass:DataClass='private_code'){return this.router.route({dataClass,paidAi:false,preferFree:true}).map(provider=>runtimeProvider(provider.id)).filter((provider):provider is RuntimeConversationProvider=>Boolean(provider))}
+  private select(dataClass:DataClass='private_code'){return this.candidates(dataClass)[0]}
   status(){const provider=this.select('private_code');return provider?{configured:true,provider:provider.id,model:provider.model,dataClass:'private_code' as const}:{configured:false,dataClass:'private_code' as const}}
 
   async reply(project:Project,turns:ConversationTurn[],input:string,runtime:ConversationRuntimeContext={}):Promise<string>{return (await this.replyDetailed(project,turns,input,runtime)).content}
@@ -102,9 +103,12 @@ export class ConversationAi{
     if((runtime.webSearch||wantsWebSearch(input))&&!sources.length)return unavailable('Web araması tamamlandı ancak bu sorgu için kaynak bulunamadı. Soruyu daha belirgin yazabilir veya bir kaynak bağlantısı gönderebilirsin.');
     const sourceContext=sources.length?JSON.stringify(sources):'[]';
     const searchState=researchStatus();
-    const response=await fetch(`${provider.baseUrl}/chat/completions`,{
-      method:'POST',headers:{authorization:`Bearer ${provider.apiKey}`,'content-type':'application/json'},
-      body:JSON.stringify({model:provider.model,temperature:.32,messages:[{role:'system',content:[
+    const failures:string[]=[];
+    for(const candidate of this.candidates('private_code')){
+      try{
+        const response=await fetch(`${candidate.baseUrl}/chat/completions`,{
+          method:'POST',headers:{authorization:`Bearer ${candidate.apiKey}`,'content-type':'application/json'},
+          body:JSON.stringify({model:candidate.model,temperature:.32,messages:[{role:'system',content:[
         tasoCharacterInstructions(),
         personal.instructions,
         'Emoji, markdown başlığı, tablo ve uzun madde listesi kullanma; kullanıcı özellikle isterse uygun biçimde kullanabilirsin.',
@@ -118,8 +122,16 @@ export class ConversationAi{
         sources.length?'Web araştırması kullandıysan cevabın sonunda kısa Kaynaklar satırında yalnız gerçekten kullanılan URL’leri belirt.':'Web kaynağı kullanılmadı.',
         `Aktif proje: ${project.name}`,`Repository: ${project.repository}`,`Runtime bağlamı: ${runtimeSummary}`,`Web araştırma bağlamı: ${sourceContext}`,
       ].join('\n')},...turns.slice(-16),{role:'user',content:input}]}),signal:AbortSignal.timeout(60_000)});
-    if(!response.ok)throw new Error(`Conversation provider failed with HTTP ${response.status}.`);
-    const payload=await response.json() as {choices?:Array<{message?:{content?:string}}>};const content=payload.choices?.[0]?.message?.content?.trim();if(!content)throw new Error('Conversation provider returned an empty response.');
-    evidence.mode='ai';evidence.sources=sources.map(({title,url})=>({title,url}));return content;
+        if(!response.ok)throw new Error(`HTTP ${response.status}`);
+        const result=await response.json() as {choices?:Array<{message?:{content?:string}}>};
+        const content=result.choices?.[0]?.message?.content?.trim();
+        if(!content)throw new Error('empty response');
+        evidence.mode='ai';evidence.sources=sources.map(({title,url})=>({title,url}));return content;
+      }catch(error){
+        const message=error instanceof Error && /^HTTP [0-9]+$/.test(error.message)?error.message:'request failed';
+        failures.push(`${candidate.id}: ${message}`);
+      }
+    }
+    throw new Error(`All policy-approved conversation providers failed: ${failures.join(' | ')}`);
   }
 }
