@@ -383,6 +383,7 @@ export function buildServer() {
     const mission = tasks.getMission(request.params.id);
     if (!mission) return reply.code(404).send({ error: 'Mission not found.' });
     if (mission.status !== 'queued') return reply.code(409).send({ error: `Mission cannot execute from status ${mission.status}.` });
+    if ((projects.get(mission.projectId)?.lifecycleStatus ?? 'active') !== 'active') return reply.code(409).send({ error: 'Project must be restored before executing missions.' });
     executor.executeSoon(mission.id);
     return reply.code(202).send({ mission });
   });
