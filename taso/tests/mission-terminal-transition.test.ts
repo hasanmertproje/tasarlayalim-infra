@@ -8,7 +8,7 @@ function fixture() {
   const projects = new ProjectRegistry();
   const project = projects.create({slug:'core-mission-transition',name:'Core transition',repository:'test/core',isExisting:true});
   let saves = 0;
-  const engine = new TaskEngine(projects, new ProviderRouter(defaultProviders), undefined, [], () => { saves++; });
+  const engine = new TaskEngine(projects, new ProviderRouter(defaultProviders()), undefined, [], () => { saves++; });
   return {projects, project, engine, saves:()=>saves, create:()=>engine.createMission({projectId:project.id,objective:'Check lifecycle integrity',riskLevel:'READ' as const,dataClass:'public' as const})};
 }
 
