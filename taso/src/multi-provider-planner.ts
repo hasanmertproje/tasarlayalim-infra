@@ -190,7 +190,14 @@ export class MultiProviderPlanner {
 
     for (const provider of candidates) {
       throwIfAborted(signal);
-      assertDataClass(provider, mission.dataClass);
+      // An ineligible provider must never see mission data, nor prevent
+      // a subsequent policy-approved provider in the chain from being tried.
+      try {
+        assertDataClass(provider, mission.dataClass);
+      } catch {
+        failures.push(`${provider.id}: not approved for ${mission.dataClass}`);
+        continue;
+      }
       for (let attempt = 1; attempt <= 2; attempt += 1) {
         throwIfAborted(signal);
         try {
@@ -206,7 +213,13 @@ export class MultiProviderPlanner {
             }),
             signal: requestSignal,
           });
-          if (!response.ok) throw new Error(`HTTP ${response.status}: ${(await response.text()).slice(0, 300)}`);
+          if (!response.ok) {
+            // Keep upstream bodies out of mission logs: they may contain
+            // request data or other sensitive provider diagnostics.
+            const failure = new Error(`HTTP ${response.status}`) as Error & { retryable?: boolean };
+            failure.retryable = [408, 409, 425, 429].includes(response.status) || response.status >= 500;
+            throw failure;
+          }
           const payload = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
           const content = payload.choices?.[0]?.message?.content?.trim();
           if (!content) throw new Error('empty response');
@@ -214,7 +227,11 @@ export class MultiProviderPlanner {
         } catch (error) {
           if (signal?.aborted) throw abortReason(signal);
           failures.push(`${provider.id}#${attempt}: ${(error as Error).message}`);
-          if (attempt < 2) await sleep(1200 * attempt, signal);
+          if (attempt < 2 && (error as Error & { retryable?: boolean }).retryable !== false) {
+            await sleep(1200 * attempt, signal);
+          } else {
+            break;
+          }
         }
       }
     }
