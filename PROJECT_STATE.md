@@ -60,6 +60,16 @@ Updated: 2026-10-13
 - #175 remains unmerged with CI/Browser PASS and Urgent Preview FAIL; #166/#171/#178 CORTEX branches remain independent and unmerged.
 - Last historically LIVE VERIFIED production UI/Core SHA is `5aa4035387b82e934005e9fc85bf2d2f3d6a1466`; do not treat it as a current runtime probe. Production rollback and new live SHA not verified.
 
+## CORE-02 integration checkpoint — 2026-10-13
+
+- Full audited dependency / acceptance matrix: [`docs/TASO_CORE02_INTEGRATION_ACCEPTANCE.md`](docs/TASO_CORE02_INTEGRATION_ACCEPTANCE.md). **Release decision NO-GO**.
+- FORGE #185 **MERGED**: `dad126d952f4efc259c1d38e5a4a1e5df9d768c2`; four green checks, read-only Coolify 404 diagnostic. Coolify root cause still unresolved.
+- FORGE #189 **MERGED**: `1d4fc6fc8799d3d22720647dd1aa5c59b5f2ebe6`; `dr-evidence`, CI and Browser checks green; no production restore performed.
+- FORGE #188 concurrency contract passed, real Urgent Preview **FAILED** on Coolify deployment GET HTTP 404; #179 bounded polling preview also failed. Neither is established as a root cause fix.
+- CORE #175 new head `d971b01f2170` guards stale queued/planning/approval worker records; CORE #181 new head `959d1f6529e6` adds concurrent cancel idempotency; both remain **UNMERGED** pending exact-head checks and preview resolution.
+- FORGE #177 Search liveness awaits cancelled-preview disposition. CORTEX #166/#171/#178/#183/#184/#187 are all DRAFT and require ordered combined security/budget/retry/failover tests; preserve their branches.
+- Production release disabled for push-to-main; no production deployment, rollback, restart, secrets retrieval or destructive work authorized under CORE-02.
+
 ## Current Package A blockers
 
 1. Production Coolify API reachability, confirmed manual deployment and post-deploy health/authenticated smoke tests.
