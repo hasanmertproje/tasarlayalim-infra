@@ -19,6 +19,12 @@ test('cancel API distinguishes missing mission and idempotent cancelled mission'
     const cancelled=await app.inject({method:'POST',url:`/v1/missions/${missionId}/cancel`,headers,payload:{}});
     assert.equal(cancelled.statusCode,200);
     assert.equal(cancelled.json().mission.status,'cancelled');
+    // Fire overlapping requests through the real Fastify route: only one state transition may persist.
+    const overlapping=await Promise.all(Array.from({length:8},()=>app.inject({method:'POST',url:`/v1/missions/${missionId}/cancel`,headers,payload:{}})));
+    assert.ok(overlapping.every(response=>response.statusCode===200 && response.json().mission.status==='cancelled'));
+    const events=await app.inject({method:'GET',url:`/v1/missions/${missionId}/events`,headers});
+    assert.equal(events.statusCode,200);
+    assert.equal(events.json().events.filter((event:{type:string})=>event.type==='mission.cancelled').length,1,'concurrent cancellation must emit exactly one event');
     const again=await app.inject({method:'POST',url:`/v1/missions/${missionId}/cancel`,headers,payload:{}});
     assert.equal(again.statusCode,200);
     assert.equal(again.json().mission.status,'cancelled');
