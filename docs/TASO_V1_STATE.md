@@ -1,12 +1,13 @@
 # TASO v1.0 Development State
 
-Last updated: 2026-10-12
+Last updated: 2026-10-13
 
 ## Current release
 - Target: TASO v1.0 production-grade stabilization and foundation work.
 - Active work package: **PAKET A — STABILIZATION**.
 - Completed slices: **conversation transport recovery parity (text + voice)**, **voice web parity / final-transcript behavior**, and **voice conversation history persistence + reopen behavior**.
-- Current next slice: **safe markdown rendering acceptance**.
+- Safe Markdown security slice: **IMPLEMENTED + MERGED (PR #160) + CI/BROWSER VERIFIED** on branch; production deployment #24 FAILED due Coolify API timeouts, therefore **NOT LIVE VERIFIED**.
+- Current next slice: **mobile safe-area / dock overlap acceptance** (browser acceptance in PR #161).
 - Next package after Paket A: **PAKET B — CONVERSATION FOUNDATION**.
 
 ## Development Ledger
@@ -120,7 +121,7 @@ Last updated: 2026-10-12
 - Production infrastructure outage caused by full disk was recovered without DNS changes, auth weakening, application redeploy, volume deletion, or broad service restart.
 
 ## Open blockers / remaining acceptance
-- Safe markdown rendering acceptance.
+- Safe Markdown production deployment + authenticated live acceptance after Coolify recovery (PR #160 merged; CI/BROWSER passed).
 - Mobile safe-area/dock-overlap acceptance (safe-area CSS exists, but dedicated acceptance remains required).
 - Project archive/trash/restore lifecycle.
 - 2FA persistence across a real production restart/deploy.
@@ -151,4 +152,4 @@ Last updated: 2026-10-12
 - HIGH_IMPACT actions remain subject to explicit approval in the TASO product policy boundary.
 
 ## Next Package A slice
-Proceed with **safe markdown rendering acceptance**. First verify the active message renderer and required formatting scope. The implementation must keep raw HTML/script inert, reject dangerous link schemes, preserve safe source links, and add executable XSS/rendering acceptance without introducing `dangerouslySetInnerHTML` or bypassing React escaping.
+Proceed with **mobile safe-area / dock-overlap browser acceptance** after PR #160's source and XSS acceptance merged. First verify the active message renderer and required formatting scope. The implementation must keep raw HTML/script inert, reject dangerous link schemes, preserve safe source links, and add executable XSS/rendering acceptance without introducing `dangerouslySetInnerHTML` or bypassing React escaping.

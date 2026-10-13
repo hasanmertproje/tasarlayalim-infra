@@ -173,9 +173,42 @@ async function markdownSecurityAcceptance(){
  await context.close();
 }
 
+
+async function mobileDockAcceptance(){
+ for(const viewport of [{width:360,height:740},{width:390,height:844}]){
+  const context=await browser.newContext({viewport});
+  const page=await context.newPage();
+  await authenticate(page);
+  await page.goto(base,{waitUntil:'networkidle'});
+  const metrics=await page.evaluate(()=>{
+   const nav=document.querySelector('.taso-mobile-dock');
+   if(!nav)return {missing:true};
+   const rect=nav.getBoundingClientRect();
+   const buttons=[...nav.querySelectorAll('button')];
+   const targets=buttons.map(button=>{
+    const r=button.getBoundingClientRect();
+    const hit=document.elementFromPoint(r.left+r.width/2,r.top+r.height/2);
+    return {width:r.width,height:r.height,visible:r.left>=0&&r.right<=innerWidth&&r.top>=0&&r.bottom<=innerHeight,
+      clickable:hit===button||button.contains(hit)};
+   });
+   return {missing:false,display:getComputedStyle(nav).display,scrollWidth:document.documentElement.scrollWidth,
+     dockVisible:rect.left>=0&&rect.right<=innerWidth&&rect.top>=0&&rect.bottom<=innerHeight,
+     dockHeight:rect.height,bodyBottomPadding:parseFloat(getComputedStyle(document.body).paddingBottom)||0,targets};
+  });
+  if(metrics.missing||metrics.display==='none'||!metrics.dockVisible)throw new Error('Mobile dock missing or clipped at '+viewport.width);
+  if(metrics.scrollWidth>viewport.width+2)throw new Error('Horizontal overflow at '+viewport.width);
+  if(metrics.targets.length<4||metrics.targets.some(t=>t.width<36||t.height<40||!t.visible||!t.clickable))throw new Error('Mobile dock touch targets inaccessible at '+viewport.width);
+  if(metrics.bodyBottomPadding<metrics.dockHeight)throw new Error('Mobile content bottom padding insufficient at '+viewport.width);
+  results.push({name:'mobile-dock-'+viewport.width,metrics});
+  await page.screenshot({path:out+'/mobile-dock-'+viewport.width+'.png',fullPage:true});
+  await context.close();
+ }
+}
+
 const screens=[undefined,'Projects','Tasks','Approvals','Deployments','Monitoring','AI Agents','Knowledge','Integrations','Notifications','Settings'];
 for(const viewport of[{width:390,height:844},{width:1440,height:1000}])for(const theme of['dark','light'])for(const screen of screens)await shot({viewport,theme,screen});
 await voiceCoreAcceptance();
 await markdownSecurityAcceptance();
+await mobileDockAcceptance();
 writeFileSync(`${out}/report.json`,JSON.stringify({generatedAt:new Date().toISOString(),screens:screens.map(v=>v||'Dashboard'),results},null,2));
 await browser.close();
