@@ -1,0 +1,23 @@
+name: TASO Backup Freshness CI
+
+on:
+  pull_request:
+    paths:
+      - "scripts/taso-backup-freshness.sh"
+      - "tests/taso-backup-freshness-test.sh"
+      - ".github/workflows/taso-backup-freshness-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  backup-freshness:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Shell syntax
+        run: bash -n scripts/taso-backup-freshness.sh tests/taso-backup-freshness-test.sh
+      - name: Backup freshness negative tests
+        run: bash tests/taso-backup-freshness-test.sh
