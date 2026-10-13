@@ -303,3 +303,9 @@ body::before {
 .project-lifecycle-row{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:12px 0;border-bottom:1px solid var(--taso-border)}
 .project-lifecycle-row>span{flex:1 1 180px;min-width:0;overflow-wrap:anywhere}
 .project-lifecycle-row button{flex:0 0 auto}
+
+.pc9-lifecycle-list{display:grid;gap:6px;padding:8px;max-height:220px;overflow:auto}
+.pc9-lifecycle-row{display:flex;align-items:center;flex-wrap:wrap;gap:7px;padding:9px;border:1px solid var(--line,rgba(128,160,190,.18));border-radius:10px;min-width:0}
+.pc9-lifecycle-row>span{flex:1 1 100%;font-weight:600;overflow-wrap:anywhere}
+.pc9-lifecycle-row>button{font:inherit;font-size:11px;border:1px solid var(--line,rgba(128,160,190,.18));border-radius:8px;padding:8px;background:transparent;color:inherit;cursor:pointer}
+.pc9-lifecycle-row>button:disabled{opacity:.55;cursor:not-allowed}
