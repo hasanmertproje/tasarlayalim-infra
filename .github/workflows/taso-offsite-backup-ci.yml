@@ -1,0 +1,17 @@
+name: TASO Offsite Backup Integrity CI
+on:
+  pull_request:
+    paths:
+      - "scripts/taso-offsite-backup-verify.sh"
+      - "tests/taso-offsite-backup-verify-test.sh"
+      - ".github/workflows/taso-offsite-backup-ci.yml"
+permissions:
+  contents: read
+jobs:
+  offsite-integrity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash -n scripts/taso-offsite-backup-verify.sh tests/taso-offsite-backup-verify-test.sh
+      - run: bash tests/taso-offsite-backup-verify-test.sh
