@@ -132,8 +132,50 @@ async function voiceCoreAcceptance(){
  await context.close();
 }
 
+
+async function markdownSecurityAcceptance(){
+ const context=await browser.newContext({viewport:{width:390,height:844}});
+ const page=await context.newPage();
+ await authenticate(page);
+ const scriptTag = '<' + 'script' + '>' + 'window.__tasoXss=1' + '</' + 'script' + '>';
+ const invalidHref = 'java' + 'script:blocked';
+ const messages = [
+  {id:'markdown-user',role:'user',content:'Render test'},
+  {id:'markdown-assistant',role:'assistant',content:[
+   '# Başlık','**kalın** ve *italik*','- ilk','- ikinci','> alıntı',
+   '`kod`','```js','const a = 1;','```',
+   scriptTag,'[Güvensiz]('+invalidHref+')','[Güvenli](https://example.org/ok)'
+  ].join(String.fromCharCode(10)),sources:[
+    {title:'Güvenli kaynak',url:'https://example.org/source'},
+    {title:'Güvensiz kaynak',url:invalidHref}
+  ]}
+ ];
+ await page.route('**/api/v1/conversations?*',async route=>{
+  if(route.request().method()!=='GET')return route.continue();
+  await route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({messages})});
+ });
+ for(const round of ['initial','reopen']){
+  await page.goto(base,{waitUntil:'networkidle'});
+  const box=page.locator('.dashboard-chat-messages .from-taso');
+  await box.waitFor({state:'visible'});
+  for(const [selector,count] of [['h3',1],['strong',1],['em',1],['li',2],['blockquote',1],['pre code',1]]){
+   const actual=await box.locator(selector).count();
+   if(actual!==count)throw new Error(round+': '+selector+' count '+actual+' != '+count);
+  }
+  if(await box.locator('script').count())throw new Error(round+': HTML was parsed as DOM');
+  if(await page.evaluate(()=>window.__tasoXss)!==undefined)throw new Error(round+': active script');
+  const hrefs=await box.locator('a').evaluateAll(elements=>elements.map(element=>element.getAttribute('href')));
+  if(hrefs.length!==2||hrefs.some(href=>!href||!['http:','https:'].includes(new URL(href).protocol)))throw new Error(round+': untrusted href');
+  if(await box.locator('.markdown-unsafe-link').count()!==1)throw new Error(round+': invalid markdown link should be inert');
+ }
+ results.push({name:'Markdown-XSS-history',passes:2});
+ await page.screenshot({path:`${out}/safe-markdown-390.png`,fullPage:true});
+ await context.close();
+}
+
 const screens=[undefined,'Projects','Tasks','Approvals','Deployments','Monitoring','AI Agents','Knowledge','Integrations','Notifications','Settings'];
 for(const viewport of[{width:390,height:844},{width:1440,height:1000}])for(const theme of['dark','light'])for(const screen of screens)await shot({viewport,theme,screen});
 await voiceCoreAcceptance();
+await markdownSecurityAcceptance();
 writeFileSync(`${out}/report.json`,JSON.stringify({generatedAt:new Date().toISOString(),screens:screens.map(v=>v||'Dashboard'),results},null,2));
 await browser.close();
