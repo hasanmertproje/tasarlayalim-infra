@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {finishedCommit, inventory, storageStatus, gatewayMetadata, deploymentState, gatewayLogSignal, s3TargetState, collect} from '../scripts/taso-production-release-evidence.mjs';
+import {finishedCommit, inventory, storageStatus, gatewayMetadata, deploymentState, gatewayLogSignal, gatewayLogProbe, s3TargetState, collect} from '../scripts/taso-production-release-evidence.mjs';
 const sha = 'a'.repeat(40), other = 'b'.repeat(40);
 const names = ['taso-ui-prod','taso-core-prod','taso-search-prod','taso-browser-prod','taso-speaker-prod','taso-voice-prod'];
 const apps = names.map((name,i) => ({name,uuid:'sample'+i+'uuid',fqdn:i===0?'https://taso.tasarlayalim.com':''}));
@@ -73,4 +73,23 @@ test('logs and backup metadata redact all sensitive content',()=>{
   assert.equal(s3TargetState([{is_usable:false}]),'CONFIGURED_NOT_USABLE');
   assert.equal(s3TargetState([{is_usable:true}]),'USABLE_TARGET_ONLY');
   assert.equal(s3TargetState(null),'UNVERIFIABLE');
+});
+
+test('restricted Coolify log API reports permission instead of obscuring the blocker',async()=>{
+  const requests=[];
+  const stub=status=>async(url,options)=>{
+    requests.push({url,method:options.method,redirect:options.redirect});
+    return {ok:status===200,status,json:async()=>({logs:'BEARER_NEVER_LOG Unauthorized gateway.'})};
+  };
+  const uuid='exampleknownappuuid';
+  assert.equal(await gatewayLogProbe(stub(403),'fixture-token',uuid),'API_PERMISSION_DENIED');
+  assert.equal(await gatewayLogProbe(stub(401),'fixture-token',uuid),'API_PERMISSION_DENIED');
+  assert.equal(await gatewayLogProbe(stub(404),'fixture-token',uuid),'LOG_RESOURCE_UNAVAILABLE');
+  assert.equal(await gatewayLogProbe(stub(503),'fixture-token',uuid),'COOLIFY_HTTP_ERROR');
+  assert.equal(await gatewayLogProbe(stub(200),'fixture-token',uuid),'UNAUTHORIZED_GATEWAY_OBSERVED');
+  assert.equal(await gatewayLogProbe(async()=>{throw Error('secret-internal-error')},'fixture-token',uuid),'LOG_REQUEST_UNVERIFIABLE');
+  assert.equal(await gatewayLogProbe(stub(200),'fixture-token','../escape'),'INVALID_TARGET');
+  assert.equal(requests.length,5);
+  assert.ok(requests.every(r=>r.method==='GET'&&r.redirect==='error'));
+  assert.ok(requests.every(r=>r.url.startsWith('https://coolify.tasarlayalim.com/api/v1/applications/')));
 });
