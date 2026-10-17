@@ -1,0 +1,17 @@
+name: TASO Preview Log Safety CI
+on:
+  pull_request:
+    paths:
+      - "scripts/taso-urgent-preview-deploy.sh"
+      - "tests/taso-preview-log-safety.test.mjs"
+      - ".github/workflows/taso-preview-log-safety-ci.yml"
+permissions:
+  contents: read
+jobs:
+  preview-log-safety:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash -n scripts/taso-urgent-preview-deploy.sh
+      - run: node --test tests/taso-preview-log-safety.test.mjs
