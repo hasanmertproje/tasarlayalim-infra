@@ -1,0 +1,42 @@
+name: TASO Core UI Emergency Live Recovery
+on:
+  pull_request:
+    paths:
+      - scripts/taso-core-ui-live-recover.mjs
+      - tests/taso-core-ui-live-recover.test.mjs
+      - .github/workflows/taso-core-ui-hotfix.yml
+  push:
+    branches: [main]
+    paths:
+      - scripts/taso-core-ui-live-recover.mjs
+      - .github/workflows/taso-core-ui-hotfix.yml
+permissions:
+  contents: read
+concurrency:
+  group: taso-production
+  cancel-in-progress: false
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify GET-only preflight and exact Core/UI deploy contract
+        run: node --test tests/taso-core-ui-live-recover.test.mjs
+  release:
+    if: github.event_name == 'push'
+    needs: contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 140
+    env:
+      COOLIFY_API_TOKEN: ${{ secrets.COOLIFY_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Deploy existing TASO Core then UI without changing env or volumes
+        run: node scripts/taso-core-ui-live-recover.mjs
