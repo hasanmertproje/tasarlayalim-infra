@@ -50,6 +50,7 @@ async function inspect(page,name){
  if(metrics.narrow.length)throw new Error(`${name}: collapsed text columns ${JSON.stringify(metrics.narrow)}`);
  if(metrics.maxIconOffset>7)throw new Error(`${name}: bottom-nav icon alignment drift ${metrics.maxIconOffset.toFixed(1)}px`);
  if(/GEMINI LIVE|GEMINI-3\.8|AI PROVIDER ROUTER/i.test(metrics.bodyText))throw new Error(`${name}: provider branding leaked into primary UI`);
+ if(name.startsWith('Dashboard')&&/AI Planner|Mission Executor|Planning Watchdog|GitHub Broker|Coolify Broker/.test(metrics.bodyText))throw new Error(`${name}: untranslated agent labels on the command surface`);
  results.push({name,...metrics,bodyText:undefined});
 }
 
