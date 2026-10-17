@@ -35,7 +35,7 @@ export default function GlobalUiControlsV11() {
         onClick={() => setTheme((current) => current === 'dark' ? 'light' : 'dark')}
       >
         <span aria-hidden="true">{theme === 'dark' ? '☀' : '☾'}</span>
-        <b>{theme === 'dark' ? 'LIGHT' : 'DARK'}</b>
+        <b>{theme === 'dark' ? 'AÇIK' : 'KOYU'}</b>
       </button>
     </div>
   );
