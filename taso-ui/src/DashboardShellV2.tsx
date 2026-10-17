@@ -44,6 +44,15 @@ export default function DashboardShellV2({children}:{children:ReactNode}) {
     return()=>{document.body.classList.remove('taso-shell-drawer-open');window.removeEventListener('keydown',escape);triggerRef.current?.focus({preventScroll:true})};
   },[menuOpen]);
   const go=(target:TasoScreen)=>{navigate(target);setMenuOpen(false)};
+  function mobileVoice(){
+    if(screen!=='Command Center'){
+      // Switching routes unmounts the chat; never simulate a later permission gesture.
+      go('Command Center');
+      return;
+    }
+    const mic=document.querySelector<HTMLButtonElement>('.dashboard-chat .dashboard-chat-mic');
+    if(mic&&!mic.disabled)mic.click();
+  }
   const item=(target:TasoScreen)=><button key={target} type="button" className={screen===target?'ds2-link is-active':'ds2-link'} onClick={()=>go(target)} aria-current={screen===target?'page':undefined} title={TASO_SCREEN_LABELS[target]}><NavGlyph screen={target}/><span>{TASO_SCREEN_LABELS[target]}</span><i aria-hidden="true"/></button>;
   return <div className={expanded?'ds2-shell ds2-expanded':'ds2-shell'} data-screen={screen}>
     <aside className="ds2-sidebar" aria-label="Uygulama menüsü">
@@ -56,7 +65,9 @@ export default function DashboardShellV2({children}:{children:ReactNode}) {
       <main className="ds2-main" id="taso-main">{children}</main>
     </div>
     <nav className="ds2-bottom" aria-label="Mobil ana menü">
-      {(['Command Center','Projects','Tasks','Approvals'] as TasoScreen[]).map(target=><button key={target} type="button" className={screen===target?'is-active':''} aria-current={screen===target?'page':undefined} onClick={()=>go(target)}><NavGlyph screen={target}/><span>{target==='Command Center'?'Kontrol':TASO_SCREEN_LABELS[target]}</span></button>)}
+      {(['Command Center','Projects'] as TasoScreen[]).map(target=><button key={target} type="button" className={screen===target?'is-active':''} aria-current={screen===target?'page':undefined} onClick={()=>go(target)}><NavGlyph screen={target}/><span>{target==='Command Center'?'Kontrol':TASO_SCREEN_LABELS[target]}</span></button>)}
+      <button type="button" className="ds2-voice" onClick={mobileVoice} aria-label={screen==='Command Center'?'TASO Voice ile konuş':'TASO Voice ekranına git'} title="TASO Voice"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" width="22" height="22" aria-hidden="true"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3M9 21h6"/></svg><span>Ses</span></button>
+      <button type="button" className={screen==='Tasks'?'is-active':''} aria-current={screen==='Tasks'?'page':undefined} onClick={()=>go('Tasks')}><NavGlyph screen="Tasks"/><span>Görevler</span></button>
       <button ref={triggerRef} type="button" onClick={()=>setMenuOpen(true)} aria-label="Tüm menüyü aç" aria-expanded={menuOpen} aria-controls="ds2-drawer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="20" height="20" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg><span>Menü</span></button>
     </nav>
     {menuOpen&&<div className="ds2-drawer-backdrop" onMouseDown={e=>{if(e.target===e.currentTarget)setMenuOpen(false)}}><section className="ds2-drawer" id="ds2-drawer" role="dialog" aria-modal="true" aria-label="Tüm sayfalar"><header><strong>Sayfalar</strong><button ref={closeRef} type="button" onClick={()=>setMenuOpen(false)} aria-label="Menüyü kapat">×</button></header><nav aria-label="Tüm sayfalar">{[...TASO_PRIMARY_SCREENS,'Notifications','Infrastructure'].map(target=>item(target as TasoScreen))}</nav><div className="ds2-drawer-bottom"><span>{session.email||'Oturum'}</span><button type="button" onClick={()=>void logout()}>Çıkış</button></div></section></div>}
