@@ -145,8 +145,31 @@ core="${U[taso-core-prod]}"; ui="${U[taso-ui-prod]}"; browser="${U[taso-browser-
 speaker="${U[taso-speaker-prod]}"; voice="${U[taso-voice-prod]}"; search="${U[taso-search-prod]}"
 cf="$(envfile "$core")"; uf="$(envfile "$ui")"; bf="$(envfile "$browser")"; sf="$(envfile "$speaker")"; vf="$(envfile "$voice")"; xf="$(envfile "$search")"
 reuse() { jq -r --arg k "$2" '[.[]|select(.key==$k)|.value//empty][0]//empty' "$1"; }
-gateway="$(reuse "$cf" TASO_GATEWAY_SECRET)"; [[ -n "$gateway" ]] || gateway="$(openssl rand -hex 32)"
-authkey="$(reuse "$cf" TASO_AUTH_ENCRYPTION_KEY)"; [[ -n "$authkey" ]] || authkey="$(openssl rand -hex 32)"
+# Existing Core credentials may encrypt persisted owner/TOTP state. An unreadable
+# Coolify API response must NEVER be treated as permission to rotate either key.
+is_unusable_production_secret() {
+  local value="\${1:-}"
+  if [[ -z "\${value//[[:space:]]/}" ]]; then return 0; fi
+  case "$value" in masked|MASKED|redacted|REDACTED|NULL|null|'[hidden]'|'<hidden>'|'<redacted>') return 0 ;; esac
+  if [[ "$value" =~ ^\*{3,}$ || "$value" =~ ^•{3,}$ ]]; then return 0; fi
+  return 1
+}
+gateway="$(reuse "$cf" TASO_GATEWAY_SECRET)"
+if is_unusable_production_secret "$gateway"; then
+  if [[ "\${core_preexisting:-false}" == true ]]; then
+    echo "::error::Existing Core gateway secret is missing or unreadable; refusing automatic rotation." >&2
+    exit 1
+  fi
+  gateway="$(openssl rand -hex 32)"
+fi
+authkey="$(reuse "$cf" TASO_AUTH_ENCRYPTION_KEY)"
+if is_unusable_production_secret "$authkey"; then
+  if [[ "\${core_preexisting:-false}" == true ]]; then
+    echo "::error::Existing Core auth encryption key is missing or unreadable; refusing automatic rotation." >&2
+    exit 1
+  fi
+  authkey="$(openssl rand -hex 32)"
+fi
 browserkey="$(reuse "$bf" TASO_BROWSER_WORKER_SECRET)"; [[ -n "$browserkey" ]] || browserkey="$(openssl rand -hex 32)"
 speakerkey="$(reuse "$sf" TASO_SPEAKER_SERVICE_SECRET)"; [[ -n "$speakerkey" ]] || speakerkey="$(openssl rand -hex 32)"
 for v in "$gateway" "$authkey" "$browserkey" "$speakerkey"; do mask "$v"; done
