@@ -1,0 +1,68 @@
+name: TASO Gateway Config Read-Only
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/taso-gateway-config-readonly.yml"
+      - "scripts/taso-gateway-coolify-config-check.mjs"
+      - "tests/taso-gateway-coolify-config.test.mjs"
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/taso-gateway-config-readonly.yml"
+      - "scripts/taso-gateway-coolify-config-check.mjs"
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: taso-gateway-config-readonly
+  cancel-in-progress: false
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout$v4
+      - uses: actions/setup-node$v4
+        with:
+          node-version: "22"
+      - name: Confirm fail-closed comparison without credentials
+        run: node --test tests/taso-gateway-coolify-config.test.mjs
+  discover:
+    if: github.event_name != 'pull_request'
+    needs: contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      COOLIFY_API_TOKEN: ${{ secrets.COOLIFY_API_TOKEN }}
+      COOLIFY_API_BASE: https://coolify.tasarlayalim.com/api/v1
+    steps:
+      - uses: actions/checkout$v4
+      - uses: actions/setup-node$v4
+        with:
+          node-version: "22"
+      - name: Compare production Core and UI stored config (read-only)
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +x
+          umask 077
+          test -n "${COOLIFY_API_TOKEN:-}" || { echo "Coolify token not configured"; exit 1; }
+          tmp="$(mktemp -d)"
+          trap 'rm -rf "$tmp"' EXIT
+          api_get() {
+            curl --silent --show-error --fail --connect-timeout 15 --max-time 40 \
+              -H "Authorization: Bearer $COOLIFY_API_TOKEN" \
+              -H "Accept: application/json" \
+              "$COOLIFY_API_BASE/$1"
+          }
+          api_get applications > "$tmp/apps.json"
+          core="$(jq -r '[.[] | select(.name == "taso-core-prod") | .uuid] | if length == 1 then .[0] else "" end' "$tmp/apps.json")"
+          ui="$(jq -r '[.[] | select(.name == "taso-ui-prod") | .uuid] | if length == 1 then .[0] else "" end' "$tmp/apps.json")"
+          for id in "$core" "$ui"; do
+            [[ "$id" =~ ^[A-Za-z0-9_-]{5,64}$ ]] || { echo "Production resources not uniquely resolvable"; exit 1; }
+          done
+          api_get "applications/$core/envs" > "$tmp/core.json"
+          api_get "applications/$ui/envs" > "$tmp/ui.json"
+          echo "### TASO production stored gateway configuration (no secret values)"
+          node scripts/taso-gateway-coolify-config-check.mjs "$tmp/core.json" "$tmp/ui.json" | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "Runtime container values and effective nginx config still require the VPS host audit."
