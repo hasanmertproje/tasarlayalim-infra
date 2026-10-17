@@ -1,0 +1,40 @@
+name: TASO Production Service Inventory
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/taso-production-service-inventory.yml"
+      - "scripts/taso-production-service-inventory.mjs"
+      - "tests/taso-production-service-inventory.test.mjs"
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/taso-production-service-inventory.yml"
+      - "scripts/taso-production-service-inventory.mjs"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Verify read-only inventory contract
+        run: node --test tests/taso-production-service-inventory.test.mjs
+  discover:
+    if: github.event_name != 'pull_request'
+    needs: contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      COOLIFY_API_TOKEN: ${{ secrets.COOLIFY_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Inspect production services without modifying resources
+        run: node scripts/taso-production-service-inventory.mjs
