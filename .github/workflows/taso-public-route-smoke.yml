@@ -1,0 +1,38 @@
+name: TASO Public Route Smoke
+on:
+  pull_request:
+    paths:
+      - "scripts/taso-public-route-probe.mjs"
+      - "tests/taso-public-route-probe.test.mjs"
+      - ".github/workflows/taso-public-route-smoke.yml"
+  push:
+    branches: [main]
+    paths:
+      - "scripts/taso-public-route-probe.mjs"
+      - ".github/workflows/taso-public-route-smoke.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Validate route contract offline
+        run: node --test tests/taso-public-route-probe.test.mjs
+  public-verify:
+    if: github.event_name != 'pull_request'
+    needs: contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Probe production public routes without credentials
+        run: node scripts/taso-public-route-probe.mjs
