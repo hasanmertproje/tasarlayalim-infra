@@ -22,7 +22,7 @@ export function classifyAnonymous401(raw) {
     if (raw.length > 2048) return 'ANONYMOUS_401_UNCLASSIFIED';
     const data = JSON.parse(raw);
     const error = data && typeof data.error === 'string' ? data.error : '';
-    if (error === 'Unauthorized gateway.') return 'GATEWAY_SECRET_REJECTED';
+    if (error === 'Unauthorized gateway.' || data.message === 'Unauthorized gateway.') return 'GATEWAY_SECRET_REJECTED';
     if (error && error.length <= 256) return 'EXPECTED_ANONYMOUS_DENIAL';
   } catch {
     // Do not print a raw response from a production authentication boundary.
