@@ -17,6 +17,14 @@ const ACTIVE=new Set(['queued','planning','running','testing','waiting_approval'
 const statusMap:Record<string,string>={queued:'Kuyrukta',planning:'Planlanıyor',running:'Çalışıyor',testing:'Doğrulanıyor',waiting_approval:'Onay bekliyor',preview_ready:'Önizleme hazır',completed:'Tamamlandı',failed:'Hata',cancelled:'İptal edildi'};
 const riskMap:Record<Risk,string>={READ:'Salt okuma',WRITE:'Değişiklik yapabilir',HIGH_IMPACT:'Yüksek etki · onay gerekir'};
 const stateMap:Record<Capability['state'],string>={ready:'Hazır',limited:'Kısıtlı','not-configured':'Yapılandırılmadı',unavailable:'Erişilemiyor'};
+const agentLabels:Record<string,string>={
+ 'AI Planner':'Yapay Zekâ Planlayıcısı',
+ 'Mission Executor':'Görev Yürütücüsü',
+ 'Planning Watchdog':'Planlama Gözcüsü',
+ 'GitHub Broker':'GitHub Bağlayıcısı',
+ 'Coolify Broker':'Coolify Dağıtım Bağlayıcısı',
+};
+
 const relative=(date?:string)=>{if(!date)return'—';const n=Date.parse(date);if(!Number.isFinite(n))return'—';const m=Math.max(0,Math.floor((Date.now()-n)/60000));return m<1?'Az önce':m<60?`${m} dk önce`:m<1440?`${Math.floor(m/60)} sa önce`:new Date(n).toLocaleString('tr-TR',{dateStyle:'short',timeStyle:'short'})};
 const status=(code?:string)=>code?(statusMap[code]||'Bilinmeyen durum'):'Görev yok';
 function safeExternal(value?:string){if(!value)return undefined;try{const u=new URL(value);return u.protocol==='https:'||u.protocol==='http:'?u.href:undefined}catch{return undefined}}
@@ -88,7 +96,7 @@ export default function CommandCenterV30(){
    </div><aside className="cc30-rail">
      <section className="cc30-panel"><div className="cc30-panel-head"><div><span className="cc30-eyebrow">SİSTEM</span><h3>Kabiliyet durumu</h3></div></div><div className="cc30-capabilities">{capabilityRows.map(([name,c])=><div key={name}><span className={c.ready?'cc30-dot is-ready':'cc30-dot'}/><span>{name}</span><strong className={c.ready?'is-ready':''}>{c.label}</strong></div>)}</div><p className="cc30-subnote">Ses: tarayıcı desteği, sağlayıcı hazır olmasından ayrı değerlendirilir.</p></section>
      <section className="cc30-panel"><div className="cc30-panel-head"><div><span className="cc30-eyebrow">KARARLAR</span><h3>Onay bekleyenler</h3></div><button type="button" onClick={()=>navigateTaso('Approvals')}>Tümü ↗</button></div><strong className="cc30-approval-number">{coreOk?approvals.length:'—'}</strong>{approvals.length?approvals.slice(0,3).map(m=><button className="cc30-approval-item" type="button" key={m.id} onClick={()=>navigateTaso('Approvals')}><span>{m.objective}</span><small>İncele ↗</small></button>):<p className="cc30-muted">Bekleyen onay görünmüyor.</p>}</section>
-     <section className="cc30-panel"><div className="cc30-panel-head"><div><span className="cc30-eyebrow">AJANLAR</span><h3>Çalışma durumu</h3></div><button type="button" onClick={()=>navigateTaso('AI Agents')}>Ajanlar ↗</button></div>{operations?.agents?.length?operations.agents.slice(0,5).map(a=><div className="cc30-agent" key={a.id}><span className={a.status==='busy'?'cc30-dot is-ready':'cc30-dot'}/><div><strong>{a.label}</strong><small>{a.status==='busy'?'Çalışıyor':a.status==='ready'?'Hazır':a.status==='degraded'?'Kısıtlı':'Doğrulanamadı'}</small></div></div>):<p className="cc30-muted">Ajan verisi alınamadı.</p>}</section>
+     <section className="cc30-panel"><div className="cc30-panel-head"><div><span className="cc30-eyebrow">AJANLAR</span><h3>Çalışma durumu</h3></div><button type="button" onClick={()=>navigateTaso('AI Agents')}>Ajanlar ↗</button></div>{operations?.agents?.length?operations.agents.slice(0,5).map(a=><div className="cc30-agent" key={a.id}><span className={a.status==='busy'?'cc30-dot is-ready':'cc30-dot'}/><div><strong>{agentLabels[a.label]||a.label}</strong><small>{a.status==='busy'?'Çalışıyor':a.status==='ready'?'Hazır':a.status==='degraded'?'Kısıtlı':'Doğrulanamadı'}</small></div></div>):<p className="cc30-muted">Ajan verisi alınamadı.</p>}</section>
    </aside></div>
  </section>;
 }
