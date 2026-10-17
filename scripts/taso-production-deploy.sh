@@ -148,15 +148,15 @@ reuse() { jq -r --arg k "$2" '[.[]|select(.key==$k)|.value//empty][0]//empty' "$
 # Existing Core credentials may encrypt persisted owner/TOTP state. An unreadable
 # Coolify API response must NEVER be treated as permission to rotate either key.
 is_unusable_production_secret() {
-  local value="\${1:-}"
-  if [[ -z "\${value//[[:space:]]/}" ]]; then return 0; fi
+  local value="${1:-}"
+  if [[ -z "${value//[[:space:]]/}" ]]; then return 0; fi
   case "$value" in masked|MASKED|redacted|REDACTED|NULL|null|'[hidden]'|'<hidden>'|'<redacted>') return 0 ;; esac
   if [[ "$value" =~ ^\*{3,}$ || "$value" =~ ^•{3,}$ ]]; then return 0; fi
   return 1
 }
 gateway="$(reuse "$cf" TASO_GATEWAY_SECRET)"
 if is_unusable_production_secret "$gateway"; then
-  if [[ "\${core_preexisting:-false}" == true ]]; then
+  if [[ "${core_preexisting:-false}" == true ]]; then
     echo "::error::Existing Core gateway secret is missing or unreadable; refusing automatic rotation." >&2
     exit 1
   fi
@@ -164,7 +164,7 @@ if is_unusable_production_secret "$gateway"; then
 fi
 authkey="$(reuse "$cf" TASO_AUTH_ENCRYPTION_KEY)"
 if is_unusable_production_secret "$authkey"; then
-  if [[ "\${core_preexisting:-false}" == true ]]; then
+  if [[ "${core_preexisting:-false}" == true ]]; then
     echo "::error::Existing Core auth encryption key is missing or unreadable; refusing automatic rotation." >&2
     exit 1
   fi
