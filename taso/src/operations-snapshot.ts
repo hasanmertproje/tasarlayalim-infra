@@ -126,6 +126,10 @@ function summarizeProject(project: Project, missions: Mission[], milestones: Pro
 function liveWorkerAgents(missions: Mission[], projects: Project[]): AgentOperationsItem[] {
   const projectById = new Map(projects.map((project) => [project.id, project]));
   return missions.flatMap((mission) => {
+    // A stale agentRun may survive state recovery; terminal missions are never live workers.
+    // Only an executing mission may claim a live worker. Queued/planning recovery snapshots
+    // can contain old running agentRuns, but those records are not live processes.
+    if (mission.status !== 'running' && mission.status !== 'testing') return [];
     const runs = mission.execution?.agentRuns ?? [];
     const activeRuns = runs.filter((run) => run.status === 'running');
     return activeRuns.map((run) => ({

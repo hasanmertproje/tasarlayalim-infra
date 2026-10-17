@@ -186,3 +186,58 @@ test('running mission agent is exposed as a real live worker with progress', () 
   assert.equal(worker?.progress, 46);
   assert.match(worker?.detail ?? '', /Applying scoped file changes/);
 });
+
+
+test('terminal missions cannot create phantom busy workers from persisted stale agent runs', () => {
+  const terminal = mission('mission_completed_with_stale_agent', 'completed');
+  terminal.execution = {
+    agentRuns: [{
+      id: 'orphan_run',
+      missionId: terminal.id,
+      role: 'builder',
+      label: 'Old implementation agent',
+      status: 'running',
+      action: 'Stale persisted action',
+      progress: 88,
+      startedAt: '2026-10-08T10:00:00.000Z',
+      updatedAt: '2026-10-08T10:02:00.000Z',
+    }],
+  };
+  const snapshot = buildOperationsSnapshot({
+    projects: [project],
+    milestones: [],
+    missions: [terminal],
+    events: [],
+    readiness: { readyForRead: false, readyForWrite: false, ai: { configured: false } },
+    watchdogRunning: false,
+  });
+  assert.equal(snapshot.agents.filter(agent => agent.id.startsWith('worker:')).length, 0);
+  assert.equal(snapshot.agents.find(agent => agent.id === 'executor')?.status, 'degraded');
+  assert.equal(snapshot.agents.find(agent => agent.id === 'planner')?.status, 'unconfigured');
+  assert.equal(snapshot.agents.find(agent => agent.id === 'watchdog')?.status, 'degraded');
+  assert.equal(snapshot.projects[0]?.activeMissions, 0);
+});
+
+test('queued or planning missions with recovered running agent records never claim busy workers', () => {
+  for (const status of ['queued','planning','waiting_approval'] as const) {
+    const recovered = mission('recovered_'+status, status);
+    recovered.execution = { agentRuns: [{
+      id: 'stale_running_'+status,
+      missionId: recovered.id,
+      role: 'builder',
+      label: 'Recovered agent',
+      status: 'running',
+      action: 'Orphaned before restart',
+      progress: 20,
+      startedAt: '2026-10-08T10:00:00.000Z',
+      updatedAt: '2026-10-08T10:02:00.000Z',
+    }] };
+    const snapshot = buildOperationsSnapshot({
+      projects:[project],milestones:[],missions:[recovered],events:[],
+      readiness:{readyForRead:true,readyForWrite:true,activeMissionIds:[]},
+      watchdogRunning:true,
+    });
+    assert.equal(snapshot.agents.filter(agent => agent.id.startsWith('worker:')).length, 0, status);
+    assert.equal(snapshot.agents.find(agent=>agent.id==='executor')?.status,'ready');
+  }
+});
