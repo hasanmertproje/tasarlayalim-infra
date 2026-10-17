@@ -46,16 +46,11 @@ test('gateway readiness validates live nginx-to-Core secret without disclosure',
   }
 });
 
-test('gateway readiness rejects absent production secret even though process health can be up', async () => {
+test('gateway readiness rejects absent secret even though process health can be up', async () => {
   const oldSecret = process.env.TASO_GATEWAY_SECRET;
   const oldNodeEnv = process.env.NODE_ENV;
   delete process.env.TASO_GATEWAY_SECRET;
-  process.env.NODE_ENV = 'production';
-  // Avoid writing to a production-like default location in this isolated test.
-  const oldState = process.env.TASO_STATE_FILE;
-  const oldAuth = process.env.TASO_AUTH_SECURITY_FILE;
-  process.env.TASO_STATE_FILE = '';
-  process.env.TASO_AUTH_SECURITY_FILE = '';
+  process.env.NODE_ENV = 'test';
   const app = buildServer();
   try {
     const response = await app.inject({ method: 'GET', url: '/gateway/health' });
@@ -67,9 +62,5 @@ test('gateway readiness rejects absent production secret even though process hea
     else process.env.TASO_GATEWAY_SECRET = oldSecret;
     if (oldNodeEnv === undefined) delete process.env.NODE_ENV;
     else process.env.NODE_ENV = oldNodeEnv;
-    if (oldState === undefined) delete process.env.TASO_STATE_FILE;
-    else process.env.TASO_STATE_FILE = oldState;
-    if (oldAuth === undefined) delete process.env.TASO_AUTH_SECURITY_FILE;
-    else process.env.TASO_AUTH_SECURITY_FILE = oldAuth;
   }
 });
