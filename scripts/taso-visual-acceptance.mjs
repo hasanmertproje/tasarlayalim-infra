@@ -105,7 +105,7 @@ async function voiceCoreAcceptance(){
  await page.goto(base,{waitUntil:'networkidle'});
  await page.locator('.dashboard-chat').waitFor({state:'visible'});
  await page.locator('.dashboard-chat input[type="checkbox"]').check();
- await page.locator('.dashboard-chat-mic').click();
+ await page.locator('.ds2-bottom .ds2-voice').click();
  await page.waitForFunction(()=>Boolean(window.__tasoVoiceRecognition));
 
  await page.evaluate(()=>{const r=window.__tasoVoiceRecognition;r.onresult?.({resultIndex:0,results:Object.assign([{0:{transcript:'OpenAI resmi sitesini webde'},isFinal:false}],{length:1})})});
@@ -217,7 +217,7 @@ async function voiceFailureAcceptance(){
   window.webkitSpeechRecognition=DeniedSpeechRecognition;
  });
  await authenticate(page);await page.goto(base,{waitUntil:'networkidle'});
- await page.locator('.dashboard-chat-mic').click();
+ await page.locator('.ds2-bottom .ds2-voice').click();
  await page.locator('.dashboard-chat [role="alert"]').waitFor({state:'visible'});
  if(await page.locator('.dashboard-chat').evaluate(e=>e.classList.contains('voice-session')))throw new Error('Denied mic left a live voice session');
  if(await page.locator('.dashboard-chat-mic').getAttribute('aria-pressed')!=='false')throw new Error('Voice button pressed after permission denial');
