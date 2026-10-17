@@ -30,12 +30,35 @@ export function inventory(apps) {
 }
 export function storageStatus(payload, mount) {
   if (!Array.isArray(payload?.persistent_storages)) return 'UNVERIFIABLE';
-  return payload.persistent_storages.some(s => s?.mount_path === mount) ? 'PRESENT' : 'MISSING';
+  const matches=payload.persistent_storages.filter(s => s?.mount_path === mount);
+  return matches.length === 1 ? 'PRESENT' : matches.length > 1 ? 'DUPLICATED' : 'MISSING';
 }
 export function gatewayMetadata(payload) {
   if (!Array.isArray(payload)) return 'UNVERIFIABLE';
   const rows = payload.filter(x => x?.key === 'TASO_GATEWAY_SECRET' && x?.is_preview !== true);
   return rows.length === 1 ? 'KEY_PRESENT_VALUE_UNVERIFIED' : rows.length ? 'DUPLICATED' : 'MISSING';
+}
+export function deploymentState(payload) {
+  const rows = Array.isArray(payload) ? payload :
+    Array.isArray(payload?.deployments) ? payload.deployments :
+    Array.isArray(payload?.data) ? payload.data : null;
+  if (!rows) return {lastFailedCommit:'UNKNOWN', pendingDeployments:'UNKNOWN', rollbackCandidate:'UNVERIFIABLE'};
+  const failed = rows.filter(r => r?.status === 'failed' && sha.test(r.commit ?? r.git_commit_sha ?? ''))
+    .sort((a,b) => String(b.created_at ?? '').localeCompare(String(a.created_at ?? '')))[0];
+  const pending = rows.filter(r => ['queued','pending','in_progress','running'].includes(r?.status)).length;
+  const candidate = finishedCommit(rows);
+  return {lastFailedCommit:failed ? String(failed.commit ?? failed.git_commit_sha).toLowerCase() : 'NONE_IN_HISTORY',
+    pendingDeployments:pending, rollbackCandidate:candidate === 'UNKNOWN' ? 'UNVERIFIABLE' : candidate};
+}
+export function gatewayLogSignal(payload) {
+  if (typeof payload?.logs !== 'string') return 'UNVERIFIABLE';
+  return /Unauthorized gateway\./i.test(payload.logs) ? 'UNAUTHORIZED_GATEWAY_OBSERVED'
+    : 'NOT_OBSERVED_IN_LAST_100_LINES';
+}
+export function s3TargetState(payload) {
+  if (!Array.isArray(payload)) return 'UNVERIFIABLE';
+  if (payload.length === 0) return 'NOT_CONFIGURED';
+  return payload.some(s => s?.is_usable === true) ? 'USABLE_TARGET_ONLY' : 'CONFIGURED_NOT_USABLE';
 }
 function status(value) {
   if (value === 'running:healthy') return 'HEALTHY_REPORTED';
@@ -59,16 +82,18 @@ export async function collect(fetcher, token, main) {
   for (const app of all.rows) {
     if (!app.uuid) {
       reports.push({name:app.name, match:app.match, state:'UNKNOWN', branch:'UNKNOWN',
-        storage:app.mount ? 'UNVERIFIABLE' : 'N/A', lastFinishedCommit:'UNKNOWN'});
+        storage:app.mount ? 'UNVERIFIABLE' : 'N/A', lastFinishedCommit:'UNKNOWN',
+        lastFailedCommit:'UNKNOWN', pendingDeployments:'UNKNOWN', rollbackCandidate:'UNVERIFIABLE'});
       continue;
     }
     const detail = await get('applications/' + app.uuid);
     const history = await get('deployments/applications/' + app.uuid + '?skip=0&take=25').catch(() => null);
     const storage = app.mount ? await get('applications/' + app.uuid + '/storages').catch(() => null) : null;
+    const historyState = deploymentState(history);
     reports.push({name:app.name, match:app.match, state:status(detail?.status),
       branch:detail?.git_branch === 'main' ? 'main' : 'OTHER_OR_UNKNOWN',
       storage:app.mount ? storageStatus(storage, app.mount) : 'N/A',
-      lastFinishedCommit:finishedCommit(history)});
+      lastFinishedCommit:finishedCommit(history), ...historyState});
   }
   const gateway = {};
   for (const name of ['taso-core-prod','taso-ui-prod']) {
@@ -76,14 +101,22 @@ export async function collect(fetcher, token, main) {
     const envs = app?.uuid ? await get('applications/' + app.uuid + '/envs').catch(() => null) : null;
     gateway[name] = gatewayMetadata(envs);
   }
+  // Container logs can include sensitive strings. They are parsed only in runner memory
+  // to detect a fixed error phrase; raw logs never go to Actions output or artifacts.
+  const gatewayLogs = {};
+  for (const name of ['taso-core-prod','taso-ui-prod']) {
+    const app = all.rows.find(x => x.name === name);
+    const logs = app?.uuid ? await get('applications/' + app.uuid + '/logs?lines=100').catch(() => null) : null;
+    gatewayLogs[name] = gatewayLogSignal(logs);
+  }
   const backups = await get('s3-storages').catch(() => null);
-  const offsite = !Array.isArray(backups) ? 'UNVERIFIABLE' :
-    backups.some(x => x?.is_usable === true) ? 'USABLE_TARGET_ONLY' : 'NOT_USABLE';
+  const offsite = s3TargetState(backups);
   const current = reports.filter(x => x.name === 'taso-ui-prod' || x.name === 'taso-core-prod');
   const atHead = current.every(x => x.lastFinishedCommit === main.toLowerCase());
   // A finished deployment record does not prove which image currently runs.
-  return {domain:all.domain, reports, gateway, offsite, atHead, decision:'NO_GO',
+  return {domain:all.domain, reports, gateway, gatewayLogs, offsite, atHead, decision:'NO_GO',
     reasons:['RUNTIME_IMAGE_UNVERIFIED','GATEWAY_EQUALITY_UNVERIFIED','BACKUP_RESTORE_UNVERIFIED',
+      'BACKUP_EXECUTIONS_UNVERIFIED','ROLLBACK_TARGET_UNVERIFIED',
       'AUTHENTICATED_ACCEPTANCE_UNVERIFIED',...(!atHead?['LAST_FINISHED_DEPLOYMENTS_NOT_MAIN']:[])]};
 }
 if (process.argv[1] && import.meta.url === new URL('file://' + process.argv[1]).href) {
@@ -92,9 +125,14 @@ if (process.argv[1] && import.meta.url === new URL('file://' + process.argv[1]).
     console.log('coolify_readonly_evidence=COLLECTED domain_owner=' + data.domain);
     for (const r of data.reports) console.log('service=' + r.name + ' match=' + r.match +
       ' status=' + r.state + ' branch=' + r.branch + ' storage=' + r.storage +
-      ' last_finished_deployment_sha=' + r.lastFinishedCommit);
+      ' last_finished_deployment_sha=' + r.lastFinishedCommit +
+      ' last_failed_deployment_sha=' + r.lastFailedCommit +
+      ' pending_deployments=' + r.pendingDeployments +
+      ' rollback_candidate_sha=' + r.rollbackCandidate);
     console.log('core_gateway=' + data.gateway['taso-core-prod']);
     console.log('ui_gateway=' + data.gateway['taso-ui-prod']);
+    console.log('core_gateway_log_signal=' + data.gatewayLogs['taso-core-prod']);
+    console.log('ui_gateway_log_signal=' + data.gatewayLogs['taso-ui-prod']);
     console.log('s3_backup_target=' + data.offsite);
     console.log('release_decision=' + data.decision + ' reasons=' + data.reasons.join(','));
   } catch {
