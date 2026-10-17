@@ -28,10 +28,10 @@ export default function CommandCenterV30(){
  const [health,setHealth]=useState<Health|null>(null),[research,setResearch]=useState<Research|null>(null),[capabilities,setCapabilities]=useState<Capability[]|null>(null),[voice,setVoice]=useState<VoiceStatus|null>(null);
  const [projectId,setProjectId]=useState(''),[objective,setObjective]=useState(''),[risk,setRisk]=useState<Risk>('WRITE'),[mode,setMode]=useState<'assisted'|'autonomous'>('autonomous');
  const [busy,setBusy]=useState(false),[loading,setLoading]=useState(true),[error,setError]=useState(''),[lastSync,setLastSync]=useState<string|null>(null);
- const pendingRequest=useRef(false),submitRequest=useRef(false);
+ const pendingRequest=useRef<AbortSignal|'manual'|null>(null),submitRequest=useRef(false);
  const refresh=useCallback(async(signal?:AbortSignal)=>{
-  if(pendingRequest.current)return;
-  pendingRequest.current=true;
+  if(pendingRequest.current&&(pendingRequest.current==='manual'||!pendingRequest.current.aborted))return;
+  const requestKey=signal||'manual';pendingRequest.current=requestKey;
   try{
    const [p,m,o,h,r,c,v]=await Promise.all([
     get<{projects:Project[]}>('/v1/projects',signal),get<{missions:Mission[]}>('/v1/missions',signal),
@@ -45,7 +45,7 @@ export default function CommandCenterV30(){
    setProjects(valid);setMissions(m.missions||[]);setOperations(o.operations||null);setHealth(h);setResearch(r?.research||null);setCapabilities(c?.capabilities||null);setVoice(v);
    setProjectId(id=>valid.some(x=>x.id===id)?id:valid[0]?.id||'');setLastSync(new Date().toISOString());setError('');
   }catch(e){if(!signal?.aborted){setError((e as Error).message);setHealth(null);setOperations(null);setCapabilities(null);setResearch(null);setVoice(null)}}
-  finally{pendingRequest.current=false;if(!signal?.aborted)setLoading(false)}
+  finally{if(pendingRequest.current===requestKey)pendingRequest.current=null;if(!signal?.aborted)setLoading(false)}
  },[]);
  useEffect(()=>{const controller=new AbortController();void refresh(controller.signal);const timer=window.setInterval(()=>{if(!document.hidden)void refresh(controller.signal)},15000);return()=>{controller.abort();window.clearInterval(timer)}},[refresh]);
  const selected=projects.find(x=>x.id===projectId);
