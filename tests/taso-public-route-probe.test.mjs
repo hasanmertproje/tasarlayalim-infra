@@ -53,3 +53,23 @@ test('real public endpoint fingerprint flags secret mismatch while keeping respo
   assert.equal(results.at(-1)?.classification, 'GATEWAY_SECRET_REJECTED');
   assert.ok(!JSON.stringify(results).includes('Unauthorized gateway.'));
 });
+
+test('nginx-generated anonymous HTML 401 is accepted only with independent healthy gateway and bounded body',async()=>{
+  const responses=(gate=200,contentLength='179',contentType='text/html')=>async(url)=>{
+    const name=url.pathname;
+    const status=name==='/api/v1/projects'?401:name==='/api/gateway/health'?gate:200;
+    return {status,
+      headers:{get:key=>key==='content-type'?contentType:key==='content-length'?contentLength:null},
+      body:{cancel:async()=>undefined},text:async()=>'<html><body>401 Authorization Required</body></html>'};
+  };
+  const ok=await probe('https://taso.tasarlayalim.com',responses());
+  assert.equal(ok.at(-1).classification,'EXPECTED_ANONYMOUS_DENIAL_CROSSCHECKED');
+  const gatewayBroken=await probe('https://taso.tasarlayalim.com',responses(401));
+  assert.equal(gatewayBroken.at(-1).classification,'ANONYMOUS_401_UNCLASSIFIED');
+  const huge=await probe('https://taso.tasarlayalim.com',responses(200,'100000'));
+  assert.equal(huge.at(-1).classification,'ANONYMOUS_401_UNCLASSIFIED');
+  const missingLength=await probe('https://taso.tasarlayalim.com',responses(200,null));
+  assert.equal(missingLength.at(-1).classification,'ANONYMOUS_401_UNCLASSIFIED');
+  const noNginx=await probe('https://taso.tasarlayalim.com',responses(200,'179','application/octet-stream'));
+  assert.equal(noNginx.at(-1).classification,'ANONYMOUS_401_UNCLASSIFIED');
+});
