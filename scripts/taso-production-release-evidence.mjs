@@ -30,12 +30,35 @@ export function inventory(apps) {
 }
 export function storageStatus(payload, mount) {
   if (!Array.isArray(payload?.persistent_storages)) return 'UNVERIFIABLE';
-  return payload.persistent_storages.some(s => s?.mount_path === mount) ? 'PRESENT' : 'MISSING';
+  const matches=payload.persistent_storages.filter(s => s?.mount_path === mount);
+  return matches.length === 1 ? 'PRESENT' : matches.length > 1 ? 'DUPLICATED' : 'MISSING';
 }
 export function gatewayMetadata(payload) {
   if (!Array.isArray(payload)) return 'UNVERIFIABLE';
   const rows = payload.filter(x => x?.key === 'TASO_GATEWAY_SECRET' && x?.is_preview !== true);
   return rows.length === 1 ? 'KEY_PRESENT_VALUE_UNVERIFIED' : rows.length ? 'DUPLICATED' : 'MISSING';
+}
+export function deploymentState(payload) {
+  const rows = Array.isArray(payload) ? payload :
+    Array.isArray(payload?.deployments) ? payload.deployments :
+    Array.isArray(payload?.data) ? payload.data : null;
+  if (!rows) return {lastFailedCommit:'UNKNOWN', pendingDeployments:'UNKNOWN', rollbackCandidate:'UNVERIFIABLE'};
+  const failed = rows.filter(r => r?.status === 'failed' && sha.test(r.commit ?? r.git_commit_sha ?? ''))
+    .sort((a,b) => String(b.created_at ?? '').localeCompare(String(a.created_at ?? '')))[0];
+  const pending = rows.filter(r => ['queued','pending','in_progress','running'].includes(r?.status)).length;
+  const candidate = finishedCommit(rows);
+  return {lastFailedCommit:failed ? String(failed.commit ?? failed.git_commit_sha).toLowerCase() : 'NONE_IN_HISTORY',
+    pendingDeployments:pending, rollbackCandidate:candidate === 'UNKNOWN' ? 'UNVERIFIABLE' : candidate};
+}
+export function gatewayLogSignal(payload) {
+  if (typeof payload?.logs !== 'string') return 'UNVERIFIABLE';
+  return /Unauthorized gateway\./i.test(payload.logs) ? 'UNAUTHORIZED_GATEWAY_OBSERVED'
+    : 'NOT_OBSERVED_IN_LAST_100_LINES';
+}
+export function s3TargetState(payload) {
+  if (!Array.isArray(payload)) return 'UNVERIFIABLE';
+  if (payload.length === 0) return 'NOT_CONFIGURED';
+  return payload.some(s => s?.is_usable === true) ? 'USABLE_TARGET_ONLY' : 'CONFIGURED_NOT_USABLE';
 }
 function status(value) {
   if (value === 'running:healthy') return 'HEALTHY_REPORTED';
