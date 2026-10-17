@@ -21,8 +21,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout$v4
-      - uses: actions/setup-node$v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: "22"
       - name: Confirm fail-closed comparison without credentials
@@ -36,8 +36,8 @@ jobs:
       COOLIFY_API_TOKEN: ${{ secrets.COOLIFY_API_TOKEN }}
       COOLIFY_API_BASE: https://coolify.tasarlayalim.com/api/v1
     steps:
-      - uses: actions/checkout$v4
-      - uses: actions/setup-node$v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: "22"
       - name: Compare production Core and UI stored config (read-only)
