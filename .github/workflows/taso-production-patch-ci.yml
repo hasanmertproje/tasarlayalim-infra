@@ -12,6 +12,7 @@ on:
       - "scripts/taso-production-core-clone-compat.sh"
       - "scripts/taso-production-api-retry-compat.sh"
       - "scripts/taso-production-ui-retry-compat.sh"
+      - "tests/taso-production-secret-preservation.test.mjs"
   push:
     branches: [main]
     paths:
@@ -23,6 +24,7 @@ on:
       - "scripts/taso-production-core-clone-compat.sh"
       - "scripts/taso-production-api-retry-compat.sh"
       - "scripts/taso-production-ui-retry-compat.sh"
+      - "tests/taso-production-secret-preservation.test.mjs"
   workflow_dispatch:
 
 permissions:
@@ -45,6 +47,8 @@ jobs:
         env:
           TASO_PATCH_VALIDATE_ONLY: "1"
         run: bash scripts/taso-production-ui-retry-compat.sh
+      - name: Reject unexpected production secret rotation
+        run: node --test tests/taso-production-secret-preservation.test.mjs
       - name: Confirm no production token is required
         run: |
           test -z "${COOLIFY_API_TOKEN:-}"
