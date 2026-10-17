@@ -122,6 +122,17 @@ export function buildServer() {
     };
   });
 
+  // Verify the internal nginx-to-Core trust boundary without exposing its secret.
+  // /health deliberately remains a basic process check; this route proves gateway wiring.
+  app.get('/gateway/health', async (request, reply) => {
+    reply.header('Cache-Control', 'no-store');
+    if (!gatewaySecret) return reply.code(503).send({ ok: false, gateway: 'unavailable' });
+    if (request.headers['x-taso-gateway'] !== gatewaySecret) {
+      return reply.code(401).send({ ok: false, gateway: 'unauthorized' });
+    }
+    return reply.send({ ok: true, gateway: 'verified' });
+  });
+
   app.get('/v1/executor', async () => ({ executor: executor.readiness() }));
   app.get('/v1/providers', async () => ({ providers: router.safeSummary() }));
   app.get('/v1/projects', async () => ({ projects: projects.list() }));
