@@ -1,0 +1,17 @@
+name: TASO Queue Evidence CI
+on:
+  pull_request:
+    paths:
+      - "scripts/taso-coolify-queue-evidence.py"
+      - "tests/taso-coolify-queue-evidence-test.py"
+      - "docs/taso-coolify-queue-triage.md"
+      - ".github/workflows/taso-queue-evidence-ci.yml"
+permissions:
+  contents: read
+jobs:
+  queue-evidence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 tests/taso-coolify-queue-evidence-test.py
