@@ -33,7 +33,30 @@ gateway="$(openssl rand -hex 32)";authkey="$(openssl rand -hex 32)";search_secre
 for kv in "NODE_ENV|production" "TASO_DEPLOYMENT_ENV|preview" "TASO_AUTH_ALLOW_INSECURE_BOOTSTRAP|1" "TASO_SESSION_TTL_MS|43200000" "TASO_GATEWAY_SECRET|$gateway" "TASO_AUTH_ENCRYPTION_KEY|$authkey" "TASO_AUTH_SECURITY_FILE|/data/taso-auth-security.json" "TASO_STATE_FILE|/data/taso-state.json" "TASO_IDENTITY_FILE|/data/taso-identities.json" "TASO_CONTROL_PLANE_FILE|/data/taso-control-plane.json" "TASO_INCIDENT_FILE|/data/taso-incidents.json" "TASO_PERSONALIZATION_FILE|/data/taso-personalization.json" "TASO_SEARCH_ENDPOINT|http://taso-urgent-search:8080/search" "TASO_PREVIEW_QA_EMAIL|$qa_email" "TASO_PREVIEW_QA_PASSWORD|$qa_password" "TASO_PREVIEW_QA_EXPIRES_AT|$qa_expiry";do put "$core" "${kv%%|*}" "${kv#*|}";done
 put "$search" PORT 8080;put "$search" SEARXNG_SECRET "$search_secret";put "$ui" TASO_CORE_UPSTREAM http://taso-urgent-core:3000;put "$ui" TASO_GATEWAY_SECRET "$gateway"
 for app in "$search" "$core" "$ui";do api PATCH "applications/$app" "$(jq -nc --arg branch "$TASO_PREVIEW_BRANCH" '{git_branch:$branch,connect_to_docker_network:true}')">/dev/null;done
-wait_deployment(){ local deployment_uuid="$1" label="$2" status;for _ in $(seq 1 120);do status="$(api GET "deployments/$deployment_uuid"|jq -r '.status//"unknown"')";case "$status" in finished) echo "$label deployment finished: $deployment_uuid";return 0;; failed|cancelled|cancelled-by-user) echo "::error::$label deployment $deployment_uuid entered $status";return 1;; esac;sleep 5;done;echo "::error::$label deployment $deployment_uuid did not finish";return 1;}
+# Coolify can return a deployment UUID before its lookup becomes visible.
+# Retry only HTTP 404 for up to 30 seconds; all other API errors remain fatal.
+deployment_status(){ local deployment_uuid="$1" code;
+  code="$(curl --silent --show-error --connect-timeout 15 --max-time 30 --output "$RESP" --write-out '%{http_code}' --header "Authorization: Bearer $COOLIFY_API_TOKEN" --header 'Accept: application/json' "$API_BASE/deployments/$deployment_uuid")" || return 1
+  if [[ "$code" == 404 ]]; then printf '%s' '__NOT_VISIBLE__'; return 0; fi
+  [[ "$code" =~ ^2 ]] || { echo "::error::Coolify deployment lookup failed (HTTP $code)." >&2; return 1; }
+  jq -r '.status//"unknown"' < "$RESP"
+}
+wait_deployment(){ local deployment_uuid="$1" label="$2" status missing=0;
+  for _ in $(seq 1 120); do
+    status="$(deployment_status "$deployment_uuid")" || return 1
+    if [[ "$status" == __NOT_VISIBLE__ ]]; then
+      missing=$((missing+1))
+      if (( missing > 6 )); then echo "::error::$label deployment $deployment_uuid remained HTTP 404 after bounded retries" >&2; return 1; fi
+      sleep 5; continue
+    fi
+    case "$status" in
+      finished) echo "$label deployment finished: $deployment_uuid"; return 0 ;;
+      failed|cancelled|cancelled-by-user) echo "::error::$label deployment $deployment_uuid entered $status" >&2; return 1 ;;
+    esac
+    sleep 5
+  done
+  echo "::error::$label deployment $deployment_uuid did not finish" >&2; return 1
+}
 for tuple in "search:$search" "core:$core" "ui:$ui";do name="${tuple%%:*}";uuid="${tuple#*:}";queued="$(api POST "deploy?uuid=$uuid")";deployment_uuid="$(jq -r --arg u "$uuid" '[.deployments[]?|select(.resource_uuid==$u)][0].deployment_uuid//empty'<<<"$queued")";[[ -n "$deployment_uuid" ]]||{ echo "::error::$name deploy was not queued with a deployment UUID";exit 1;};wait_deployment "$deployment_uuid" "$name";done
 wait_running(){ local uuid="$1" label="$2" status;for _ in $(seq 1 30);do status="$(api GET "applications/$uuid"|jq -r '.status//"unknown"')";[[ "$status" == running:* || "$status" == running ]]&&{ echo "$label runtime state: $status";return 0;};[[ "$status" == exited*||"$status" == degraded*||"$status" == stopped* ]]&&{ echo "::error::$label entered $status";return 1;};sleep 5;done;echo "::error::$label did not enter a running state";return 1;}
 wait_running "$search" search;wait_running "$core" core;wait_running "$ui" ui

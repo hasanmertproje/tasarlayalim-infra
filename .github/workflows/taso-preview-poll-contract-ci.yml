@@ -1,0 +1,17 @@
+name: TASO Preview Poll Contract CI
+on:
+  pull_request:
+    paths:
+      - "scripts/taso-urgent-preview-deploy.sh"
+      - "tests/taso-preview-poll-contract.test.mjs"
+      - ".github/workflows/taso-preview-poll-contract-ci.yml"
+permissions:
+  contents: read
+jobs:
+  preview-poll:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash -n scripts/taso-urgent-preview-deploy.sh
+      - run: node --test tests/taso-preview-poll-contract.test.mjs
