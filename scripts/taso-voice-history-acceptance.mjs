@@ -140,7 +140,7 @@ try {
   await page.goto(base, { waitUntil: 'networkidle' });
   await page.locator('.dashboard-chat').waitFor({ state: 'visible' });
 
-  const projectSelect = page.locator('.cc29-context select');
+  const projectSelect = page.locator('#cc30-project');
   await projectSelect.waitFor({ state: 'visible' });
   const options = await projectSelect.locator('option').evaluateAll((nodes) => nodes.map((node) => ({
     value: node.value,
@@ -204,7 +204,7 @@ try {
   const postsBeforeReopen = conversationPosts;
   await page.reload({ waitUntil: 'networkidle' });
   await page.locator('.dashboard-chat').waitFor({ state: 'visible' });
-  const reopenedProjectSelect = page.locator('.cc29-context select');
+  const reopenedProjectSelect = page.locator('#cc30-project');
   await reopenedProjectSelect.selectOption(primary.value);
   await page.waitForFunction((text) => {
     const chat = document.querySelector('.dashboard-chat-messages');
