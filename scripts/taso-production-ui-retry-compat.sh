@@ -60,7 +60,7 @@ deploy_browser_for_release() {
 }
 deploy_browser_for_release
 deploy_heavy_worker taso-speaker-prod \"$speaker\" docker/taso-speaker
-deploy_heavy_worker taso-voice-prod \"$voice\" docker/taso-voice
+echo "Preserving intentionally disabled production Voice service; no deploy or start requested."
 '''"""
 browser_count = text.count(old_browser)
 if browser_count != 1:
