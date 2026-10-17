@@ -50,7 +50,13 @@ export async function probe(base, f = fetch) {
           const raw = await resp.text();
           classification = classifyAnonymous401(raw);
         } else {
-          classification = 'ANONYMOUS_401_UNCLASSIFIED';
+          // Nginx auth_request returns its own HTML 401 to anonymous callers,
+          // not the JSON body from Core. Accept only with separately healthy
+          // gateway, Core and session endpoints; never accept an unverified 401.
+          const crosschecked=['gateway_authenticated_internal','core_via_ui','session_anonymous']
+            .every(id=>results.some(x=>x.id===id && x.code===200 && x.classification==='EXPECTED_STATUS'));
+          classification = crosschecked && type.includes('text/html') && length>0 && length<=2048
+            ? 'EXPECTED_ANONYMOUS_DENIAL_CROSSCHECKED' : 'ANONYMOUS_401_UNCLASSIFIED';
           await resp.body?.cancel();
         }
       } else {
@@ -74,7 +80,7 @@ if (process.argv[1] && import.meta.url === new URL('file://' + process.argv[1]).
   const results = await probe(url);
   console.log('TASO public production route status (no auth headers; anonymous 401 fingerprint only, no bodies logged)');
   for (const r of results) console.log(r.id + '=HTTP_' + r.code + ' classification=' + r.classification);
-  const failures = results.filter(r => !['EXPECTED_STATUS', 'EXPECTED_ANONYMOUS_DENIAL'].includes(r.classification));
+  const failures = results.filter(r => !['EXPECTED_STATUS', 'EXPECTED_ANONYMOUS_DENIAL', 'EXPECTED_ANONYMOUS_DENIAL_CROSSCHECKED'].includes(r.classification));
   console.log('public_route_count=' + results.length + ' unexpected=' + failures.length);
   if (failures.length) process.exitCode = 1;
 }
