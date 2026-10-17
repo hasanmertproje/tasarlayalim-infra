@@ -1,0 +1,43 @@
+name: TASO Production Release Evidence (Read Only)
+on:
+  pull_request:
+    paths:
+      - scripts/taso-production-release-evidence.mjs
+      - tests/taso-production-release-evidence.test.mjs
+      - .github/workflows/taso-production-release-evidence.yml
+  push:
+    branches: [main]
+    paths:
+      - scripts/taso-production-release-evidence.mjs
+      - .github/workflows/taso-production-release-evidence.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: taso-production-readonly-evidence
+  cancel-in-progress: false
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Test read-only API and redaction contract
+        run: node --test tests/taso-production-release-evidence.test.mjs
+  inspect:
+    if: github.event_name != 'pull_request'
+    needs: contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      COOLIFY_API_TOKEN: ${{ secrets.COOLIFY_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Collect evidence from Coolify without modifying resources
+        run: node scripts/taso-production-release-evidence.mjs
