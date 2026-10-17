@@ -38,7 +38,7 @@ test('probe never sends credentials, logs bodies, or changes state', async () =>
 test('exact Core Unauthorized gateway rejection is never mistaken for ordinary guest denial', async () => {
   assert.equal(classifyAnonymous401('{"error":"Unauthorized gateway."}'), 'GATEWAY_SECRET_REJECTED');
   assert.equal(classifyAnonymous401('{"error":"Unauthorized session."}'), 'EXPECTED_ANONYMOUS_DENIAL');
-  assert.equal(classifyAnonymous401('{"message":"Unauthorized gateway.","error":"Unauthorized"}'), 'EXPECTED_ANONYMOUS_DENIAL');
+  assert.equal(classifyAnonymous401('{"message":"Unauthorized gateway.","error":"Unauthorized"}'), 'GATEWAY_SECRET_REJECTED');
   assert.equal(classifyAnonymous401('<html>Unauthorized gateway.</html>'), 'ANONYMOUS_401_UNCLASSIFIED');
   assert.equal(classifyAnonymous401('{"error":"'+ 'x'.repeat(2100) +'"}'), 'ANONYMOUS_401_UNCLASSIFIED');
 });
