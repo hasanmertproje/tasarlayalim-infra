@@ -13,7 +13,7 @@ function fixture({existing=true,gateway='',authkey=''}) {
   const script = [
     'set -Eeuo pipefail',
     'cf=fixture',
-    'core_preexisting=' + (existing?'true':'false'),
+    'core_preexisting=' + (existing===true?'true':existing===false?'false':'unknown'),
     'reuse() { case "$2" in TASO_GATEWAY_SECRET) printf "%s" "$FIXTURE_GATEWAY";; TASO_AUTH_ENCRYPTION_KEY) printf "%s" "$FIXTURE_AUTH";; esac; }',
     'openssl() { printf "%s" "generated-fixture"; }',
     block,
@@ -50,4 +50,13 @@ test('first-ever Core can bootstrap new generated secrets',()=>{
   const r=fixture({existing:false,gateway:'',authkey:''});
   assert.equal(r.status,0,r.stderr);
   assert.equal(r.stdout,'OK:generated-fixture:generated-fixture');
+});
+
+test('unknown Core identity fails closed instead of generating gateway or encryption keys',()=>{
+  for(const [gateway,authkey] of [['','existing-encryption'],['existing-gateway','']]) {
+    const r=fixture({existing:'unknown',gateway,authkey});
+    assert.notEqual(r.status,0);
+    assert.match(r.stderr,/refusing automatic rotation/);
+    assert.ok(!r.stdout.includes('generated-fixture'));
+  }
 });

@@ -156,7 +156,7 @@ is_unusable_production_secret() {
 }
 gateway="$(reuse "$cf" TASO_GATEWAY_SECRET)"
 if is_unusable_production_secret "$gateway"; then
-  if [[ "${core_preexisting:-false}" == true ]]; then
+  if [[ "${core_preexisting:-unknown}" != false ]]; then
     echo "::error::Existing Core gateway secret is missing or unreadable; refusing automatic rotation." >&2
     exit 1
   fi
@@ -164,7 +164,7 @@ if is_unusable_production_secret "$gateway"; then
 fi
 authkey="$(reuse "$cf" TASO_AUTH_ENCRYPTION_KEY)"
 if is_unusable_production_secret "$authkey"; then
-  if [[ "${core_preexisting:-false}" == true ]]; then
+  if [[ "${core_preexisting:-unknown}" != false ]]; then
     echo "::error::Existing Core auth encryption key is missing or unreadable; refusing automatic rotation." >&2
     exit 1
   fi
