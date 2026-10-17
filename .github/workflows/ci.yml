@@ -97,6 +97,9 @@ jobs:
       - name: Audit gateway runtime analyzer on fixtures (offline)
         run: python3 -m unittest discover -s tests -p 'taso_gateway_runtime_audit_test.py' -v
 
+      - name: Verify Coolify gateway configuration comparator offline
+        run: node --test tests/taso-gateway-coolify-config.test.mjs
+
       - name: Install Taso Core dependencies
         run: npm install --prefix taso
 
