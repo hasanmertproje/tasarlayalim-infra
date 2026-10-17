@@ -1,0 +1,44 @@
+name: TASO UI-only Dashboard Release
+on:
+  pull_request:
+    paths:
+      - taso-ui/src/**
+      - scripts/taso-ui-only-live-release.mjs
+      - tests/taso-ui-only-live-release.test.mjs
+      - tests/taso-dashboard-ux-regression.test.mjs
+      - .github/workflows/taso-ui-only-dashboard-release.yml
+  push:
+    branches: [main]
+    paths:
+      - scripts/taso-ui-only-live-release.mjs
+      - .github/workflows/taso-ui-only-dashboard-release.yml
+permissions:
+  contents: read
+concurrency:
+  group: taso-production
+  cancel-in-progress: false
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Validate Turkish dashboard contract and isolated deployment
+        run: node --test tests/taso-dashboard-ux-regression.test.mjs tests/taso-ui-only-live-release.test.mjs
+  release:
+    if: github.event_name == 'push'
+    needs: contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      COOLIFY_API_TOKEN: ${{ secrets.COOLIFY_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Deploy existing TASO UI only, preserving Core, auth and volumes
+        run: node scripts/taso-ui-only-live-release.mjs
