@@ -95,7 +95,7 @@ jobs:
         run: python -m py_compile docker/taso-voice/app.py
 
       - name: Audit gateway runtime analyzer on fixtures (offline)
-        run: python3 -m unittest discover -s tests -p 'taso-gateway-runtime-audit-test.py' -v
+        run: python3 -m unittest discover -s tests -p 'taso_gateway_runtime_audit_test.py' -v
 
       - name: Install Taso Core dependencies
         run: npm install --prefix taso
