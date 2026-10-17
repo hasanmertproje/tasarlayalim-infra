@@ -55,6 +55,23 @@ export function gatewayLogSignal(payload) {
   return /Unauthorized gateway\./i.test(payload.logs) ? 'UNAUTHORIZED_GATEWAY_OBSERVED'
     : 'NOT_OBSERVED_IN_LAST_100_LINES';
 }
+// Never serialize the API response. HTTP status is sufficient to explain
+// why application logs cannot be used as gateway *signals* (not equality proof).
+export async function gatewayLogProbe(fetcher, token, appUuid) {
+  if (!token || !id.test(appUuid)) return 'INVALID_TARGET';
+  try {
+    const response = await fetcher(BASE + '/applications/' + appUuid + '/logs?lines=100', {
+      method:'GET', redirect:'error', signal:AbortSignal.timeout(15000),
+      headers:{authorization:'Bearer ' + token, accept:'application/json'},
+    });
+    if (response.status === 401 || response.status === 403) return 'API_PERMISSION_DENIED';
+    if (response.status === 404) return 'LOG_RESOURCE_UNAVAILABLE';
+    if (!response.ok) return 'COOLIFY_HTTP_ERROR';
+    return gatewayLogSignal(await response.json());
+  } catch {
+    return 'LOG_REQUEST_UNVERIFIABLE';
+  }
+}
 export function s3TargetState(payload) {
   if (!Array.isArray(payload)) return 'UNVERIFIABLE';
   if (payload.length === 0) return 'NOT_CONFIGURED';
@@ -106,8 +123,7 @@ export async function collect(fetcher, token, main) {
   const gatewayLogs = {};
   for (const name of ['taso-core-prod','taso-ui-prod']) {
     const app = all.rows.find(x => x.name === name);
-    const logs = app?.uuid ? await get('applications/' + app.uuid + '/logs?lines=100').catch(() => null) : null;
-    gatewayLogs[name] = gatewayLogSignal(logs);
+    gatewayLogs[name] = app?.uuid ? await gatewayLogProbe(fetcher, token, app.uuid) : 'INVALID_TARGET';
   }
   const backups = await get('s3-storages').catch(() => null);
   const offsite = s3TargetState(backups);
