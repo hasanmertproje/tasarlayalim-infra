@@ -22,6 +22,15 @@ export const TASO_SCREENS = [
 export type TasoPrimaryScreen = (typeof TASO_PRIMARY_SCREENS)[number];
 export type TasoScreen = (typeof TASO_SCREENS)[number];
 
+export const TASO_SCREEN_LABELS: Record<TasoScreen, string> = {
+  'Command Center': 'Kontrol Merkezi',
+  Projects: 'Projeler', Tasks: 'Görevler', Approvals: 'Onaylar',
+  Deployments: 'Dağıtımlar', 'AI Agents': 'Yapay Zekâ Ajanları',
+  Knowledge: 'Bilgi Merkezi', Integrations: 'Entegrasyonlar',
+  Monitoring: 'İzleme', Settings: 'Ayarlar',
+  Notifications: 'Bildirimler', Infrastructure: 'Altyapı',
+};
+
 type Listener = () => void;
 
 let activeScreen: TasoScreen = 'Command Center';

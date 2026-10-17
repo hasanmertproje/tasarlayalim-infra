@@ -39,8 +39,8 @@ async function inspect(page,name){
   const visible=e=>{const s=getComputedStyle(e);const r=e.getBoundingClientRect();return s.display!=='none'&&s.visibility!=='hidden'&&Number(s.opacity)!==0&&r.width>0&&r.height>0};
   const clipped=[...document.querySelectorAll('*')].filter(e=>{if(!visible(e))return false;const s=getComputedStyle(e);if(!['fixed','sticky'].includes(s.position))return false;const r=e.getBoundingClientRect();return r.left<-2||r.right>innerWidth+2||r.top<-2||r.bottom>innerHeight+2}).slice(0,15).map(e=>({tag:e.tagName,className:e.className,rect:e.getBoundingClientRect().toJSON?.()}));
   const narrow=[...document.querySelectorAll('.truth-panel p,.integrations-center p,.broker-row p,.cp29-panel p')].filter(e=>visible(e)&&((e.textContent||'').trim().length>30)&&e.getBoundingClientRect().width<110).slice(0,15).map(e=>({text:(e.textContent||'').trim().slice(0,100),width:e.getBoundingClientRect().width}));
-  const dock=document.querySelector('.taso-mobile-dock');const dockRect=dock&&visible(dock)?dock.getBoundingClientRect():null;
-  const iconOffsets=dockRect?[...dock.querySelectorAll('button')].map(button=>{const icon=button.querySelector('.taso-nav-glyph svg,.taso-mobile-core,.taso-more-glyph');if(!icon)return 0;const b=button.getBoundingClientRect(),i=icon.getBoundingClientRect();return Math.abs((b.left+b.width/2)-(i.left+i.width/2))}):[];
+  const dock=document.querySelector('.ds2-bottom');const dockRect=dock&&visible(dock)?dock.getBoundingClientRect():null;
+  const iconOffsets=dockRect?[...dock.querySelectorAll('button')].map(button=>{const icon=button.querySelector('svg');if(!icon)return 0;const b=button.getBoundingClientRect(),i=icon.getBoundingClientRect();return Math.abs((b.left+b.width/2)-(i.left+i.width/2))}):[];
   return{width:innerWidth,scrollWidth:document.documentElement.scrollWidth,selfImprove:Boolean(document.querySelector('.self-improve-shell')),floatingAgentOps:Boolean([...document.querySelectorAll('.agent-ops-shell.mode-dock')].some(visible)),bodyText:document.body.innerText.slice(0,40000),clipped,narrow,dockRect:dockRect?{left:dockRect.left,right:dockRect.right,bottom:dockRect.bottom}:null,maxIconOffset:Math.max(0,...iconOffsets)};
  });
  if(metrics.scrollWidth>metrics.width+2)throw new Error(`${name}: horizontal overflow ${metrics.scrollWidth}>${metrics.width}`);
@@ -174,6 +174,57 @@ async function markdownSecurityAcceptance(){
 }
 
 
+async function newShellAcceptance(){
+ for(const viewport of [{width:360,height:740},{width:768,height:1024},{width:1024,height:768},{width:1440,height:900}]){
+  const context=await browser.newContext({viewport});const page=await context.newPage();
+  await authenticate(page);await page.goto(base,{waitUntil:'networkidle'});
+  await page.locator('.cc30').waitFor({state:'visible'});
+  const result=await page.evaluate(()=>{
+    const rect=e=>e?.getBoundingClientRect();
+    const shell=document.querySelector('.ds2-shell'),main=document.querySelector('.cc30'),composer=document.querySelector('#cc30-objective');
+    const nav=document.querySelector(innerWidth<=820?'.ds2-bottom':'.ds2-sidebar');
+    const rootLabels=[...document.querySelectorAll('.ds2-sidebar .ds2-link span')].map(e=>e.textContent?.trim());
+    return {scrollWidth:document.documentElement.scrollWidth,main:rect(main)?.toJSON(),nav:rect(nav)?.toJSON(),composer:rect(composer)?.toJSON(),rootLabels,hasShell:!!shell,hasVoice:!!document.querySelector('.dashboard-chat-mic')};
+  });
+  if(!result.hasShell||!result.hasVoice)throw new Error('Shell or voice missing at '+viewport.width);
+  if(result.scrollWidth>viewport.width+2)throw new Error('Horizontal overflow at '+viewport.width);
+  if(!result.main||result.main.width<200||result.main.left<0||result.main.right>viewport.width+2)throw new Error('Main content invalid at '+viewport.width);
+  if(!result.composer||result.composer.width<180)throw new Error('Composer collapsed at '+viewport.width);
+  if(!result.rootLabels.includes('Kontrol Merkezi')||!result.rootLabels.includes('Dağıtımlar')||result.rootLabels.includes('Command Center'))throw new Error('Turkish route labels regressed');
+  results.push({name:'shell-'+viewport.width,result});
+  await page.screenshot({path:`${out}/shell-${viewport.width}.png`,fullPage:true});
+  if(viewport.width<=820){
+   await page.locator('.ds2-bottom button[aria-label="Tüm menüyü aç"]').click();
+   await page.locator('.ds2-drawer').waitFor({state:'visible'});
+   if(await page.locator('.ds2-drawer .ds2-link').count()<10)throw new Error('Mobile drawer missing routes');
+   await page.keyboard.press('Escape');
+   if(await page.locator('.ds2-drawer').count())throw new Error('Mobile drawer did not close on Escape');
+  }
+  await context.close();
+ }
+}
+
+async function voiceFailureAcceptance(){
+ const context=await browser.newContext({viewport:{width:390,height:844}});
+ const page=await context.newPage();
+ await page.addInitScript(()=>{
+  class DeniedSpeechRecognition{
+   onstart;onerror;onend;
+   start(){this.onstart?.();queueMicrotask(()=>{this.onerror?.({error:'not-allowed'});this.onend?.()})}
+   stop(){this.onend?.()}
+  }
+  window.SpeechRecognition=DeniedSpeechRecognition;
+  window.webkitSpeechRecognition=DeniedSpeechRecognition;
+ });
+ await authenticate(page);await page.goto(base,{waitUntil:'networkidle'});
+ await page.locator('.dashboard-chat-mic').click();
+ await page.locator('.dashboard-chat [role="alert"]').waitFor({state:'visible'});
+ if(await page.locator('.dashboard-chat').evaluate(e=>e.classList.contains('voice-session')))throw new Error('Denied mic left a live voice session');
+ if(await page.locator('.dashboard-chat-mic').getAttribute('aria-pressed')!=='false')throw new Error('Voice button pressed after permission denial');
+ results.push({name:'Voice-denied-permission',sessionClosed:true});
+ await context.close();
+}
+
 async function mobileDockAcceptance(){
  for(const viewport of [{width:360,height:740},{width:390,height:844}]){
   const context=await browser.newContext({viewport});
@@ -181,7 +232,7 @@ async function mobileDockAcceptance(){
   await authenticate(page);
   await page.goto(base,{waitUntil:'networkidle'});
   const metrics=await page.evaluate(()=>{
-   const nav=document.querySelector('.taso-mobile-dock');
+   const nav=document.querySelector('.ds2-bottom');
    if(!nav)return {missing:true};
    const rect=nav.getBoundingClientRect();
    const buttons=[...nav.querySelectorAll('button')];
@@ -193,7 +244,7 @@ async function mobileDockAcceptance(){
    });
    return {missing:false,display:getComputedStyle(nav).display,scrollWidth:document.documentElement.scrollWidth,
      dockVisible:rect.left>=0&&rect.right<=innerWidth&&rect.top>=0&&rect.bottom<=innerHeight,
-     dockHeight:rect.height,bodyBottomPadding:parseFloat(getComputedStyle(document.body).paddingBottom)||0,targets};
+     dockHeight:rect.height,bodyBottomPadding:parseFloat(getComputedStyle(document.querySelector('.ds2-main')).paddingBottom)||0,targets};
   });
   if(metrics.missing||metrics.display==='none'||!metrics.dockVisible)throw new Error('Mobile dock missing or clipped at '+viewport.width);
   if(metrics.scrollWidth>viewport.width+2)throw new Error('Horizontal overflow at '+viewport.width);
@@ -208,7 +259,9 @@ async function mobileDockAcceptance(){
 const screens=[undefined,'Projects','Tasks','Approvals','Deployments','Monitoring','AI Agents','Knowledge','Integrations','Notifications','Settings'];
 for(const viewport of[{width:390,height:844},{width:1440,height:1000}])for(const theme of['dark','light'])for(const screen of screens)await shot({viewport,theme,screen});
 await voiceCoreAcceptance();
+await voiceFailureAcceptance();
 await markdownSecurityAcceptance();
 await mobileDockAcceptance();
+await newShellAcceptance();
 writeFileSync(`${out}/report.json`,JSON.stringify({generatedAt:new Date().toISOString(),screens:screens.map(v=>v||'Dashboard'),results},null,2));
 await browser.close();
