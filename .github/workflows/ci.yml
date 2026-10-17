@@ -94,6 +94,9 @@ jobs:
       - name: Validate local voice service
         run: python -m py_compile docker/taso-voice/app.py
 
+      - name: Audit gateway runtime analyzer on fixtures (offline)
+        run: python3 -m unittest discover -s tests -p 'taso_gateway_runtime_audit_test.py' -v
+
       - name: Install Taso Core dependencies
         run: npm install --prefix taso
 
@@ -179,7 +182,9 @@ jobs:
             exit 1
           fi
 
-          curl -fsS http://127.0.0.1:4173/api/auth/session | grep -q '"configured":true'
+          # This checks the gateway secret match, unlike the static /health route.
+          curl -fsS http://127.0.0.1:4173/api/gateway/health | grep -q '"gateway":"verified"'
+                    curl -fsS http://127.0.0.1:4173/api/auth/session | grep -q '"configured":true'
           curl -fsS http://127.0.0.1:4173/api/auth/session | grep -q '"authenticated":false'
           test "$(curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:4173/api/v1/projects)" = "401"
 
