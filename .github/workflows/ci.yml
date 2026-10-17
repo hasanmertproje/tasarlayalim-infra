@@ -94,6 +94,9 @@ jobs:
       - name: Validate local voice service
         run: python -m py_compile docker/taso-voice/app.py
 
+      - name: Audit gateway runtime analyzer on fixtures (offline)
+        run: python3 -m unittest discover -s tests -p 'taso-gateway-runtime-audit-test.py' -v
+
       - name: Install Taso Core dependencies
         run: npm install --prefix taso
 
