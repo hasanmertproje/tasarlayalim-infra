@@ -151,6 +151,8 @@ export class TaskEngine {
   cancelMission(id: string): Mission {
     const mission = this.missions.get(id);
     if (!mission) throw new Error('Mission not found.');
+    if (['completed', 'preview_ready', 'failed'].includes(mission.status)) throw new Error(`Terminal mission cannot be cancelled from ${mission.status}.`);
+    if (mission.status === 'cancelled') return mission;
     mission.status = 'cancelled';
     mission.updatedAt = nowIso();
     const runs = (mission.execution?.agentRuns ?? []).map((run) => run.status === 'running' ? { ...run, status: 'cancelled' as const, updatedAt: mission.updatedAt, completedAt: mission.updatedAt } : run);
@@ -217,6 +219,7 @@ export class TaskEngine {
     if (!mission) throw new Error('Mission not found.');
     if (mission.status === 'cancelled') throw new Error('Cancelled mission cannot retry.');
     if (['failed', 'completed', 'preview_ready'].includes(mission.status)) throw new Error(`Terminal mission cannot retry from ${mission.status}.`);
+    if ((this.projects.get(mission.projectId)?.lifecycleStatus ?? 'active') !== 'active') throw new Error('Project must be restored before scheduling automatic retries.');
 
     const maxRetries = clampRetries(mission.autonomous.maxRetries);
     const retryCount = Math.max(0, mission.execution?.retryCount ?? 0);
