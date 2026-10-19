@@ -1,0 +1,61 @@
+name: TASO Production Six-Service Audit (Read Only)
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/taso-production-six-service-audit.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: taso-production-six-service-audit
+  cancel-in-progress: false
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 9
+    env:
+      COOLIFY_API_TOKEN: ${{ secrets.COOLIFY_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Collect read-only Coolify deployment evidence for all six TASO apps
+        run: node scripts/taso-production-release-evidence.mjs
+      - name: Probe public dashboard, gateway, login and guest Voice gates
+        run: |
+          node --input-type=module <<'NODE'
+          const host='https://taso.tasarlayalim.com';
+          const paths=['/','/health','/api/health','/api/gateway/health','/api/auth/session',
+            '/api/v1/voice/local','/api/v1/voice/realtime'];
+          let failures=0;
+          for (const path of paths) {
+            try {
+              const response=await fetch(host+path,{method:'GET',redirect:'manual',
+                signal:AbortSignal.timeout(15000),headers:{accept:'application/json'}});
+              let info='';
+              if(path==='/api/auth/session'&&response.status===200){
+                try{const j=await response.json();info=' configured='+String(j.configured===true)
+                  +' unauthenticated='+String(j.authenticated===false)}catch{info=' invalid_session_json=true'}
+              }
+              if(path==='/'){
+                const html=await response.text();
+                const script=html.match(/\/assets\/[^\"'<>\\s]+\.js/)?.[0]||'';
+                info=' asset_present='+String(Boolean(script));
+              }
+              console.log('public_probe='+path+' http='+response.status+info);
+              if(['/','/health','/api/health','/api/gateway/health','/api/auth/session'].includes(path)
+                &&response.status!==200)failures++;
+            }catch(e){
+              console.log('public_probe='+path+' result=NETWORK_OR_TIMEOUT');
+              if(['/','/health','/api/health','/api/gateway/health','/api/auth/session'].includes(path))failures++;
+            }
+          }
+          console.log('public_probe_summary='+ (failures===0?'PUBLIC_GATES_RESPOND_200':'INCOMPLETE')
+            +' voice_guest_gates_are_not_model_readiness_tests=true');
+          process.exitCode=failures?2:0;
+          NODE
