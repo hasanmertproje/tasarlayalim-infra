@@ -87,6 +87,7 @@ export async function release({token,sha,waiver,request=fetch,pause=wait,log=con
     verifyDetail(await api('GET','applications/'+target.uuid),target);
     verifyHistory(await api('GET','deployments/applications/'+target.uuid+'?skip=0&take=25'),target.name);
     if(target.mount)verifyStorage(await api('GET','applications/'+target.uuid+'/storages'),target);
+    log('preflight_checked='+target.name);
   }
   const auth=await publicGet('/api/auth/session');
   if(auth.status!==200)throw Error('AUTH_PREFLIGHT_HTTP_'+auth.status);
@@ -136,6 +137,7 @@ export async function release({token,sha,waiver,request=fetch,pause=wait,log=con
 }
 if(process.argv[1]&&import.meta.url===new URL('file://'+process.argv[1]).href){
   try{await release({token:process.env.COOLIFY_API_TOKEN,sha:process.env.GITHUB_SHA,waiver:process.env.TASO_ONE_SHOT_BACKUP_WAIVER});}
-  catch(e){const message=e instanceof Error&&/^[A-Z0-9_-]+$/.test(e.message)?e.message:'UNCLASSIFIED';
+  catch(e){const message=e instanceof Error&&/^[A-Za-z0-9_-]+$/.test(e.message)?e.message:
+      (e instanceof TypeError&&e.message==='fetch failed'?'NETWORK_FETCH_FAILED':'UNCLASSIFIED');
     console.error('production_one_shot=FAILED reason='+message);process.exitCode=1;}
 }
