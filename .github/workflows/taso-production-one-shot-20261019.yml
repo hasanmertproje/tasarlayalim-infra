@@ -47,3 +47,4 @@ jobs:
           node-version: '22'
       - name: Update existing TASO services without mutating volumes, auth or backup settings
         run: node scripts/taso-production-one-shot-20261019.mjs
+# One-time operator-approved release trigger; the production S3 gate remains unchanged.
