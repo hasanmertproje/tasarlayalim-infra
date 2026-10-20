@@ -8,6 +8,11 @@ on:
         required: false
         type: boolean
         default: false
+      allow_temporary_local_backup_only:
+        description: "One-time emergency release only: permit local-only backups while no S3 target is configured"
+        required: false
+        type: boolean
+        default: false
   push:
     branches: [main]
     paths:
@@ -44,6 +49,7 @@ jobs:
       TASO_PRODUCTION_DOMAIN: taso.tasarlayalim.com
       TASO_SERVER_IPV4: 45.74.243.96
       TASO_FORCE_HEAVY_WORKER_DEPLOY: ${{ github.event_name == 'workflow_dispatch' && inputs.force_heavy_workers && '1' || '0' }}
+      TASO_ALLOW_TEMPORARY_LOCAL_BACKUP_ONLY: ${{ (github.event_name == 'workflow_dispatch' && inputs.allow_temporary_local_backup_only) || (github.event_name == 'push' && contains(github.event.head_commit.message, '[deploy-production-local-backup]') && 'true') && '1' || '0' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
