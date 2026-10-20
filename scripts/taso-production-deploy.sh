@@ -32,7 +32,7 @@ api() {
   fi
   cat "$RESP"
 }
-mask() { [[ -n "${1:-}" ]] && printf '::add-mask::%s\n' "$1"; }
+mask() { if [[ -n "${1:-}" ]]; then printf '::add-mask::%s\n' "$1"; fi; return 0; }
 
 echo "Preflight: production DNS."
 dns="$(getent ahostsv4 "$TASO_PRODUCTION_DOMAIN" | awk '{print $1}' | sort -u || true)"
