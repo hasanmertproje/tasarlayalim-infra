@@ -1,8 +1,8 @@
 name: Taso Browser CI
 
 on:
+  # Validate stacked PRs even when their base is another feature branch.
   pull_request:
-    branches: [main, feature/taso-next-foundation-20261020]
   push:
     branches: [main]
 
