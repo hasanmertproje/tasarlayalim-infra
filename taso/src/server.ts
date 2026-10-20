@@ -176,6 +176,17 @@ export function buildServer() {
       content = result.content;
       evidence = result;
     } catch (error) {
+      const failure=conversationAi.status().lastFailure;
+      if (failure && error instanceof Error && error.message.includes(failure.requestId)) {
+        request.log.warn({
+          event:'taso_conversation_provider_unavailable',
+          requestId:failure.requestId,
+          provider:failure.provider,
+          category:failure.code,
+          attempts:failure.attempts,
+          elapsedMs:failure.elapsedMs,
+        },'AI provider request exhausted its bounded retry budget');
+      }
       if (decision.intent === 'STATUS') {
         content = active
           ? `${project.name} için aktif görev ${active.status} aşamasında: ${active.objective}`
@@ -210,6 +221,7 @@ export function buildServer() {
         dataClass: 'private_code',
       } : undefined,
       conversation: conversationAi.status(),
+      diagnosticId: evidence.mode==='unavailable' ? conversationAi.status().lastFailure?.requestId : undefined,
     });
   });
 
