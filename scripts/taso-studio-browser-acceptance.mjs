@@ -9,7 +9,7 @@ const context=await browser.newContext({viewport:{width:1440,height:1000}});
 const page=await context.newPage();
 const observations=[];
 function base32Decode(input){const alpha='ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';let bits=0,value=0;const result=[];for(const c of input.toUpperCase().replace(/[^A-Z2-7]/g,'')){value=(value<<5)|alpha.indexOf(c);bits+=5;if(bits>=8){result.push((value>>>(bits-8))&255);bits-=8}}return Buffer.from(result)}
-function totp(secret){const buf=Buffer.alloc(8);buf.writeBigUInt64BE(BigInt(Math.floor(Date.now()/30000)));const d=createHmac('sha1',base32Decode(secret)).update(buf).digest();const offset=d[d.length-1]&15;return String(((((d[offset]&127)<<24)|((d[offset+1]&255)<<16)|((d[offset+2]&255)<<8)|(d[offset+3]&255))%1e6).padStart(6,'0')}
+function totp(secret){const buf=Buffer.alloc(8);buf.writeBigUInt64BE(BigInt(Math.floor(Date.now()/30000)));const d=createHmac('sha1',base32Decode(secret)).update(buf).digest();const offset=d[d.length-1]&15;return String(((((d[offset]&127)<<24)|((d[offset+1]&255)<<16)|((d[offset+2]&255)<<8)|(d[offset+3]&255)))%1e6).padStart(6,'0')}
 async function login(){
  await page.goto(base,{waitUntil:'networkidle'});
  const data=await page.evaluate(async()=>{const r=await fetch('/api/auth/login',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({email:'owner@ci.local',password:'ci-password'})});return r.json()});
