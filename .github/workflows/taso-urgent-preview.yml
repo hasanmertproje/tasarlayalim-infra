@@ -1,7 +1,7 @@
 name: Taso Urgent Preview
 on:
+  # Stacked PRs are supported; the job condition limits secret access to in-repo TASO branches.
   pull_request:
-    branches: [main, feature/taso-next-foundation-20261020]
     paths:
       - "taso/**"
       - "taso-ui/**"
@@ -16,6 +16,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   deploy-and-verify:
+    if: github.event_name == 'workflow_dispatch' || (github.event.pull_request.head.repo.full_name == github.repository && (github.base_ref == 'main' || startsWith(github.base_ref, 'feature/taso-')))
     # Preview domain/apps/storage are shared: serialize access across PRs.
     # Do not cancel another PR's active deployment.
     concurrency:

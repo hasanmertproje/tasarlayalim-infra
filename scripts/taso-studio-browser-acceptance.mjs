@@ -81,6 +81,8 @@ try{
  await page.getByText('Değişiklikler Core üzerinde kaydedildi.').waitFor();
  page.once('dialog',dialog=>dialog.accept());
  await page.locator('.studio-revisions button').filter({hasText:'Geri yükle'}).first().click();
+ // Restoring a revision deliberately clears the selection. Re-select the persisted node.
+ await page.locator('.studio-tree-item').filter({hasText:'Gerçek Studio • İlk Sürüm'}).first().click();
  await page.waitForFunction(()=>document.querySelector('.studio-fields textarea')?.value==='Gerçek Studio • İlk Sürüm',{},{timeout:15000});
  const restored=await page.evaluate(id=>fetch('/api/v1/projects/'+encodeURIComponent(id)+'/studio').then(r=>r.json()),projectId);
  if(restored.document.pages[1]?.nodes[0]?.text!=='Gerçek Studio • İlk Sürüm')throw Error('Core Studio restore did not persist correct version');
@@ -102,8 +104,8 @@ try{
  const nested=await page.evaluate(id=>fetch('/api/v1/projects/'+encodeURIComponent(id)+'/studio').then(r=>r.json()),projectId);
  const root=nested.document.pages[1].nodes;
  if(root.length!==1||root[0].kind!=='section'||root[0].children.length!==2||
-   root[0].children[0].text!=='Gerçek Studio • İlk Sürüm'||root[0].children[1].kind!=='text')
-   throw Error('Studio V2 drag did not save nested canonical tree');
+   root[0].children[0].kind!=='text'||root[0].children[1].text!=='Gerçek Studio • İlk Sürüm')
+   throw Error('Studio V2 drag tree shape mismatch: '+root.map(n=>n.kind+'('+n.children.map(c=>c.kind).join(',')+')').join('|'));
  observations.push({step:'V2 desktop drag and nested Core persistence',version:nested.document.version});
  // Export is generated from the saved, authorized Core page, not from unsaved UI draft.
  const exportUrl='/api/v1/projects/'+encodeURIComponent(projectId)+'/studio/pages/'+encodeURIComponent(nested.document.pages[1].id)+'/export.html';
