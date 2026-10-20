@@ -52,7 +52,7 @@ export default function TasoStudioV1(){
   if(!active)return;
   setProjects(p.projects||[]);const perms=Array.isArray(me.permissions)?me.permissions:[];
   setCanRead(perms.includes('projects.read'));setCanWrite(perms.includes('projects.write'));
-  setProjectId(prev=>prev||p.projects?.find(x=>(x.lifecycleStatus||'active')==='active')?.id||'');
+  setProjectId(prev=>prev||p.projects?.find(x=>x.id===sessionStorage.getItem('taso-studio-project')&&(x.lifecycleStatus||'active')==='active')?.id||p.projects?.find(x=>(x.lifecycleStatus||'active')==='active')?.id||'');
  }catch(e){if(active)setError((e as Error).message)}finally{if(active)setLoading(false)}};void load();return()=>{active=false}},[]);
  useEffect(()=>{if(!projectId||!canRead)return;let active=true;setLoading(true);setError('');void request<{document:DesignDocument|null}>('/v1/projects/'+encodeURIComponent(projectId)+'/studio').then(x=>{if(!active)return;setServerDoc(x.document);setDraft(x.document?clone(x.document):null);setPageId(x.document?.pages[0]?.id||'');setSelectedId('');setPast([]);setFuture([])}).catch(e=>{if(active)setError((e as Error).message)}).finally(()=>{if(active)setLoading(false)});return()=>{active=false}},[projectId,canRead]);
  function apply(change:(current:DesignDocument)=>DesignDocument){
