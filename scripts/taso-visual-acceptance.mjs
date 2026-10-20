@@ -264,5 +264,36 @@ await voiceFailureAcceptance();
 await markdownSecurityAcceptance();
 await mobileDockAcceptance();
 await newShellAcceptance();
+// TASO NEXT milestone-1: authenticate against isolated Core, then verify Workspace
+// at genuinely different responsive viewports rather than using prototype local data.
+for (const width of [320,360,390,430,768,1024,1440,1920]) {
+  await shot({viewport:{width,height:width<=430?844:1000},theme:'dark',screen:'Workspace'});
+}
+async function workspaceRealDataAcceptance(){
+  const context=await browser.newContext({viewport:{width:390,height:844}});
+  const page=await context.newPage();
+  await authenticate(page);
+  await page.goto(base+'/?screen=Workspace',{waitUntil:'networkidle'});
+  await page.locator('.tn-workspace').waitFor({state:'visible'});
+  const payload=await page.evaluate(async()=>{
+    const [p,m]=await Promise.all([
+      fetch('/api/v1/projects',{credentials:'same-origin'}).then(r=>r.json()),
+      fetch('/api/v1/missions',{credentials:'same-origin'}).then(r=>r.json()),
+    ]);
+    return {projects:(p.projects||[]).filter(x=>(x.lifecycleStatus||'active')==='active').length,missions:(m.missions||[]).length};
+  });
+  await page.waitForFunction(()=>document.querySelector('.tn-workspace__foot')?.textContent?.includes('Son senkronizasyon:') &&
+    !document.querySelector('.tn-workspace__foot')?.textContent?.includes('Bekleniyor'));
+  const shown=await page.locator('.tn-workspace__metric strong').allTextContents();
+  if(Number(shown[0])!==payload.projects)throw new Error('Workspace fabricated active project count');
+  if(shown.some(x=>x==='—'))throw new Error('Workspace has unresolved counters after Core responded');
+  await page.locator('.ds2-bottom button').first().click();
+  if(!(await page.locator('.tn-workspace').isVisible()))throw new Error('Workspace mobile navigation lost user area');
+  await page.locator('.tn-workspace__shortcut-grid button').first().click();
+  await page.locator('.cc30').waitFor({state:'visible'});
+  results.push({name:'taso-next-workspace-core-contract',projectCount:payload.projects,missionCount:payload.missions,realCore:true});
+  await context.close();
+}
+await workspaceRealDataAcceptance();
 writeFileSync(`${out}/report.json`,JSON.stringify({generatedAt:new Date().toISOString(),screens:screens.map(v=>v||'Dashboard'),results},null,2));
 await browser.close();
