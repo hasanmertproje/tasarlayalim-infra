@@ -59,7 +59,13 @@ export function navigateTaso(screen: TasoScreen) {
   if (screen === activeScreen) return;
   activeScreen = screen;
   emit();
-  if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'auto' });
+  if (typeof window !== 'undefined') {
+    // Persist the real route in the URL so Studio remains open after refresh.
+    const url = new URL(window.location.href);
+    url.searchParams.set('screen', screen);
+    window.history.replaceState(window.history.state, '', url.pathname + url.search + url.hash);
+    window.scrollTo({ top: 0, behavior: 'auto' });
+  }
 }
 
 export function subscribeTasoNavigation(listener: Listener) {
