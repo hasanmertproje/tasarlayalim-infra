@@ -90,6 +90,22 @@ try{
  const after=await page.evaluate(id=>fetch('/api/v1/projects/'+encodeURIComponent(id)+'/studio').then(r=>r.json()),projectId);
  if(after.document.pages[1].nodes[0].text!=='Gerçek Studio • İlk Sürüm')throw Error('Restore did not persist in Core');
  observations.push({step:'HTML-model consistency and persisted restore',version:after.document.version});
+ // V2 canonical tree: create a section, add a nested paragraph, and drag the
+ // existing heading into that section. Test actual Core persistence, not just DOM.
+ await page.locator('.studio-tools__insert button').filter({hasText:'Bölüm'}).click();
+ await page.locator('.studio-tools__insert button').filter({hasText:'Metin'}).click();
+ const rootHandles=page.locator('.studio-tree-row > .studio-tree-handle');
+ if(await rootHandles.count()!==3)throw Error('Studio V2 layer tree must have heading, section and nested text');
+ await rootHandles.first().dragTo(page.locator('.studio-tree-row').filter({hasText:'Bölüm'}).first());
+ await page.locator('.studio-topbar__actions button').filter({hasText:'Değişiklikleri kaydet'}).click();
+ await page.getByText('Değişiklikler Core üzerinde kaydedildi.').waitFor();
+ const nested=await page.evaluate(id=>fetch('/api/v1/projects/'+encodeURIComponent(id)+'/studio').then(r=>r.json()),projectId);
+ const root=nested.document.pages[1].nodes;
+ if(root.length!==1||root[0].kind!=='section'||root[0].children.length!==2||
+   root[0].children[0].text!=='Gerçek Studio • İlk Sürüm'||root[0].children[1].kind!=='text')
+   throw Error('Studio V2 drag did not save nested canonical tree');
+ observations.push({step:'V2 desktop drag and nested Core persistence',version:nested.document.version});
+
  for(const width of [320,360,390,430,768,1024,1440,1920]){
   await page.setViewportSize({width,height:width<=430?844:1000});
   await page.locator('.studio-tools__view button').filter({hasText:'Mobil'}).click();

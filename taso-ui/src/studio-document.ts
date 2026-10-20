@@ -11,6 +11,38 @@ export function locate(nodes:DesignNode[],target:string):DesignNode|undefined{fo
 export function updateNode(nodes:DesignNode[],target:string,fn:(node:DesignNode)=>DesignNode):DesignNode[]{return nodes.map(n=>n.id===target?fn(n):({...n,children:updateNode(n.children,target,fn)}))}
 export function removeNode(nodes:DesignNode[],target:string):DesignNode[]{return nodes.filter(n=>n.id!==target).map(n=>({...n,children:removeNode(n.children,target)}))}
 export function shiftNode(nodes:DesignNode[],target:string,delta:-1|1):DesignNode[]{const index=nodes.findIndex(n=>n.id===target);if(index!==-1){const to=index+delta;if(to<0||to>=nodes.length)return nodes;const result=[...nodes];[result[index],result[to]]=[result[to],result[index]];return result}return nodes.map(n=>({...n,children:shiftNode(n.children,target,delta)}))}
+export type StudioDropPlacement='before'|'after'|'inside';
+/** Move one existing canonical document node; reject cycles, invalid nesting and missing targets. */
+export function moveStudioNode(nodes:DesignNode[],sourceId:string,targetId:string,placement:StudioDropPlacement):DesignNode[]{
+ if(sourceId===targetId)return nodes;
+ const root=structuredClone(nodes);
+ const locatePath=(items:DesignNode[],id:string,depth=0):{items:DesignNode[],index:number,depth:number}|undefined=>{
+  for(let i=0;i<items.length;i++){
+   if(items[i].id===id)return{items,index:i,depth};
+   const found=locatePath(items[i].children,id,depth+1);
+   if(found)return found;
+  }
+  return undefined;
+ };
+ const source=locatePath(root,sourceId);
+ const dest=locatePath(root,targetId);
+ if(!source||!dest)return nodes;
+ const moved=source.items[source.index];
+ const contains=(node:DesignNode,id:string):boolean=>node.id===id||node.children.some(c=>contains(c,id));
+ if(contains(moved,targetId)||placement==='inside'&&dest.items[dest.index].kind!=='section')return nodes;
+ const subtreeDepth=(node:DesignNode):number=>node.children.length?1+Math.max(...node.children.map(subtreeDepth)):0;
+ const nextDepth=dest.depth+(placement==='inside'?1:0);
+ if(nextDepth+subtreeDepth(moved)>4)return nodes;
+ source.items.splice(source.index,1);
+ const destination=locatePath(root,targetId);
+ if(!destination)return nodes;
+ if(placement==='inside'){
+  destination.items[destination.index].children.push(moved);
+ }else {
+  destination.items.splice(destination.index+(placement==='after'?1:0),0,moved);
+ }
+ return root;
+}
 export function escapeHtml(s:string):string{return s.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]||c))}
 export function inlineStyle(s:NodeStyle):string{
  const properties:[keyof NodeStyle,string,string][]=[['color','color',''],['background','background',''],['fontSize','font-size','px'],['padding','padding','px'],['borderRadius','border-radius','px'],['textAlign','text-align',''],['fontWeight','font-weight','']];
