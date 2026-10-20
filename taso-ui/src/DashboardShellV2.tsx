@@ -5,7 +5,7 @@ import { TASO_PRIMARY_SCREENS, TASO_SCREEN_LABELS, type TasoScreen, useTasoNavig
 type Theme = 'dark' | 'light';
 const ICON_PATHS: Record<string, string> = {
   'Command Center':'M3 3h8v8H3zM13 3h8v5h-8zM13 10h8v11h-8zM3 13h8v8H3z',
-  Projects:'M3 7h18v13H3zM3 7V4h7l2 3',Studio:'M3 5h18v14H3zM7 9h10M7 13h6',Tasks:'M4 6h2m4 0h10M4 12h2m4 0h10M4 18h2m4 0h10',
+  Projects:'M3 7h18v13H3zM3 7V4h7l2 3',Studio:'M3 5h18v14H3zM7 9h10M7 13h6',CoWork:'M4 5h16v12H8l-4 4zM7 9h10M7 13h7',Tasks:'M4 6h2m4 0h10M4 12h2m4 0h10M4 18h2m4 0h10',
   Approvals:'M12 2 4 6v6c0 5 3 8 8 10 5-2 8-5 8-10V6zM8 12l3 3 5-6',
   Deployments:'M12 2 4 6v14l8-4 8 4V6zM4 6l8 5 8-5M12 11v5',
   'AI Agents':'M8 3h8M12 3v3M4 9h16v11H4zM8 14h.01M16 14h.01M9 18h6',
@@ -55,7 +55,7 @@ export default function DashboardShellV2({children}:{children:ReactNode}) {
     if(mic&&!mic.disabled)mic.click();
   }
   const item=(target:TasoScreen)=><button key={target} type="button" className={screen===target?'ds2-link is-active':'ds2-link'} onClick={()=>go(target)} aria-current={screen===target?'page':undefined} title={TASO_SCREEN_LABELS[target]}><NavGlyph screen={target}/><span>{TASO_SCREEN_LABELS[target]}</span><i aria-hidden="true"/></button>;
-  const visibleScreens: TasoScreen[]=workspaceMode?['Workspace','Projects','Studio','Tasks','Knowledge','Notifications']: [...TASO_PRIMARY_SCREENS];
+  const visibleScreens: TasoScreen[]=workspaceMode?['Workspace','Projects','Studio','CoWork','Tasks','Knowledge','Notifications']: [...TASO_PRIMARY_SCREENS];
   return <div className={expanded?'ds2-shell ds2-expanded':'ds2-shell'} data-screen={screen}>
     <aside className="ds2-sidebar" aria-label="Uygulama menüsü">
       <div className="ds2-identity"><div className="ds2-mark" aria-hidden="true"><span>T</span><i/></div><div className="ds2-identity-text"><strong>TASO</strong><span>OPERASYON SİSTEMİ</span></div></div>
