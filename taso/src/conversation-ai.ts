@@ -92,6 +92,8 @@ export class ConversationAi{
 
   async reply(project:Project,turns:ConversationTurn[],input:string,runtime:ConversationRuntimeContext={}):Promise<string>{return (await this.replyDetailed(project,turns,input,runtime)).content}
   async replyDetailed(project:Project,turns:ConversationTurn[],input:string,runtime:ConversationRuntimeContext={}){
+    // A new turn must not inherit diagnostic state from a prior request that timed out.
+    this.recentFailure=undefined;
     const evidence:ConversationEvidence={mode:'system',sources:[]};
     const content=await this.generate(project,turns,input,runtime,evidence);
     return{content,...evidence};
