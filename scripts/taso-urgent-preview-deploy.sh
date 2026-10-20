@@ -31,7 +31,7 @@ ensure_storage(){ local app="$1" all sid;all="$(api GET "applications/$app/stora
 ensure_storage "$core"
 put(){ local app="$1" key="$2" value="$3" file method body;[[ -n "$value" ]]||return 0;mask "$value";file="$TMP/env-$app.json";api GET "applications/$app/envs">"$file";if jq -e --arg k "$key" 'any(.[];.key==$k)' "$file">/dev/null;then method=PATCH;else method=POST;fi;ENV_KEY="$key" ENV_VALUE="$value" node -e 'process.stdout.write(JSON.stringify({key:process.env.ENV_KEY,value:process.env.ENV_VALUE,is_preview:false,is_shown_once:false}))'>"$PAYLOAD";body="$(<"$PAYLOAD")";api "$method" "applications/$app/envs" "$body">/dev/null;}
 gateway="$(openssl rand -hex 32)";authkey="$(openssl rand -hex 32)";search_secret="$(openssl rand -hex 32)";qa_email="qa-$(date +%s)@preview.tasarlayalim.local";qa_password="$(openssl rand -base64 42|tr -d '\n')";qa_expiry="$(( $(date +%s%3N)+3600000 ))";for value in "$gateway" "$authkey" "$search_secret" "$qa_email" "$qa_password";do mask "$value";done
-for kv in "NODE_ENV|production" "TASO_DEPLOYMENT_ENV|preview" "TASO_AUTH_ALLOW_INSECURE_BOOTSTRAP|1" "TASO_SESSION_TTL_MS|43200000" "TASO_GATEWAY_SECRET|$gateway" "TASO_AUTH_ENCRYPTION_KEY|$authkey" "TASO_AUTH_SECURITY_FILE|/data/taso-auth-security.json" "TASO_STATE_FILE|/data/taso-state.json" "TASO_IDENTITY_FILE|/data/taso-identities.json" "TASO_CONTROL_PLANE_FILE|/data/taso-control-plane.json" "TASO_INCIDENT_FILE|/data/taso-incidents.json" "TASO_PERSONALIZATION_FILE|/data/taso-personalization.json" "TASO_SEARCH_ENDPOINT|http://taso-urgent-search:8080/search" "TASO_PREVIEW_QA_EMAIL|$qa_email" "TASO_PREVIEW_QA_PASSWORD|$qa_password" "TASO_PREVIEW_QA_EXPIRES_AT|$qa_expiry";do put "$core" "${kv%%|*}" "${kv#*|}";done
+for kv in "NODE_ENV|production" "TASO_DEPLOYMENT_ENV|preview" "TASO_CONVERSATION_PROVIDER_TIMEOUT_MS|18000" "TASO_CONVERSATION_TOTAL_TIMEOUT_MS|35000" "TASO_AUTH_ALLOW_INSECURE_BOOTSTRAP|1" "TASO_SESSION_TTL_MS|43200000" "TASO_GATEWAY_SECRET|$gateway" "TASO_AUTH_ENCRYPTION_KEY|$authkey" "TASO_AUTH_SECURITY_FILE|/data/taso-auth-security.json" "TASO_STATE_FILE|/data/taso-state.json" "TASO_IDENTITY_FILE|/data/taso-identities.json" "TASO_CONTROL_PLANE_FILE|/data/taso-control-plane.json" "TASO_INCIDENT_FILE|/data/taso-incidents.json" "TASO_PERSONALIZATION_FILE|/data/taso-personalization.json" "TASO_SEARCH_ENDPOINT|http://taso-urgent-search:8080/search" "TASO_PREVIEW_QA_EMAIL|$qa_email" "TASO_PREVIEW_QA_PASSWORD|$qa_password" "TASO_PREVIEW_QA_EXPIRES_AT|$qa_expiry";do put "$core" "${kv%%|*}" "${kv#*|}";done
 put "$search" PORT 8080;put "$search" SEARXNG_SECRET "$search_secret";put "$ui" TASO_CORE_UPSTREAM http://taso-urgent-core:3000;put "$ui" TASO_GATEWAY_SECRET "$gateway"
 for app in "$search" "$core" "$ui";do api PATCH "applications/$app" "$(jq -nc --arg branch "$TASO_PREVIEW_BRANCH" '{git_branch:$branch,connect_to_docker_network:true}')">/dev/null;done
 wait_deployment(){ local deployment_uuid="$1" label="$2" status detail;for _ in $(seq 1 120);do detail="$(api GET "deployments/$deployment_uuid")";status="$(jq -r '.status//"unknown"'<<<"$detail")";case "$status" in finished) echo "$label deployment finished: $deployment_uuid";return 0;; failed|cancelled|cancelled-by-user) printf '%s' "$detail" | node scripts/taso-preview-deployment-diagnostic.mjs;echo "::error::$label deployment entered $status (redacted category above).";return 1;; esac;sleep 5;done;detail="$(api GET "deployments/$deployment_uuid")";printf '%s' "$detail" | node scripts/taso-preview-deployment-diagnostic.mjs;echo "::error::$label deployment did not finish within bounded 10 minute window.";return 1;}
@@ -66,13 +66,24 @@ chat_code="$(curl -sS --max-time 105 -b "$jar" -o "$chat_file" -w '%{http_code}'
 if [[ "$chat_code" != 201 ]];then
  health_file="$TMP/ai-health.json"
  curl -sS --max-time 12 -o "$health_file" "https://$TASO_PREVIEW_DOMAIN/api/health" || true
- category="$(jq -r '.conversation.lastFailure.code//"UNKNOWN"' "$health_file" 2>/dev/null || echo UNKNOWN)"
- attempts="$(jq -r '.conversation.lastFailure.attempts//0' "$health_file" 2>/dev/null || echo 0)"
- configured="$(jq -r '.conversation.configured//false' "$health_file" 2>/dev/null || echo false)"
+ category="$(jq -r '.conversation.lastFailure.code//"UNKNOWN"' "$chat_file" 2>/dev/null || echo UNKNOWN)"
  [[ "$category" =~ ^[A-Z0-9_]{1,30}$ ]]||category=UNKNOWN
+ attempts="$(jq -r '.conversation.lastFailure.attempts//0' "$chat_file" 2>/dev/null || echo 0)"
+ provider="$(jq -r '.conversation.lastFailure.provider//.conversation.provider//"unknown"' "$chat_file" 2>/dev/null || echo unknown)"
+ phase="$(jq -r '.conversation.lastFailure.phase//"unknown"' "$chat_file" 2>/dev/null || echo unknown)"
+ elapsed_ms="$(jq -r '.conversation.lastFailure.elapsedMs//0' "$chat_file" 2>/dev/null || echo 0)"
+ diagnostic_id="$(jq -r '.diagnosticId//.conversation.lastFailure.requestId//"unavailable"' "$chat_file" 2>/dev/null || echo unavailable)"
+ eligible="$(jq -r '(.conversation.eligibleProviders//[])|length' "$chat_file" 2>/dev/null || echo 0)"
+ configured="$(jq -r '.conversation.configured//false' "$chat_file" 2>/dev/null || echo false)"
  [[ "$attempts" =~ ^[0-9]{1,3}$ ]]||attempts=0
+ [[ "$elapsed_ms" =~ ^[0-9]{1,8}$ ]]||elapsed_ms=0
+ [[ "$eligible" =~ ^[0-9]{1,3}$ ]]||eligible=0
+ [[ "$provider" =~ ^[a-zA-Z0-9_-]{1,40}$ ]]||provider=unknown
+ [[ "$phase" =~ ^[a-z-]{1,30}$ ]]||phase=unknown
+ [[ "$diagnostic_id" =~ ^[0-9a-fA-F-]{36}$ ]]||diagnostic_id=unavailable
  [[ "$configured" == true || "$configured" == false ]]||configured=false
- echo "::error::Real AI chat failed: HTTP $chat_code; category=$category; attempts=$attempts; provider_configured=$configured"
+ # These are closed enums/metadata only; never print response bodies or request data.
+ echo "::error::Real AI chat failed: HTTP $chat_code; category=$category; phase=$phase; provider=$provider; attempts=$attempts; elapsed_ms=$elapsed_ms; eligible_providers=$eligible; provider_configured=$configured; diagnostic_id=$diagnostic_id"
  exit 1
 fi
 jq -e '.assistantMessage.replyMode=="ai" and (.assistantMessage.content|length>10)' "$chat_file">/dev/null||{ echo "::error::Real AI response missing or non-AI";exit 1;}

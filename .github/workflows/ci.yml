@@ -13,6 +13,8 @@ on:
       - feature/taso-studio-html-export-20261020
       - feature/taso-stacked-ci-coverage-20261020
       - fix/taso-preview-ci-runtime-diagnostics-20261020
+      - fix/taso-conversation-provider-observability-20261020
+      - fix/taso-studio-restore-selection-20261020
   workflow_dispatch:
 
 concurrency:

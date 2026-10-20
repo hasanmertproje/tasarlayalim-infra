@@ -118,7 +118,11 @@ try{
  await page.getByRole('button',{name:/HTML indir/}).click();
  const download=await waiting;
  if(!download.suggestedFilename().endsWith('.html'))throw Error('Studio downloaded wrong file format');
- observations.push({step:'Studio source matches authoritative Core HTML and downloads',download:download.suggestedFilename()});
+ observations.push({step:'Studio source matches authoritative Core HTML and downloads',download:download.suggestedFilename()}); 
+ // Evidence should show the real visual canvas, not leave the editor in source mode.
+ await page.locator('.studio-code-toggle').click();
+ await page.locator('.studio-canvas').waitFor({state:'visible'});
+
 
 
  for(const width of [320,360,390,430,768,1024,1440,1920]){
@@ -129,8 +133,22 @@ try{
    await page.locator('.studio-fields textarea').waitFor({state:'visible'});
    await page.locator('.studio-mobile-tabs button').filter({hasText:'Tuval'}).click();
   }
-  const sizes=await page.evaluate(()=>({width:innerWidth,scrollWidth:document.documentElement.scrollWidth,nav:document.querySelector('.studio-mobile-tabs')?.getBoundingClientRect()?.toJSON()}));
+  const sizes=await page.evaluate(()=>{
+   const studioTabs=document.querySelector('.studio-mobile-tabs');
+   const globalDock=document.querySelector('.ds2-bottom');
+   const tabsRect=studioTabs?.getBoundingClientRect();
+   const viewportBottom=innerHeight;
+   return {
+    width:innerWidth,scrollWidth:document.documentElement.scrollWidth,
+    tabsVisible:Boolean(studioTabs&&getComputedStyle(studioTabs).display!=='none'),
+    tabsInsideViewport:Boolean(tabsRect&&tabsRect.top>=0&&tabsRect.bottom<=viewportBottom+1),
+    globalDockHidden:!globalDock||getComputedStyle(globalDock).display==='none',
+    canvasVisible:Boolean(document.querySelector('.studio-canvas')&&getComputedStyle(document.querySelector('.studio-canvas')).display!=='none')
+   };
+  });
   if(sizes.scrollWidth>width+2)throw Error('Studio horizontal overflow at '+width+': '+sizes.scrollWidth);
+  if(width<=820&&(!sizes.tabsVisible||!sizes.tabsInsideViewport||!sizes.globalDockHidden||!sizes.canvasVisible))
+    throw Error('Studio mobile navigation/canvas overlap at '+width+': '+JSON.stringify(sizes));
   await page.screenshot({path:output+'/studio-mobile-artboard-'+width+'.png',fullPage:true});
   observations.push({step:'responsive viewport',width,scrollWidth:sizes.scrollWidth});
  }
