@@ -1,5 +1,6 @@
 import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import DashboardChat from './DashboardChat';
+import NextOrb from './NextOrb';
 import { navigateTaso } from './navigation';
 
 type Project={id:string;name:string;slug:string;repository:string;lifecycleStatus?:string};
@@ -82,7 +83,7 @@ export default function CommandCenterV30(){
  }
  const voiceJump=()=>{const mic=document.querySelector<HTMLButtonElement>('.dashboard-chat .dashboard-chat-mic');if(mic&&!mic.disabled){mic.click();mic.scrollIntoView({behavior:'smooth',block:'center'})}};
  return <section className="cc30" aria-label="Kontrol Merkezi" data-api-ready={coreOk?'true':'false'}>
-   <div className="cc30-intro"><div><span className="cc30-kicker"><i/> CANLI OPERASYON GÖRÜNÜMÜ</span><h2>İş akışının merkezi.</h2><p>Görevler, onaylar ve sistem yetenekleri. Yalnızca doğrulanmış veriler.</p></div><div className="cc30-project-box"><label htmlFor="cc30-project">Aktif proje</label><select id="cc30-project" value={projectId} onChange={e=>setProjectId(e.target.value)} disabled={!projects.length}>{projects.length?projects.map(p=><option key={p.id} value={p.id}>{p.name}</option>):<option value="">Proje bulunamadı</option>}</select><small title={selected?.repository||''}>{selected?.repository||'Henüz bir proje seçilmedi'}</small></div></div>
+   <div className="cc30-intro"><div><span className="cc30-kicker"><i/> CANLI OPERASYON GÖRÜNÜMÜ</span><h2>Yapay zekâ operasyonların<br/><span>tek yerde.</span></h2><p>Görevler, onaylar ve sistem yetenekleri. Yalnızca doğrulanmış veriler.</p></div><div className="cc30-intro-orb"><NextOrb size="large"/></div><div className="cc30-project-box"><label htmlFor="cc30-project">Aktif proje</label><select id="cc30-project" value={projectId} onChange={e=>setProjectId(e.target.value)} disabled={!projects.length}>{projects.length?projects.map(p=><option key={p.id} value={p.id}>{p.name}</option>):<option value="">Proje bulunamadı</option>}</select><small title={selected?.repository||''}>{selected?.repository||'Henüz bir proje seçilmedi'}</small></div></div>
    <div className="cc30-status"><span className={coreOk?'cc30-online':'cc30-offline'}><i/>{loading?'Kontrol ediliyor':coreOk?'Core erişilebilir':'Core doğrulanamadı'}</span><span>Son senkron: {relative(lastSync||undefined)}</span><span>{health?.version?`Sürüm ${health.version}`:'Sürüm bilinmiyor'}</span><button type="button" onClick={()=>void refresh()} disabled={loading} aria-label="Verileri yenile">↻ Yenile</button></div>
    {error&&<div className="cc30-error" role="alert">{error}</div>}
    <div className="cc30-gauges"><Gauge label="Aktif görev" value={operations?.projects.reduce((n,p)=>n+p.activeMissions,0)??'—'} detail="Tüm projeler"/><Gauge label="Çalışan ajan" value={operations?.agents?working.length:'—'} detail="Core operasyon verisi"/><Gauge label="Onay bekleyen" value={coreOk?approvals.length:'—'} detail="İnsan kararı"/><Gauge label="Hatalı görev" value={failures??'—'} detail="Core kayıtları"/></div>
