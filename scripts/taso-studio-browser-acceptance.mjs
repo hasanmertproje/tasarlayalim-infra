@@ -105,7 +105,7 @@ try{
  const root=nested.document.pages[1].nodes;
  if(root.length!==1||root[0].kind!=='section'||root[0].children.length!==2||
    root[0].children[0].kind!=='text'||root[0].children[1].text!=='Gerçek Studio • İlk Sürüm')
-   throw Error('Studio V2 drag tree shape mismatch; topology='+root.map(n=>n.kind+'('+n.children.map(c=>c.kind).join(',')+')').join('|')); observed='+JSON.stringify(root.map(n=>({id:n.id,kind:n.kind,text:n.text,children:n.children.map(c=>({kind:c.kind,text:c.text}))}))));
+   throw Error('Studio V2 drag tree shape mismatch: '+root.map(n=>n.kind+'('+n.children.map(c=>c.kind).join(',')+')').join('|'));
  observations.push({step:'V2 desktop drag and nested Core persistence',version:nested.document.version});
  // Export is generated from the saved, authorized Core page, not from unsaved UI draft.
  const exportUrl='/api/v1/projects/'+encodeURIComponent(projectId)+'/studio/pages/'+encodeURIComponent(nested.document.pages[1].id)+'/export.html';
