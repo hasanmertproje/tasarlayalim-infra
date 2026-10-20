@@ -15,6 +15,7 @@ export const TASO_PRIMARY_SCREENS = [
 
 export const TASO_SCREENS = [
   ...TASO_PRIMARY_SCREENS,
+  'Workspace',
   'Notifications',
   'Infrastructure',
 ] as const;
@@ -28,6 +29,7 @@ export const TASO_SCREEN_LABELS: Record<TasoScreen, string> = {
   Deployments: 'Dağıtımlar', 'AI Agents': 'Yapay Zekâ Ajanları',
   Knowledge: 'Bilgi Merkezi', Integrations: 'Entegrasyonlar',
   Monitoring: 'İzleme', Settings: 'Ayarlar',
+  Workspace: 'Çalışma Alanım',
   Notifications: 'Bildirimler', Infrastructure: 'Altyapı',
 };
 
