@@ -37,6 +37,9 @@ jobs:
       - name: Assert production release requires manual dispatch
         run: node scripts/taso-production-workflow-gate-check.mjs
 
+      - name: Validate stacked pull request and isolated preview trigger contract
+        run: node scripts/taso-next-stacked-ci-contract.mjs
+
       - name: Validate shell scripts
         run: |
           sh -n scripts/healthcheck.sh
