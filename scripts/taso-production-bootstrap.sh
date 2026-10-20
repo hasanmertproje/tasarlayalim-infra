@@ -28,8 +28,12 @@ replace_once(
 ''',
 '''S3_UUID="$(jq -r '[.[]|select(.is_usable==true)][0].uuid//empty' <<<"$(api GET s3-storages)")"
 if [[ -z "$S3_UUID" ]]; then
-  echo "::error::No usable S3 backup target; refusing production mutation until off-site backup is available." >&2
-  exit 1
+  if [[ "${TASO_ALLOW_TEMPORARY_LOCAL_BACKUP_ONLY:-0}" == 1 ]]; then
+    echo "::warning::One-time approved release: no S3 target exists; configure and verify local-only backups. Restore the S3 gate after this deployment." >&2
+  else
+    echo "::error::No usable S3 backup target; refusing production mutation until off-site backup is available." >&2
+    exit 1
+  fi
 else
   echo "Usable S3 backup target found; local + off-site backups will be configured."
 fi
@@ -49,6 +53,10 @@ replace_once(
      BACKUP_S3="$S3_UUID" node -e 'process.stdout.write(JSON.stringify({frequency:"0 2 * * *",enabled:true,save_s3:true,disable_local_backup:false,stop_during_backup:false,s3_storage_uuid:process.env.BACKUP_S3,retention_amount_locally:7,retention_amount_s3:30}))' > "$PAYLOAD"
      api PUT "applications/$app/storages/$sid/backups" "$(<"$PAYLOAD")" >/dev/null
      echo "Scheduled daily local/S3 backup for $name."
+   elif [[ "${TASO_ALLOW_TEMPORARY_LOCAL_BACKUP_ONLY:-0}" == 1 ]]; then
+     node -e 'process.stdout.write(JSON.stringify({frequency:"0 2 * * *",enabled:true,save_s3:false,disable_local_backup:false,stop_during_backup:false,retention_amount_locally:7}))' > "$PAYLOAD"
+     api PUT "applications/$app/storages/$sid/backups" "$(<"$PAYLOAD")" >/dev/null
+     echo "::warning::Scheduled daily local-only backup for $name (7 retained); off-site backup remains unconfigured."
    else
      echo "::error::Internal backup preflight violation: S3 target missing." >&2
      return 1
