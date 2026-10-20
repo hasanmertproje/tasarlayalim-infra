@@ -108,7 +108,7 @@ export class ConversationAi{
     if((runtime.webSearch||wantsWebSearch(input))&&!sources.length)return unavailable('Web araması tamamlandı ancak bu sorgu için kaynak bulunamadı. Soruyu daha belirgin yazabilir veya bir kaynak bağlantısı gönderebilirsin.');
     const sourceContext=sources.length?JSON.stringify(sources):'[]';
     const searchState=researchStatus();
-    const providerRequest=JSON.stringify({model:provider.model,temperature:.32,messages:[{role:'system',content:[
+    const providerMessages=[{role:'system',content:[
         tasoCharacterInstructions(),
         personal.instructions,
         'Emoji, markdown başlığı, tablo ve uzun madde listesi kullanma; kullanıcı özellikle isterse uygun biçimde kullanabilirsin.',
@@ -121,10 +121,11 @@ export class ConversationAi{
         `Web durumu: URL fetch=${searchState.fetchReady?'ready':'unavailable'}, search=${searchState.searchReady?'ready':'not-configured'}.`,
         sources.length?'Web araştırması kullandıysan cevabın sonunda kısa Kaynaklar satırında yalnız gerçekten kullanılan URL’leri belirt.':'Web kaynağı kullanılmadı.',
         `Aktif proje: ${project.name}`,`Repository: ${project.repository}`,`Runtime bağlamı: ${runtimeSummary}`,`Web araştırma bağlamı: ${sourceContext}`,
-      ].join('\n')},...turns.slice(-16),{role:'user',content:input}]});
+      ].join('\n')},...turns.slice(-16),{role:'user',content:input}];
     let attempts=0;
     let lastFailure='UNAVAILABLE';
     for(const provider of providers){
+      const providerRequest=JSON.stringify({model:provider.model,temperature:.32,messages:providerMessages});
       const maxAttempts=providers.length===1?2:1;
       for(let attempt=0;attempt<maxAttempts;attempt++){
         attempts++;
