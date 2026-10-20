@@ -27,7 +27,10 @@ test('usable S3 may pass initial target preflight but never proves backup restor
   assert.equal(r.status,0,r.stderr);
   assert.match(r.stdout,/SAFE_PREFLIGHT_OK/);
 });
-test('production wrapper may not silently schedule local-only backups',()=>{
-  assert.ok(!wrapper.includes('save_s3:false'),'must not allow local-only production backup fallback');
+test('local-only backup fallback requires an explicit one-time release flag',()=>{
+  assert.ok(wrapper.includes('TASO_ALLOW_TEMPORARY_LOCAL_BACKUP_ONLY'));
+  assert.ok(wrapper.includes('save_s3:false'),'explicit fallback must configure local-only backups');
+  assert.ok(wrapper.includes('No usable S3 backup target; refusing production mutation until off-site backup is available.'));
+  assert.ok(wrapper.includes('default: false'),'normal workflow_dispatch must keep fallback disabled by default');
   assert.ok(!wrapper.includes('This first production bootstrap will keep daily local backups'));
 });
