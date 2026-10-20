@@ -1,7 +1,7 @@
 name: Taso Urgent Preview
 on:
   pull_request:
-    branches: [main, feature/taso-next-foundation-20261020, feature/taso-next-studio-m2-20261020, feature/taso-studio-v2-interactions-20261020, feature/taso-studio-html-export-20261020, feature/taso-stacked-ci-coverage-20261020]
+    branches: [main, feature/taso-next-foundation-20261020, feature/taso-next-studio-m2-20261020, feature/taso-studio-v2-interactions-20261020, feature/taso-studio-html-export-20261020, feature/taso-stacked-ci-coverage-20261020, fix/taso-preview-ci-runtime-diagnostics-20261020]
     paths:
       - "taso/**"
       - "taso-ui/**"
