@@ -4,10 +4,8 @@ on:
   push:
     branches:
       - main
+  # Every stacked PR base must run the same typecheck/Core tests.
   pull_request:
-    branches:
-      - main
-      - feature/taso-next-foundation-20261020
   workflow_dispatch:
 
 concurrency:
