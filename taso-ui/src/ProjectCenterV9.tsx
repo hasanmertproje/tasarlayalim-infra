@@ -238,7 +238,7 @@ export default function ProjectCenterV9() {
     <section className="pc9-shell" aria-label="Projects">
       <header className="pc9-topbar">
         <div><span className="pc9-kicker">PROJECT OPERATIONS</span><h1>Projeler</h1><p>Repo, bağlam, mission ve teslim zinciri tek yerde.</p></div>
-        <button type="button" className="pc9-primary" onClick={() => setShowCreate((value) => !value)}>+ Yeni proje</button>
+        <div style={{display:'flex',flexWrap:'wrap',gap:8}}><button type="button" className="pc9-primary" disabled={!selected} onClick={()=>{if(selected){sessionStorage.setItem('taso-studio-project',selected.id);navigateTaso('Studio')}}}>✦ Studio'da aç</button><button type="button" className="pc9-primary" onClick={() => setShowCreate((value) => !value)}>+ Yeni proje</button></div>
       </header>
 
       {error && <div className="pc9-alert">{error}</div>}
