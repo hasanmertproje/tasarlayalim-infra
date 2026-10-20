@@ -11,6 +11,7 @@ on:
       - feature/taso-next-studio-m2-20261020
       - feature/taso-studio-v2-interactions-20261020
       - feature/taso-studio-html-export-20261020
+      - feature/taso-stacked-ci-coverage-20261020
   workflow_dispatch:
 
 concurrency:
@@ -41,6 +42,9 @@ jobs:
 
       - name: Assert production release requires manual dispatch
         run: node scripts/taso-production-workflow-gate-check.mjs
+
+      - name: Test redacted preview deployment diagnostics
+        run: node --test tests/taso-preview-deployment-diagnostic.test.mjs
 
       - name: Validate shell scripts
         run: |

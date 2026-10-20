@@ -2,7 +2,7 @@ name: Taso Browser CI
 
 on:
   pull_request:
-    branches: [main, feature/taso-next-foundation-20261020, feature/taso-next-studio-m2-20261020, feature/taso-studio-v2-interactions-20261020, feature/taso-studio-html-export-20261020]
+    branches: [main, feature/taso-next-foundation-20261020, feature/taso-next-studio-m2-20261020, feature/taso-studio-v2-interactions-20261020, feature/taso-studio-html-export-20261020, feature/taso-stacked-ci-coverage-20261020]
   push:
     branches: [main]
 
@@ -26,21 +26,30 @@ jobs:
         run: docker build -t tasarlayalim-taso-browser ./docker/taso-browser
       - name: Smoke test browser worker runtime health
         run: |
-          docker run -d --rm --name taso-browser-ci -p 3100:3100 \
+          docker run -d --name taso-browser-ci -p 3100:3100 \
             -e TASO_BROWSER_WORKER_SECRET=ci-browser-secret \
             -e TASO_BROWSER_ALLOWED_HOSTS=example.com \
             tasarlayalim-taso-browser
-          for i in $(seq 1 40); do
-            status="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}missing{{end}}' taso-browser-ci 2>/dev/null || true)"
-            if [[ "$status" == healthy ]]; then
-              curl -fsS http://127.0.0.1:3100/health | grep -q '"ok":true'
+          # Preserve the container on failure so startup/health logs are available.
+          # The app must both serve /health AND pass its declared Docker healthcheck.
+          for i in $(seq 1 75); do
+            state="$(docker inspect --format '{{.State.Status}}' taso-browser-ci 2>/dev/null || true)"
+            health="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}missing{{end}}' taso-browser-ci 2>/dev/null || true)"
+            if [[ "$state" != running ]]; then
+              echo "Browser worker container state: ${state:-unavailable}; health: ${health:-unavailable}" >&2
+              docker inspect taso-browser-ci --format '{{json .State}}' || true
+              docker logs taso-browser-ci 2>&1 | tail -100 || true
+              exit 1
+            fi
+            if [[ "$health" == healthy ]]; then
+              curl --fail --silent --show-error --max-time 5 http://127.0.0.1:3100/health | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{const j=JSON.parse(s);if(j.ok!==true||j.service!=="taso-browser-worker")process.exit(1)}catch{process.exit(1)}})'
               exit 0
             fi
             sleep 2
           done
-          echo "Browser worker did not become healthy." >&2
+          echo "Browser worker did not become healthy within 150 seconds." >&2
           docker inspect taso-browser-ci --format '{{json .State}}' || true
-          docker logs taso-browser-ci || true
+          docker logs taso-browser-ci 2>&1 | tail -100 || true
           exit 1
       - name: Cleanup browser worker runtime
         if: always()
