@@ -228,7 +228,7 @@ if [[ "$core_preexisting" == true ]] && { is_unusable_production_secret "$gatewa
   preserve_existing_core_secrets=true
   gateway=""
   authkey=""
-  echo "Existing Core secret values are masked by Coolify; preserving Core gateway/encryption entries and the existing UI gateway entry without reading or rotating either secret; persisted auth/session checks remain mandatory."
+  echo "Existing Core secret values are masked by Coolify; preserving Core gateway/encryption entries and the existing UI gateway entry without reading or rotating either secret; persisted auth/session checks remain mandatory before release."
 else
   if is_unusable_production_secret "$gateway"; then
     [[ "$core_preexisting" == false ]] || { echo "::error::Existing Core gateway secret is missing or unreadable; refusing automatic rotation." >&2; exit 1; }
