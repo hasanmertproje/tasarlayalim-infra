@@ -10,18 +10,51 @@ const page=await context.newPage();
 const observations=[];
 function base32Decode(input){const alpha='ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';let bits=0,value=0;const result=[];for(const c of input.toUpperCase().replace(/[^A-Z2-7]/g,'')){value=(value<<5)|alpha.indexOf(c);bits+=5;if(bits>=8){result.push((value>>>(bits-8))&255);bits-=8}}return Buffer.from(result)}
 function totp(secret){const buf=Buffer.alloc(8);buf.writeBigUInt64BE(BigInt(Math.floor(Date.now()/30000)));const d=createHmac('sha1',base32Decode(secret)).update(buf).digest();const offset=d[d.length-1]&15;return String(((((d[offset]&127)<<24)|((d[offset+1]&255)<<16)|((d[offset+2]&255)<<8)|(d[offset+3]&255)))%1e6).padStart(6,'0')}
-async function login(){
- await page.goto(base,{waitUntil:'networkidle'});
- const data=await page.evaluate(async()=>{const r=await fetch('/api/auth/login',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({email:'owner@ci.local',password:'ci-password'})});return r.json()});
- if(data.authenticated)return;
+async function login(target, enrolledSecret){
+ await target.goto(base,{waitUntil:'networkidle'});
+ const response=await target.evaluate(async()=>{
+  const r=await fetch('/api/auth/login',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({email:'owner@ci.local',password:'ci-password'})});
+  const b=await r.json().catch(()=>({}));return {status:r.status,body:b};
+ });
+ const data=response.body;
+ if(response.status!==200)throw Error('Studio login HTTP '+response.status+' step=credentials');
+ if(data.authenticated)return {secret:enrolledSecret||'',flow:'trusted-session'};
  if(data.requiresTwoFactorSetup&&data.secret&&data.challengeId){
-  const done=await page.evaluate(async({challengeId,code})=>{const r=await fetch('/api/auth/2fa/setup/confirm',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({challengeId,code,deviceName:'Studio CI'})});return r.json()},{challengeId:data.challengeId,code:totp(data.secret)});
-  if(!done.authenticated)throw new Error('Studio TOTP auth failed');return;
+  const done=await target.evaluate(async({challengeId,code})=>{
+   const r=await fetch('/api/auth/2fa/setup/confirm',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({challengeId,code,deviceName:'Studio CI'})});
+   return {status:r.status,authenticated:Boolean((await r.json().catch(()=>({}))).authenticated)};
+  },{challengeId:data.challengeId,code:totp(data.secret)});
+  if(done.status!==200||!done.authenticated)throw Error('Studio TOTP setup failed step=setup http='+done.status);
+  return {secret:data.secret,flow:'new-enrollment'};
  }
- throw Error('Cannot authenticate Studio Browser CI');
+ if(data.requiresTwoFactor&&data.challengeId){
+  if(!enrolledSecret)throw Error('Studio TOTP verification requires isolated enrolled fixture; step=verify secret=not-available');
+  const done=await target.evaluate(async({challengeId,code})=>{
+   const r=await fetch('/api/auth/2fa/verify',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({challengeId,code,deviceName:'Studio CI second session'})});
+   return {status:r.status,authenticated:Boolean((await r.json().catch(()=>({}))).authenticated)};
+  },{challengeId:data.challengeId,code:totp(enrolledSecret)});
+  if(done.status!==200||!done.authenticated)throw Error('Studio TOTP existing enrollment verify failed step=verify http='+done.status);
+  return {secret:enrolledSecret,flow:'existing-enrollment'};
+ }
+ throw Error('Studio login unexpected auth contract step=credentials http='+response.status+
+  ' setup='+Boolean(data.requiresTwoFactorSetup)+' verify='+Boolean(data.requiresTwoFactor));
 }
+
 try{
- await login();
+ const first=await login(page);
+ if(first.flow!=='new-enrollment')throw Error('Fresh isolated Studio fixture did not enroll TOTP');
+ const secondContext=await browser.newContext({viewport:{width:390,height:844}});
+ try {
+  const secondPage=await secondContext.newPage();
+  const second=await login(secondPage,first.secret);
+  if(second.flow!=='existing-enrollment')throw Error('Existing Studio TOTP verification branch was not exercised');
+  const status=await secondPage.evaluate(async()=>{
+   const r=await fetch('/api/auth/session',{credentials:'same-origin'});const b=await r.json();
+   return {http:r.status,authenticated:b.authenticated};
+  });
+  if(status.http!==200||status.authenticated!==true)throw Error('Existing TOTP session did not authenticate');
+  observations.push({step:'TOTP setup and existing-account verify',status:'passed'});
+ }finally{await secondContext.close()}
  await page.goto(base+'/?screen=Studio',{waitUntil:'networkidle'});
  await page.locator('.taso-studio').waitFor({state:'visible',timeout:15000});
  await page.locator('.studio-empty button').click();
