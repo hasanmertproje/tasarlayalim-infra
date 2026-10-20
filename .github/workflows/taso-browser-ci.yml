@@ -2,7 +2,7 @@ name: Taso Browser CI
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, feature/taso-next-foundation-20261020]
   push:
     branches: [main]
 
