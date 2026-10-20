@@ -1,7 +1,7 @@
 import {useEffect,useMemo,useRef,useState,type CSSProperties,type ReactNode} from 'react';
 import {navigateTaso} from './navigation';
 import NextOrb from './NextOrb';
-import {createNode,createPage,locate,nodeHtml,pageHtml,removeNode,shiftNode,moveStudioNode,updateNode,type NodeKind,type DesignDocument,type DesignNode,type DesignPage,type NodeStyle,type StudioDropPlacement} from './studio-document';
+import {createNode,createPage,locate,nodeHtml,pageHtml,removeNode,shiftNode,moveStudioNode,updateNode,type NodeKind,type DesignDocument,type DesignNode,type DesignPage,type NodeStyle,type StudioDropPlacement,type StudioLibraryEntry,instantiateLibraryNode} from './studio-document';
 const API=((import.meta.env.VITE_TASO_API_URL as string|undefined)||'/api').replace(/\/$/,'');
 type Project={id:string;name:string;repository:string;lifecycleStatus?:string};
 type Mode='mobile'|'tablet'|'desktop';
@@ -56,7 +56,7 @@ export default function TasoStudioV1(){
  const [viewport,setViewport]=useState<Mode>('desktop'),[panel,setPanel]=useState<Panel>('layers'),[panelOpen,setPanelOpen]=useState(false);
  const [showCode,setShowCode]=useState(false),[busy,setBusy]=useState(false),[loading,setLoading]=useState(true),[error,setError]=useState(''),[notice,setNotice]=useState('');
  const [canRead,setCanRead]=useState(false),[canWrite,setCanWrite]=useState(false),[revisionName,setRevisionName]=useState('');
- const dirty=Boolean(draft&&serverDoc&&JSON.stringify({pages:draft.pages,title:draft.title})!==JSON.stringify({pages:serverDoc.pages,title:serverDoc.title}));
+ const dirty=Boolean(draft&&serverDoc&&JSON.stringify({pages:draft.pages,title:draft.title,library:draft.library||[]})!==JSON.stringify({pages:serverDoc.pages,title:serverDoc.title,library:serverDoc.library||[]}));
  const page=draft?.pages.find(p=>p.id===pageId)||draft?.pages[0];
  const selected=page?locate(page.nodes,selectedId):undefined;
  const revisions=draft?.revisions??[];
@@ -99,6 +99,27 @@ export default function TasoStudioV1(){
   const p=createPage(name);if(!draft||draft.pages.some(v=>v.slug===p.slug)){setError('Sayfa adı farklı olmalı.');return}
   apply(d=>({...d,pages:[...d.pages,p]}));setPageId(p.id);setSelectedId('');setError('');
  }
+ function saveComponent(){
+  if(!draft||!selected||!canWrite||busy)return;
+  if((draft.library||[]).length>=24){setError('Bu projede en fazla 24 bileşen saklanabilir.');return}
+  const name=window.prompt('Bileşen kitaplığına kaydet','Yeni '+kindLabel[selected.kind])?.trim();
+  if(!name)return;
+  if(name.length>80){setError('Bileşen adı en fazla 80 karakter olabilir.');return}
+  const entry:StudioLibraryEntry={id:'lib_'+crypto.randomUUID(),name,node:clone(selected)};
+  apply(doc=>({...doc,library:[...(doc.library||[]),entry]}));
+  setNotice('Bileşen taslağa eklendi. Kalıcı olması için Değişiklikleri kaydet.');
+ }
+ function insertComponent(entry:StudioLibraryEntry){
+  if(!page||!canWrite||busy)return;
+  const component=instantiateLibraryNode(entry.node);
+  const parent=selected?.kind==='section'?selected.id:undefined;
+  pageChange(p=>({...p,nodes:parent?updateNode(p.nodes,parent,n=>({...n,children:[...n.children,component]})):[...p.nodes,component]}));
+  setSelectedId(component.id);setPanel('properties');
+ }
+ function deleteComponent(id:string){
+  if(!draft||!canWrite||busy||!window.confirm('Bileşen kütüphanesinden kaldırılsın mı? Mevcut sayfa öğeleri korunur.'))return;
+  apply(doc=>({...doc,library:(doc.library||[]).filter(item=>item.id!==id)}));
+ }
  function deletePage(){if(!draft||!page||draft.pages.length<2)return;if(!window.confirm('Bu sayfa silinsin mi?'))return;const other=draft.pages.find(x=>x.id!==page.id);apply(d=>({...d,pages:d.pages.filter(x=>x.id!==page.id)}));setPageId(other?.id||'');setSelectedId('')}
  async function init(){
   if(!apiPath||busy)return;setBusy(true);setError('');
@@ -106,7 +127,7 @@ export default function TasoStudioV1(){
   catch(e){setError((e as Error).message)}finally{setBusy(false)}
  }
  async function persist(doc:DesignDocument):Promise<DesignDocument>{
-  const response=await request<{document:DesignDocument}>(apiPath,{method:'PUT',body:JSON.stringify({expectedVersion:serverDoc?.version,title:doc.title,pages:doc.pages})});
+  const response=await request<{document:DesignDocument}>(apiPath,{method:'PUT',body:JSON.stringify({expectedVersion:serverDoc?.version,title:doc.title,pages:doc.pages,library:doc.library||[]})});
   setServerDoc(response.document);setDraft(clone(response.document));setPast([]);setFuture([]);return response.document;
  }
  async function save(checkpoint=false){
@@ -165,6 +186,7 @@ export default function TasoStudioV1(){
     <label>Köşe yarıçapı <output>{selected.style.borderRadius||0}px</output><input type="range" min="0" max="100" value={selected.style.borderRadius||0} disabled={!canWrite} onChange={e=>updateStyle('borderRadius',e.target.value)}/></label>
     <label>Hizalama<select value={selected.style.textAlign||'left'} disabled={!canWrite} onChange={e=>updateStyle('textAlign',e.target.value)}><option value="left">Sol</option><option value="center">Orta</option><option value="right">Sağ</option></select></label>
     <label>Yazı kalınlığı<select value={selected.style.fontWeight||400} disabled={!canWrite} onChange={e=>updateStyle('fontWeight',e.target.value)}><option value={400}>Normal</option><option value={500}>Orta</option><option value={700}>Kalın</option><option value={900}>Çok kalın</option></select></label>
+    <div className="studio-library-save"><button type="button" disabled={!canWrite||busy||(draft?.library||[]).length>=24} onClick={saveComponent}>＋ Seçili bileşeni kitaplığa kaydet</button></div>
     <div className="studio-fields__actions"><button disabled={!canWrite} type="button" onClick={()=>moveNode(-1)}>↑ Yukarı</button><button disabled={!canWrite} type="button" onClick={()=>moveNode(1)}>↓ Aşağı</button><button disabled={!canWrite} type="button" className="danger" onClick={()=>{pageChange(p=>({...p,nodes:removeNode(p.nodes,selected.id)}));setSelectedId('')}}>Öğeyi sil</button></div>
   </div>:<p className="studio-hint">Tuvalden veya katman ağacından bir öğe seçerek metnini ve stilini düzenleyin.</p>}
   <div className="studio-copilot"><b>✦ TASO AI Copilot</b><p>Model tabanlı kod/değişiklik önerisi henüz etkin değil. Değişiklikleri AI üretmiş gibi göstermiyoruz. İleride öneri → diff → onay → uygulama akışıyla bağlanacak.</p></div>
@@ -172,6 +194,14 @@ export default function TasoStudioV1(){
  const layerPanel=<><div className="studio-panel__title"><b>Katmanlar</b><small>{page?.nodes.length??0} kök öğe</small></div>
   <div className="studio-layer-list">{page?.nodes.length?<Tree nodes={page.nodes} selected={selectedId} onPick={setSelectedId} onMove={moveTo} canWrite={canWrite} dragSource={dragSource}/>:<p className="studio-hint">Bu sayfa henüz boş. Yukarıdaki araçlardan bir bileşen ekleyin.</p>}</div>
   <div className="studio-insert-list">{(['section','heading','text','button'] as NodeKind[]).map(kind=><button type="button" key={kind} disabled={!draft||!canWrite} onClick={()=>addNode(kind)}>＋ {kindLabel[kind]}</button>)}</div>
+  <section className="studio-library" aria-label="Proje bileşen kütüphanesi">
+   <div className="studio-panel__title"><b>Proje bileşenleri</b><small>{(draft?.library||[]).length}/24</small></div>
+   {(draft?.library||[]).length===0?<p className="studio-hint">Bir öğe seçip özellikler panelinden kitaplığa kaydet. Yeniden kullanılabilir öğeler Core belgesinde saklanır.</p>:
+   <div className="studio-library__list">{(draft?.library||[]).map(entry=><div key={entry.id}>
+    <button type="button" disabled={!canWrite||busy} onClick={()=>insertComponent(entry)} title={entry.name+' bileşenini sayfaya ekle'}>＋ {entry.name}</button>
+    <button type="button" className="studio-library__remove" disabled={!canWrite||busy} aria-label={entry.name+' bileşenini sil'} onClick={()=>deleteComponent(entry.id)}>×</button>
+   </div>)}</div>}
+  </section>
  </>;
  return <section className="taso-studio" aria-label="TASO Studio">
    <header className="studio-topbar"><div className="studio-brand"><NextOrb size="small"/><div><span>TASO / CREATIVE ENGINE</span><h1>Tasarım Stüdyosu</h1></div></div>

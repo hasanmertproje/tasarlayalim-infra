@@ -121,6 +121,28 @@ try{
  const download=await waiting;
  if(!download.suggestedFilename().endsWith('.html'))throw Error('Studio downloaded wrong file format');
  observations.push({step:'Studio source matches authoritative Core HTML and downloads',download:download.suggestedFilename()});
+ // M3: use selected real node as a reusable, versioned Core-backed project asset.
+ await page.locator('.studio-tree-item').filter({hasText:'Gerçek Studio • İlk Sürüm'}).first().click();
+ page.once('dialog',dialog=>dialog.accept('Kapak Başlığı'));
+ await page.getByRole('button',{name:/Seçili bileşeni kitaplığa kaydet/}).click();
+ await page.locator('.studio-topbar__actions button').filter({hasText:'Değişiklikleri kaydet'}).click();
+ await page.getByText('Değişiklikler Core üzerinde kaydedildi.').waitFor();
+ let librarySaved=await page.evaluate(id=>fetch('/api/v1/projects/'+encodeURIComponent(id)+'/studio').then(r=>r.json()),projectId);
+ if(librarySaved.document?.library?.length!==1||librarySaved.document.library[0].name!=='Kapak Başlığı')throw Error('Studio library not persisted in Core');
+ await page.reload({waitUntil:'networkidle'});
+ await page.locator('.studio-page-list button').filter({hasText:'Ürünler'}).click();
+ await page.locator('.studio-library__list button').filter({hasText:'Kapak Başlığı'}).first().click();
+ await page.locator('.studio-topbar__actions button').filter({hasText:'Değişiklikleri kaydet'}).click();
+ await page.getByText('Değişiklikler Core üzerinde kaydedildi.').waitFor();
+ const reused=await page.evaluate(id=>fetch('/api/v1/projects/'+encodeURIComponent(id)+'/studio').then(r=>r.json()),projectId);
+ if(reused.document.library.length!==1)throw Error('Studio library was lost after reload');
+ const reusedPage=reused.document.pages.find(p=>p.name==='Ürünler');
+ const allNodes=[];const walk=items=>items.forEach(n=>{allNodes.push(n);walk(n.children)});
+ walk(reusedPage.nodes);
+ if(allNodes.filter(n=>n.text==='Gerçek Studio • İlk Sürüm').length!==2)throw Error('Reusable component did not persist as a second node');
+ if(new Set(allNodes.map(n=>n.id)).size!==allNodes.length)throw Error('Reused component duplicated node IDs');
+ observations.push({step:'Studio project component saved to Core, reloaded and reused with new node ID',version:reused.document.version});
+
 
 
  for(const width of [320,360,390,430,768,1024,1440,1920]){

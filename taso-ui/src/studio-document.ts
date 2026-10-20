@@ -3,8 +3,12 @@ export type NodeKind='section'|'heading'|'text'|'button';
 export type NodeStyle={color?:string;background?:string;fontSize?:number;padding?:number;borderRadius?:number;textAlign?:'left'|'center'|'right';fontWeight?:number};
 export type DesignNode={id:string;kind:NodeKind;text:string;style:NodeStyle;children:DesignNode[]};
 export type DesignPage={id:string;name:string;slug:string;nodes:DesignNode[]};
-export type SavedRevision={id:string;label:string;at:string;actorId:string;sourceVersion:number;pages:DesignPage[]};
-export type DesignDocument={id:string;projectId:string;title:string;version:number;updatedAt:string;updatedBy:string;pages:DesignPage[];revisions:SavedRevision[]};
+export type StudioLibraryEntry={id:string;name:string;node:DesignNode};
+export type SavedRevision={id:string;label:string;at:string;actorId:string;sourceVersion:number;pages:DesignPage[];library?:StudioLibraryEntry[]};
+export function instantiateLibraryNode(source:DesignNode):DesignNode {
+ return {...structuredClone(source),id:'node_'+crypto.randomUUID(),children:source.children.map(instantiateLibraryNode)};
+}
+export type DesignDocument={id:string;projectId:string;title:string;version:number;updatedAt:string;updatedBy:string;pages:DesignPage[];library?:StudioLibraryEntry[];revisions:SavedRevision[]};
 export const createNode=(kind:NodeKind):DesignNode=>({id:'node_'+crypto.randomUUID(),kind,text:kind==='heading'?'Başlığın buraya':kind==='text'?'Yeni metin alanı':kind==='button'?'Hemen başla':'',style:kind==='section'?{padding:24,background:'#151c40'}:kind==='heading'?{fontSize:32,color:'#ffffff',fontWeight:700}:{fontSize:16,color:'#e6e9fa'},children:[]});
 export const createPage=(name:string):DesignPage=>({id:'page_'+crypto.randomUUID(),name,slug:name.toLocaleLowerCase('tr-TR').normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'').slice(0,65)||'sayfa',nodes:[]});
 export function locate(nodes:DesignNode[],target:string):DesignNode|undefined{for(const n of nodes){if(n.id===target)return n;const found=locate(n.children,target);if(found)return found}return undefined}
