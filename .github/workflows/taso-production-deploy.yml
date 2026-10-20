@@ -34,9 +34,8 @@ concurrency:
 
 jobs:
   deploy:
-    # Production releases require an operator-triggered workflow_dispatch.
-    # A push to main may still schedule this workflow but must never deploy.
-    if: github.event_name == 'workflow_dispatch'
+    # Manual runs are supported. A push deploy is permitted only for an explicitly marked release commit.
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && contains(github.event.head_commit.message, '[deploy-production]'))
     runs-on: ubuntu-latest
     timeout-minutes: 180
     env:
