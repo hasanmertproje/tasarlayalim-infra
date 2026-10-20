@@ -69,3 +69,13 @@
 .studio-tree-handle:active{cursor:grabbing;background:#493d85}
 .studio-tree-branch>.studio-tree-branch{margin-left:5px;border-left:1px solid #3d4372}
 @media(max-width:820px){.studio-tree-handle{flex-basis:48px;min-height:48px}.studio-tree-row>.studio-tree-item{min-height:48px}}
+
+/* M3 project component library: saved through the canonical Core StudioDocument, not local storage. */
+.studio-library{display:grid;gap:11px;border-top:1px solid var(--st-edge);padding-top:8px}
+.studio-library__list{display:grid;gap:7px;max-height:260px;overflow:auto}
+.studio-library__list>div{display:grid;grid-template-columns:minmax(0,1fr) 42px;gap:6px;align-items:center}
+.studio-library__list button,.studio-library-save button{border:1px solid var(--st-edge);border-radius:9px;background:var(--st-raised);color:var(--st-ink);min-height:44px;padding:8px 11px;text-align:left;font-size:11px;white-space:normal;overflow-wrap:anywhere}
+.studio-library__list .studio-library__remove{color:var(--st-danger);font-size:21px;text-align:center}
+.studio-library-save button{width:100%;border-color:#7854b6;color:#cfbdff;text-align:center}
+:root[data-theme="light"] .studio-library-save button{color:#5943a0}
+@media(max-width:820px){.studio-library__list button,.studio-library-save button{min-height:48px;font-size:12px}.studio-library__list>div{grid-template-columns:minmax(0,1fr) 48px}}
