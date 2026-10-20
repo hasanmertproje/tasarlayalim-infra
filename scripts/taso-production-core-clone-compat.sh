@@ -175,6 +175,97 @@ deploy taso-ui-prod "$ui"
 'Core migration cleanup deployment',
 )
 
+old_gateway_block = '''gateway="$(reuse "$cf" TASO_GATEWAY_SECRET)"
+if is_unusable_production_secret "$gateway"; then
+  if [[ "${core_preexisting:-unknown}" != false ]]; then
+    echo "::error::Existing Core gateway secret is missing or unreadable; refusing automatic rotation." >&2
+    exit 1
+  fi
+  gateway="$(openssl rand -hex 32)"
+fi
+authkey="$(reuse "$cf" TASO_AUTH_ENCRYPTION_KEY)"
+if is_unusable_production_secret "$authkey"; then
+  if [[ "${core_preexisting:-unknown}" != false ]]; then
+    echo "::error::Existing Core auth encryption key is missing or unreadable; refusing automatic rotation." >&2
+    exit 1
+  fi
+  authkey="$(openssl rand -hex 32)"
+fi
+browserkey="$(reuse "$bf" TASO_BROWSER_WORKER_SECRET)"; [[ -n "$browserkey" ]] || browserkey="$(openssl rand -hex 32)"
+speakerkey="$(reuse "$sf" TASO_SPEAKER_SERVICE_SECRET)"; [[ -n "$speakerkey" ]] || speakerkey="$(openssl rand -hex 32)"
+for v in "$gateway" "$authkey" "$browserkey" "$speakerkey"; do mask "$v"; done
+'''
+new_gateway_block = '''preserve_existing_core_secrets=false
+gateway="$(reuse "$cf" TASO_GATEWAY_SECRET)"
+authkey="$(reuse "$cf" TASO_AUTH_ENCRYPTION_KEY)"
+if [[ "$core_preexisting" == true ]] && { is_unusable_production_secret "$gateway" || is_unusable_production_secret "$authkey"; }; then
+  jq -e 'any(.[];.key=="TASO_GATEWAY_SECRET") and any(.[];.key=="TASO_AUTH_ENCRYPTION_KEY")' "$cf" >/dev/null || {
+    echo "::error::Existing Core secret entries are absent, not merely unreadable; refusing production changes."
+    exit 1
+  }
+  jq -e 'any(.[];.key=="TASO_GATEWAY_SECRET")' "$uf" >/dev/null || {
+    echo "::error::Existing UI gateway secret entry is absent; refusing to guess or rotate the Core/UI shared secret."
+    exit 1
+  }
+  core_detail="$(api GET "applications/$core")"
+  core_status="$(jq -r '.status//"unknown"' <<<"$core_detail")"
+  case "$core_status" in
+    running|running:*) [[ "$core_status" != running:unhealthy ]] || { echo "::error::Existing Core is unhealthy; refusing to preserve unreadable auth secrets." >&2; exit 1; } ;;
+    *) echo "::error::Existing Core is not running; refusing to preserve unreadable auth secrets." >&2; exit 1 ;;
+  esac
+  jq -e 'any(.persistent_storages[]?;.mount_path=="/data")' <<<"$(api GET "applications/$core/storages")" >/dev/null || {
+    echo "::error::Existing Core has no persistent /data storage; refusing to preserve unreadable auth secrets." >&2
+    exit 1
+  }
+  session="$(curl -fsS --connect-timeout 10 --max-time 20 "https://$TASO_PRODUCTION_DOMAIN/api/auth/session")" || {
+    echo "::error::Production auth session gate unavailable; refusing to preserve unreadable auth secrets." >&2
+    exit 1
+  }
+  jq -e '.configured==true and .authenticated==false' <<<"$session" >/dev/null || {
+    echo "::error::Production auth session gate does not prove configured auth; refusing to preserve unreadable auth secrets." >&2
+    exit 1
+  }
+  preserve_existing_core_secrets=true
+  gateway=""
+  authkey=""
+  echo "Existing Core secret values are masked by Coolify; preserving Core gateway/encryption entries and the existing UI gateway entry without reading or rotating either secret."
+else
+  if is_unusable_production_secret "$gateway"; then
+    [[ "$core_preexisting" == false ]] || { echo "::error::Existing Core gateway secret is missing or unreadable; refusing automatic rotation." >&2; exit 1; }
+    gateway="$(openssl rand -hex 32)"
+  fi
+  if is_unusable_production_secret "$authkey"; then
+    [[ "$core_preexisting" == false ]] || { echo "::error::Existing Core auth encryption key is missing or unreadable; refusing automatic rotation." >&2; exit 1; }
+    authkey="$(openssl rand -hex 32)"
+  fi
+fi
+browserkey="$(reuse "$bf" TASO_BROWSER_WORKER_SECRET)"; [[ -n "$browserkey" ]] || browserkey="$(openssl rand -hex 32)"
+speakerkey="$(reuse "$sf" TASO_SPEAKER_SERVICE_SECRET)"; [[ -n "$speakerkey" ]] || speakerkey="$(openssl rand -hex 32)"
+for v in "$gateway" "$authkey" "$browserkey" "$speakerkey"; do mask "$v"; done
+'''
+replace_once(old_gateway_block, new_gateway_block, 'masked existing Core secret preservation')
+replace_once(
+''' key="${kv%%|*}"; value="${kv#*|}"; put "$core" "$cf" "$key" "$value"
+''',
+''' key="${kv%%|*}"; value="${kv#*|}"
+ if [[ "$preserve_existing_core_secrets" == true && ( "$key" == TASO_GATEWAY_SECRET || "$key" == TASO_AUTH_ENCRYPTION_KEY ) ]]; then
+   echo "Preserving existing Core $key entry without rewriting its masked value."
+   continue
+ fi
+ put "$core" "$cf" "$key" "$value"
+''',
+'Core secret env preservation')
+replace_once(
+'''put "$ui" "$uf" TASO_GATEWAY_SECRET "$gateway"
+''',
+'''if [[ "$preserve_existing_core_secrets" == true ]]; then
+  echo "Preserving existing UI TASO_GATEWAY_SECRET entry to avoid rotating a shared secret."
+else
+  put "$ui" "$uf" TASO_GATEWAY_SECRET "$gateway"
+fi
+''',
+'UI gateway secret preservation')
+
 path.write_text(text)
 PY
 
