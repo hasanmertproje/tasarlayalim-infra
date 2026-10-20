@@ -6,6 +6,7 @@ import type { MissionEvent } from './mission-events.js';
 import type { ProjectKnowledgeRecord } from './project-knowledge.js';
 import type { ProjectManifest } from './project-manifest.js';
 import type { ProjectMilestone } from './project-milestones.js';
+import type { StudioDocument } from './studio-store.js';
 
 export interface TasoStateSnapshot {
   projects: Project[];
@@ -15,6 +16,7 @@ export interface TasoStateSnapshot {
   missions: Mission[];
   events: MissionEvent[];
   conversations: ConversationMessage[];
+  studioDocuments: StudioDocument[];
 }
 
 const emptyState: TasoStateSnapshot = {
@@ -25,6 +27,7 @@ const emptyState: TasoStateSnapshot = {
   missions: [],
   events: [],
   conversations: [],
+  studioDocuments: [],
 };
 
 export class JsonStateStore {
@@ -46,6 +49,7 @@ export class JsonStateStore {
         missions: Array.isArray(parsed.missions) ? parsed.missions : [],
         events: Array.isArray(parsed.events) ? parsed.events : [],
         conversations: Array.isArray(parsed.conversations) ? parsed.conversations : [],
+        studioDocuments: Array.isArray(parsed.studioDocuments) ? parsed.studioDocuments : [],
       };
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code;
