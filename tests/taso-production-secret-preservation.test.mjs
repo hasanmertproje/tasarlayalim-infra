@@ -8,6 +8,13 @@ const from=source.indexOf('is_unusable_production_secret()');
 const to=source.indexOf('browserkey="$(reuse',from);
 assert.ok(from>0&&to>from,'secret preservation guard must precede worker bootstrap');
 const block=source.slice(from,to);
+const maskHelper=source.match(/^mask\(\) \{.*\}$/m)?.[0];
+assert.ok(maskHelper,'secret mask helper must exist');
+test('mask helper accepts empty preserved secret values without failing under set -e',()=>{
+  const r=spawnSync('bash',['-c','set -Eeuo pipefail\n'+maskHelper+'\nmask ""\nprintf SAFE'],{encoding:'utf8',timeout:3000});
+  assert.equal(r.status,0,r.stderr);
+  assert.equal(r.stdout,'SAFE');
+});
 
 function fixture({existing=true,gateway='',authkey=''}) {
   const script = [
