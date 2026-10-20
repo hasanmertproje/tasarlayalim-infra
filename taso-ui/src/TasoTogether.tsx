@@ -30,7 +30,7 @@ function targets(doc:DesignDocument|null):Target[]{
 const done=new Set(['completed','failed','cancelled']);
 export default function TasoTogether(){
  const [projects,setProjects]=useState<Project[]>([]),[projectId,setProjectId]=useState('');
- const [missions,setMissions]=useState<Mission[]>([]),[document,setDocument]=useState<DesignDocument|null>(null);
+ const [missions,setMissions]=useState<Mission[]>([]),[studioDoc,setDocument]=useState<DesignDocument|null>(null);
  const [lastAi,setLastAi]=useState<Conversation|null>(null),[hasSearch,setHasSearch]=useState(false);
  const [canWrite,setCanWrite]=useState(false),[loading,setLoading]=useState(true),[busy,setBusy]=useState(false);
  const [objective,setObjective]=useState(''),[risk,setRisk]=useState<'READ'|'WRITE'|'HIGH_IMPACT'>('WRITE');
@@ -73,7 +73,7 @@ export default function TasoTogether(){
  const project=projects.find(p=>p.id===projectId);
  const relevant=missions.filter(m=>m.projectId===projectId).sort((a,b)=>(b.updatedAt||'').localeCompare(a.updatedAt||''));
  const active=relevant.filter(m=>!done.has(m.status));
- const options=useMemo(()=>targets(document),[document]);
+ const options=useMemo(()=>targets(studioDoc),[document]);
  const target=options.find(o=>o.id===selectedNode);
  const suggestion=(lastAi?.content||'').trim().slice(0,1000);
  function chooseProject(id:string){setProjectId(id);setNotice('');setError('');setObjective('')}
@@ -90,15 +90,15 @@ export default function TasoTogether(){
   finally{setBusy(false)}
  }
  async function approveProposal(){
-  if(!document||!projectId||!canWrite||!target||!candidate.trim()||!accepted||busy)return;
+  if(!studioDoc||!projectId||!canWrite||!target||!candidate.trim()||!accepted||busy)return;
   if(candidate.length>4000){setError('Öneri 4000 karakteri aşamaz.');return}
   setBusy(true);setError('');setNotice('');
   try{
-   const pages=document.pages.map(p=>p.id===target.pageId?{...p,nodes:updateNode(p.nodes,target.id,node=>({...node,text:candidate}))}:p);
+   const pages=studioDoc.pages.map(p=>p.id===target.pageId?{...p,nodes:updateNode(p.nodes,target.id,node=>({...node,text:candidate}))}:p);
    // Never trust the browser approval alone: Core requires verified project write
    // permission, validates schema, and rejects stale expectedVersion.
    const changed=await api<{document:DesignDocument}>('/v1/projects/'+encodeURIComponent(projectId)+'/studio',{
-    method:'PUT',body:JSON.stringify({expectedVersion:document.version,pages,title:document.title}),
+    method:'PUT',body:JSON.stringify({expectedVersion:studioDoc.version,pages,title:studioDoc.title}),
    });
    setDocument(changed.document);
    setProposal(false);setAccepted(false);
@@ -122,7 +122,7 @@ export default function TasoTogether(){
    <div className="together-layout">
     <aside className="together-sidebar">
      <section className="together-card"><span className="together-kicker">PROJE BAĞLAMI</span><h2>{project?.name||'Proje bekleniyor'}</h2><p>{project?.repository||'Core proje listesi yükleniyor'}</p>
-      <div className="together-facts"><div><strong>{relevant.length}</strong><span>Toplam görev</span></div><div><strong>{active.length}</strong><span>Devam ediyor</span></div><div><strong>{document?.pages.length??'—'}</strong><span>Studio sayfası</span></div></div>
+      <div className="together-facts"><div><strong>{relevant.length}</strong><span>Toplam görev</span></div><div><strong>{active.length}</strong><span>Devam ediyor</span></div><div><strong>{studioDoc?.pages.length??'—'}</strong><span>Studio sayfası</span></div></div>
      </section>
      <section className="together-card"><span className="together-kicker">TASO'YU GÖREVLENDİR</span><h2>Gerçek iş başlat</h2><form onSubmit={submitMission}><label>Hedef<textarea value={objective} maxLength={16000} onChange={e=>setObjective(e.target.value)} placeholder="Örn. Projenin erişilebilirlik sorunlarını incele ve PR hazırla…" disabled={!canWrite||busy}/></label>
       <label>Risk seviyesi<select value={risk} onChange={e=>setRisk(e.target.value as typeof risk)}><option value="READ">Salt okuma</option><option value="WRITE">Kod değişikliği</option><option value="HIGH_IMPACT">Yüksek etki · onay gerekir</option></select></label>
@@ -142,7 +142,7 @@ export default function TasoTogether(){
       {!lastAi?<p>Bu projede doğrulanmış bir AI yanıtı yok. Sohbet servisi yanıt üretmediyse Studio'da AI önerisi gösterilmez.</p>:
         <><p>Kaynak: Core sohbet geçmişindeki <code>{lastAi.id}</code> kimlikli gerçek AI yanıtı. Doğrudan belgeyi değiştirmez.</p>
           <div className="together-ai-excerpt">{suggestion}</div>
-          {!proposal?<button type="button" disabled={!document||!canWrite||!options.length} onClick={()=>{setProposal(true);setCandidate(suggestion);setSelectedNode(options[0]?.id||'');setAccepted(false)}}>Bu yanıttan metin değişikliği öner</button>:
+          {!proposal?<button type="button" disabled={!studioDoc||!canWrite||!options.length} onClick={()=>{setProposal(true);setCandidate(suggestion);setSelectedNode(options[0]?.id||'');setAccepted(false)}}>Bu yanıttan metin değişikliği öner</button>:
             <div className="together-diff">
              <label>Hedef Studio öğesi<select value={selectedNode} onChange={e=>{setSelectedNode(e.target.value);setAccepted(false)}}>{options.map(o=><option key={o.id} value={o.id}>{o.label}</option>)}</select></label>
              <div className="together-diff-columns"><div><b>Mevcut metin</b><p>{target?.original||'—'}</p></div><div><b>Önerilen metin</b><textarea maxLength={4000} rows={5} value={candidate} onChange={e=>{setCandidate(e.target.value);setAccepted(false)}}/></div></div>
@@ -150,7 +150,7 @@ export default function TasoTogether(){
              <div className="together-decision"><button type="button" onClick={()=>{setProposal(false);setAccepted(false)}}>Reddet</button><button type="button" disabled={!accepted||!candidate.trim()||busy||!canWrite} onClick={()=>void approveProposal()}>Onayla ve Core'a uygula</button></div>
             </div>}
         </>}
-      {!document&&<p>Studio belgesi yok veya yetki yetersiz. Önce Studio'da yetkili belge oluşturulmalı.</p>}
+      {!studioDoc&&<p>Studio belgesi yok veya yetki yetersiz. Önce Studio'da yetkili belge oluşturulmalı.</p>}
      </section>
     </div>
    </div>
