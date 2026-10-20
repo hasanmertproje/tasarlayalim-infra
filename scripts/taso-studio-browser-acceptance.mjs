@@ -108,7 +108,9 @@ try{
    throw Error('Studio V2 drag did not save nested canonical tree');
  observations.push({step:'V2 desktop drag and nested Core persistence',version:nested.document.version});
  // Export is generated from the saved, authorized Core page, not from unsaved UI draft.
- const exportUrl='/api/v1/projects/'+encodeURIComponent(projectId)+'/studio/pages/'+encodeURIComponent(nested.document.pages[1].id)+'/export.html';
+ const exportUrl='/api/v1/projects/'+encodeURIComponent(projectId)+'/studio/pages/'+encodeURIComponent(nested.document.pages[1].id)+'/export.html?version='+nested.document.version;
+ const staleExport=await page.evaluate(async url=>fetch(url.replace(/version=[0-9]+/,'version=1'),{credentials:'same-origin'}).then(r=>r.status),exportUrl);
+ if(staleExport!==409)throw Error('Studio stale export did not fail closed');
  const serverHtml=await page.evaluate(async url=>{
    const r=await fetch(url,{credentials:'same-origin'});
    return {status:r.status,type:r.headers.get('content-type'),html:await r.text()};
