@@ -4,6 +4,7 @@ import {readFileSync} from 'node:fs';
 import {spawnSync} from 'node:child_process';
 
 const wrapper=readFileSync(new URL('../scripts/taso-production-bootstrap.sh',import.meta.url),'utf8');
+const workflow=readFileSync(new URL('../.github/workflows/taso-production-deploy.yml',import.meta.url),'utf8');
 const blocks=[...wrapper.matchAll(/'''(S3_UUID="\$\(jq -r [\s\S]*?)'''/g)];
 assert.equal(blocks.length,2,'S3 bootstrap patch must contain exactly old and new preflight blocks');
 const effective=blocks[1][1];
@@ -31,6 +32,6 @@ test('local-only backup fallback requires an explicit one-time release flag',()=
   assert.ok(wrapper.includes('TASO_ALLOW_TEMPORARY_LOCAL_BACKUP_ONLY'));
   assert.ok(wrapper.includes('save_s3:false'),'explicit fallback must configure local-only backups');
   assert.ok(wrapper.includes('No usable S3 backup target; refusing production mutation until off-site backup is available.'));
-  assert.ok(wrapper.includes('default: false'),'normal workflow_dispatch must keep fallback disabled by default');
+  assert.ok(workflow.includes('allow_temporary_local_backup_only:') && workflow.includes('default: false'),'normal workflow_dispatch must keep fallback disabled by default');
   assert.ok(!wrapper.includes('This first production bootstrap will keep daily local backups'));
 });
