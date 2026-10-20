@@ -31,10 +31,10 @@ ensure_storage(){ local app="$1" all sid;all="$(api GET "applications/$app/stora
 ensure_storage "$core"
 put(){ local app="$1" key="$2" value="$3" file method body;[[ -n "$value" ]]||return 0;mask "$value";file="$TMP/env-$app.json";api GET "applications/$app/envs">"$file";if jq -e --arg k "$key" 'any(.[];.key==$k)' "$file">/dev/null;then method=PATCH;else method=POST;fi;ENV_KEY="$key" ENV_VALUE="$value" node -e 'process.stdout.write(JSON.stringify({key:process.env.ENV_KEY,value:process.env.ENV_VALUE,is_preview:false,is_shown_once:false}))'>"$PAYLOAD";body="$(<"$PAYLOAD")";api "$method" "applications/$app/envs" "$body">/dev/null;}
 gateway="$(openssl rand -hex 32)";authkey="$(openssl rand -hex 32)";search_secret="$(openssl rand -hex 32)";qa_email="qa-$(date +%s)@preview.tasarlayalim.local";qa_password="$(openssl rand -base64 42|tr -d '\n')";qa_expiry="$(( $(date +%s%3N)+3600000 ))";for value in "$gateway" "$authkey" "$search_secret" "$qa_email" "$qa_password";do mask "$value";done
-for kv in "NODE_ENV|production" "TASO_DEPLOYMENT_ENV|preview" "TASO_AUTH_ALLOW_INSECURE_BOOTSTRAP|1" "TASO_SESSION_TTL_MS|43200000" "TASO_GATEWAY_SECRET|$gateway" "TASO_AUTH_ENCRYPTION_KEY|$authkey" "TASO_AUTH_SECURITY_FILE|/data/taso-auth-security.json" "TASO_STATE_FILE|/data/taso-state.json" "TASO_IDENTITY_FILE|/data/taso-identities.json" "TASO_CONTROL_PLANE_FILE|/data/taso-control-plane.json" "TASO_INCIDENT_FILE|/data/taso-incidents.json" "TASO_PERSONALIZATION_FILE|/data/taso-personalization.json" "TASO_SEARCH_ENDPOINT|http://taso-urgent-search:8080/search" "TASO_PREVIEW_QA_EMAIL|$qa_email" "TASO_PREVIEW_QA_PASSWORD|$qa_password" "TASO_PREVIEW_QA_EXPIRES_AT|$qa_expiry";do put "$core" "${kv%%|*}" "${kv#*|}";done
+for kv in "NODE_ENV|production" "TASO_DEPLOYMENT_ENV|preview" "TASO_CONVERSATION_PROVIDER_TIMEOUT_MS|18000" "TASO_CONVERSATION_TOTAL_TIMEOUT_MS|35000" "TASO_AUTH_ALLOW_INSECURE_BOOTSTRAP|1" "TASO_SESSION_TTL_MS|43200000" "TASO_GATEWAY_SECRET|$gateway" "TASO_AUTH_ENCRYPTION_KEY|$authkey" "TASO_AUTH_SECURITY_FILE|/data/taso-auth-security.json" "TASO_STATE_FILE|/data/taso-state.json" "TASO_IDENTITY_FILE|/data/taso-identities.json" "TASO_CONTROL_PLANE_FILE|/data/taso-control-plane.json" "TASO_INCIDENT_FILE|/data/taso-incidents.json" "TASO_PERSONALIZATION_FILE|/data/taso-personalization.json" "TASO_SEARCH_ENDPOINT|http://taso-urgent-search:8080/search" "TASO_PREVIEW_QA_EMAIL|$qa_email" "TASO_PREVIEW_QA_PASSWORD|$qa_password" "TASO_PREVIEW_QA_EXPIRES_AT|$qa_expiry";do put "$core" "${kv%%|*}" "${kv#*|}";done
 put "$search" PORT 8080;put "$search" SEARXNG_SECRET "$search_secret";put "$ui" TASO_CORE_UPSTREAM http://taso-urgent-core:3000;put "$ui" TASO_GATEWAY_SECRET "$gateway"
 for app in "$search" "$core" "$ui";do api PATCH "applications/$app" "$(jq -nc --arg branch "$TASO_PREVIEW_BRANCH" '{git_branch:$branch,connect_to_docker_network:true}')">/dev/null;done
-wait_deployment(){ local deployment_uuid="$1" label="$2" status;for _ in $(seq 1 120);do status="$(api GET "deployments/$deployment_uuid"|jq -r '.status//"unknown"')";case "$status" in finished) echo "$label deployment finished: $deployment_uuid";return 0;; failed|cancelled|cancelled-by-user) echo "::error::$label deployment $deployment_uuid entered $status";return 1;; esac;sleep 5;done;echo "::error::$label deployment $deployment_uuid did not finish";return 1;}
+wait_deployment(){ local deployment_uuid="$1" label="$2" status detail;for _ in $(seq 1 120);do detail="$(api GET "deployments/$deployment_uuid")";status="$(jq -r '.status//"unknown"'<<<"$detail")";case "$status" in finished) echo "$label deployment finished: $deployment_uuid";return 0;; failed|cancelled|cancelled-by-user) printf '%s' "$detail" | node scripts/taso-preview-deployment-diagnostic.mjs;echo "::error::$label deployment entered $status (redacted category above).";return 1;; esac;sleep 5;done;detail="$(api GET "deployments/$deployment_uuid")";printf '%s' "$detail" | node scripts/taso-preview-deployment-diagnostic.mjs;echo "::error::$label deployment did not finish within bounded 10 minute window.";return 1;}
 for tuple in "search:$search" "core:$core" "ui:$ui";do name="${tuple%%:*}";uuid="${tuple#*:}";queued="$(api POST "deploy?uuid=$uuid")";deployment_uuid="$(jq -r --arg u "$uuid" '[.deployments[]?|select(.resource_uuid==$u)][0].deployment_uuid//empty'<<<"$queued")";[[ -n "$deployment_uuid" ]]||{ echo "::error::$name deploy was not queued with a deployment UUID";exit 1;};wait_deployment "$deployment_uuid" "$name";done
 wait_running(){ local uuid="$1" label="$2" status;for _ in $(seq 1 30);do status="$(api GET "applications/$uuid"|jq -r '.status//"unknown"')";[[ "$status" == running:* || "$status" == running ]]&&{ echo "$label runtime state: $status";return 0;};[[ "$status" == exited*||"$status" == degraded*||"$status" == stopped* ]]&&{ echo "::error::$label entered $status";return 1;};sleep 5;done;echo "::error::$label did not enter a running state";return 1;}
 wait_running "$search" search;wait_running "$core" core;wait_running "$ui" ui
@@ -59,7 +59,53 @@ projects="$(curl -fsS -b "$jar" "https://$TASO_PREVIEW_DOMAIN/api/v1/projects")"
 echo 'acceptance: direct search provider'
 research_file="$TMP/research.json";research_code="$(curl -sS -b "$jar" -o "$research_file" -w '%{http_code}' -H 'content-type: application/json' --data-binary '{"query":"OpenAI official site","limit":3}' "https://$TASO_PREVIEW_DOMAIN/api/v1/research/search")";if [[ "$research_code" != 200 ]];then research_error="$(jq -r '.error//"unknown research error"' "$research_file" 2>/dev/null|head -c 300)";echo "::error::Direct research search failed (HTTP $research_code): $research_error";exit 1;fi;jq -e '(.results//[])|length>0' "$research_file">/dev/null||{ echo '::error::Direct research search returned no sources.';exit 1;}
 echo 'acceptance: real AI chat'
-chat="$(curl -fsS -b "$jar" -H 'content-type: application/json' --data-binary "$(jq -nc --arg projectId "$project_id" '{projectId:$projectId,text:"Merhaba Taso. Kendini tek cümlede tanıt."}')" "https://$TASO_PREVIEW_DOMAIN/api/v1/conversations/messages")";jq -e '.assistantMessage.replyMode=="ai" and (.assistantMessage.content|length>10)'<<<"$chat">/dev/null
+# Do not retry the Core conversation POST: that would create duplicate history.
+# On failure, only log safe provider category/attempt-count diagnostics, never body/keys.
+chat_file="$TMP/ai-chat.json"
+chat_code="$(curl -sS --max-time 105 -b "$jar" -o "$chat_file" -w '%{http_code}' -H 'content-type: application/json' --data-binary "$(jq -nc --arg projectId "$project_id" '{projectId:$projectId,text:"Merhaba Taso. Kendini tek cümlede tanıt."}')" "https://$TASO_PREVIEW_DOMAIN/api/v1/conversations/messages" || true)"
+if [[ "$chat_code" != 201 ]];then
+ health_file="$TMP/ai-health.json"
+ curl -sS --max-time 12 -o "$health_file" "https://$TASO_PREVIEW_DOMAIN/api/health" || true
+ category="$(jq -r '.conversation.lastFailure.code//"UNKNOWN"' "$chat_file" 2>/dev/null || echo UNKNOWN)"
+ [[ "$category" =~ ^[A-Z0-9_]{1,30}$ ]]||category=UNKNOWN
+ attempts="$(jq -r '.conversation.lastFailure.attempts//0' "$chat_file" 2>/dev/null || echo 0)"
+ provider="$(jq -r '.conversation.lastFailure.provider//.conversation.provider//"unknown"' "$chat_file" 2>/dev/null || echo unknown)"
+ phase="$(jq -r '.conversation.lastFailure.phase//"unknown"' "$chat_file" 2>/dev/null || echo unknown)"
+ elapsed_ms="$(jq -r '.conversation.lastFailure.elapsedMs//0' "$chat_file" 2>/dev/null || echo 0)"
+ diagnostic_id="$(jq -r '.diagnosticId//.conversation.lastFailure.requestId//"unavailable"' "$chat_file" 2>/dev/null || echo unavailable)"
+ eligible="$(jq -r '(.conversation.eligibleProviders//[])|length' "$chat_file" 2>/dev/null || echo 0)"
+ configured="$(jq -r '.conversation.configured//false' "$chat_file" 2>/dev/null || echo false)"
+ [[ "$attempts" =~ ^[0-9]{1,3}$ ]]||attempts=0
+ [[ "$elapsed_ms" =~ ^[0-9]{1,8}$ ]]||elapsed_ms=0
+ [[ "$eligible" =~ ^[0-9]{1,3}$ ]]||eligible=0
+ [[ "$provider" =~ ^[a-zA-Z0-9_-]{1,40}$ ]]||provider=unknown
+ [[ "$phase" =~ ^[a-z-]{1,30}$ ]]||phase=unknown
+ [[ "$diagnostic_id" =~ ^[0-9a-fA-F-]{36}$ ]]||diagnostic_id=unavailable
+ [[ "$configured" == true || "$configured" == false ]]||configured=false
+ # These are closed enums/metadata only; never print response bodies or request data.
+ echo "::error::Real AI chat failed: HTTP $chat_code; category=$category; phase=$phase; provider=$provider; attempts=$attempts; elapsed_ms=$elapsed_ms; eligible_providers=$eligible; provider_configured=$configured; diagnostic_id=$diagnostic_id"
+ exit 1
+fi
+jq -e '.assistantMessage.replyMode=="ai" and (.assistantMessage.content|length>10)' "$chat_file">/dev/null||{ echo "::error::Real AI response missing or non-AI";exit 1;}
 echo 'acceptance: sourced web search'
-web="$(curl -fsS -b "$jar" -H 'content-type: application/json' --data-binary "$(jq -nc --arg projectId "$project_id" '{projectId:$projectId,text:"OpenAI resmi sitesini webde ara ve kaynakla yanıtla.",webSearch:true}')" "https://$TASO_PREVIEW_DOMAIN/api/v1/conversations/messages")";jq -e '.assistantMessage.replyMode=="ai" and (.assistantMessage.sources|length>0)'<<<"$web">/dev/null
+web_file="$TMP/ai-web-search.json"
+web_code="$(curl -sS --max-time 105 -b "$jar" -o "$web_file" -w '%{http_code}' -H 'content-type: application/json' --data-binary "$(jq -nc --arg projectId "$project_id" '{projectId:$projectId,text:"OpenAI resmi sitesini webde ara ve kaynakla yanıtla.",webSearch:true}')" "https://$TASO_PREVIEW_DOMAIN/api/v1/conversations/messages" || true)"
+if [[ "$web_code" != 201 ]];then
+ category="$(jq -r '.conversation.lastFailure.code//"UNKNOWN"' "$web_file" 2>/dev/null || echo UNKNOWN)"
+ [[ "$category" =~ ^[A-Z0-9_]{1,30}$ ]]||category=UNKNOWN
+ attempts="$(jq -r '.conversation.lastFailure.attempts//0' "$web_file" 2>/dev/null || echo 0)"
+ provider="$(jq -r '.conversation.lastFailure.provider//.conversation.provider//"unknown"' "$web_file" 2>/dev/null || echo unknown)"
+ phase="$(jq -r '.conversation.lastFailure.phase//"unknown"' "$web_file" 2>/dev/null || echo unknown)"
+ elapsed_ms="$(jq -r '.conversation.lastFailure.elapsedMs//0' "$web_file" 2>/dev/null || echo 0)"
+ diagnostic_id="$(jq -r '.diagnosticId//.conversation.lastFailure.requestId//"unavailable"' "$web_file" 2>/dev/null || echo unavailable)"
+ [[ "$attempts" =~ ^[0-9]{1,3}$ ]]||attempts=0
+ [[ "$elapsed_ms" =~ ^[0-9]{1,8}$ ]]||elapsed_ms=0
+ [[ "$provider" =~ ^[a-zA-Z0-9_-]{1,40}$ ]]||provider=unknown
+ [[ "$phase" =~ ^[a-z-]{1,30}$ ]]||phase=unknown
+ [[ "$diagnostic_id" =~ ^[0-9a-fA-F-]{36}$ ]]||diagnostic_id=unavailable
+ echo "::error::Sourced AI web acceptance failed: HTTP $web_code; category=$category; phase=$phase; provider=$provider; attempts=$attempts; elapsed_ms=$elapsed_ms; diagnostic_id=$diagnostic_id"
+ exit 1
+fi
+web="$(cat "$web_file")"
+jq -e '.assistantMessage.replyMode=="ai" and (.assistantMessage.sources|length>0)'<<<"$web">/dev/null||{ echo "::error::Sourced web search returned no AI response or verifiable sources";exit 1;}
 printf '### TASO urgent preview verified\n- URL: https://%s\n- UI health: PASS\n- Session gate: PASS\n- Direct search provider: PASS\n- Real AI chat: PASS\n- Web search with sources: PASS\n- QA account expires automatically within one hour.\n' "$TASO_PREVIEW_DOMAIN" >>"${GITHUB_STEP_SUMMARY:-/dev/null}"

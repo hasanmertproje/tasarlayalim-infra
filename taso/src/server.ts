@@ -21,6 +21,8 @@ import {
 import { ProjectRegistry, type CreateProjectInput } from './project-registry.js';
 import { ProviderRouter, defaultProviders } from './provider-router.js';
 import { JsonStateStore } from './state-store.js';
+import { StudioStore } from './studio-store.js';
+import { registerStudioRoutes } from './studio-routes.js';
 import { TaskEngine } from './task-engine.js';
 
 interface CreateMissionBody {
@@ -64,8 +66,9 @@ export function buildServer() {
   let knowledge!: ProjectKnowledgeStore;
   let tasks!: TaskEngine;
   let conversations!: ConversationStore;
+  let studio!: StudioStore;
   const persist = () => {
-    if (!projects || !milestones || !knowledge || !tasks || !conversations) return;
+    if (!projects || !milestones || !knowledge || !tasks || !conversations || !studio) return;
     stateStore.save({
       projects: projects.list(),
       manifests: projects.listManifests(),
@@ -74,10 +77,12 @@ export function buildServer() {
       missions: tasks.listMissions(),
       events: tasks.allEvents(),
       conversations: conversations.list(),
+      studioDocuments: studio.list(),
     });
   };
 
   projects = new ProjectRegistry(snapshot.projects, snapshot.manifests, persist);
+  studio = new StudioStore(snapshot.studioDocuments, persist);
   for (const project of bootstrapProjects) {
     if (!projects.findBySlug(project.slug)) projects.create(project);
   }
@@ -171,6 +176,19 @@ export function buildServer() {
       content = result.content;
       evidence = result;
     } catch (error) {
+      const failure=conversationAi.status().lastFailure;
+      if (failure && error instanceof Error && error.message.includes(failure.requestId)) {
+        request.log.warn({
+          event:'taso_conversation_provider_unavailable',
+          requestId:failure.requestId,
+          provider:failure.provider,
+          category:failure.code,
+          phase:failure.phase,
+          attempts:failure.attempts,
+          elapsedMs:failure.elapsedMs,
+          eligibleProviders:conversationAi.status().eligibleProviders,
+        },'AI provider request exhausted its bounded retry budget');
+      }
       if (decision.intent === 'STATUS') {
         content = active
           ? `${project.name} için aktif görev ${active.status} aşamasında: ${active.objective}`
@@ -205,6 +223,7 @@ export function buildServer() {
         dataClass: 'private_code',
       } : undefined,
       conversation: conversationAi.status(),
+      diagnosticId: evidence.mode==='unavailable' ? conversationAi.status().lastFailure?.requestId : undefined,
     });
   });
 
@@ -408,6 +427,7 @@ export function buildServer() {
     return { mission: tasks.cancelMission(request.params.id) };
   });
 
+  registerStudioRoutes(app, projects, studio);
   return app;
 }
 

@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import type { DataClass, Project } from './domain.js';
 import { PersonalizationStore } from './personalization-store.js';
 import type { ProviderRouter } from './provider-router.js';
@@ -16,6 +17,17 @@ export type ConversationRuntimeContext = {
   webSearch?:boolean;
 };
 type RuntimeConversationProvider = { id:string;baseUrl:string;apiKey:string;model:string };
+type ConversationProviderFailure = {requestId:string;provider:string;code:string;phase:'request'|'response-body'|'http-status';at:string;attempts:number;elapsedMs:number};
+const DEFAULT_PROVIDER_TIMEOUT_MS=18_000;
+const DEFAULT_PROVIDER_BUDGET_MS=35_000;
+function providerBudgetMs(){
+ const value=Number(process.env.TASO_CONVERSATION_TOTAL_TIMEOUT_MS);
+ return Number.isInteger(value)&&value>=10_000&&value<=60_000?value:DEFAULT_PROVIDER_BUDGET_MS;
+}
+function providerTimeoutMs(){
+ const value=Number(process.env.TASO_CONVERSATION_PROVIDER_TIMEOUT_MS);
+ return Number.isInteger(value)&&value>=5_000&&value<=30_000?value:DEFAULT_PROVIDER_TIMEOUT_MS;
+}
 function envPrefix(id:string){return `TASO_PROVIDER_${id.toUpperCase().replace(/-/g,'_')}`}
 function runtimeProvider(id:string):RuntimeConversationProvider|undefined{const prefix=envPrefix(id);const baseUrl=process.env[`${prefix}_BASE_URL`]?.trim();const apiKey=process.env[`${prefix}_API_KEY`]?.trim();const model=process.env[`${prefix}_MODEL`]?.trim();if(!baseUrl||!apiKey||!model)return undefined;return{id,baseUrl:baseUrl.replace(/\/$/,''),apiKey,model}}
 function normalized(input:string){return input.trim().toLocaleLowerCase('tr-TR')}
@@ -63,11 +75,25 @@ async function webContext(input:string,forceSearch=false){
 
 export class ConversationAi{
   constructor(private readonly router:ProviderRouter, private readonly personalization=new PersonalizationStore()){}
-  private select(dataClass:DataClass='private_code'){const eligible=this.router.route({dataClass,paidAi:false,preferFree:true});for(const provider of eligible){const runtime=runtimeProvider(provider.id);if(runtime)return runtime}return undefined}
-  status(){const provider=this.select('private_code');return provider?{configured:true,provider:provider.id,model:provider.model,dataClass:'private_code' as const}:{configured:false,dataClass:'private_code' as const}}
+  private recentFailure?:ConversationProviderFailure;
+  private recordFailure(requestId:string,provider:string,code:string,phase:ConversationProviderFailure['phase'],attempts:number,elapsedMs:number){
+    const failure:ConversationProviderFailure={requestId,provider,code,phase,at:new Date().toISOString(),attempts,elapsedMs:Math.max(0,Math.round(elapsedMs))};
+    this.recentFailure=failure;
+    // Deliberately log only fixed metadata; never log prompts, request headers, URLs, or provider bodies.
+    console.warn(JSON.stringify({event:'taso_conversation_provider_attempt_failed',...failure}));
+  }
+  private eligible(dataClass:DataClass='private_code'){
+    return this.router.route({dataClass,paidAi:false,preferFree:true})
+      .map(descriptor=>runtimeProvider(descriptor.id))
+      .filter((provider):provider is RuntimeConversationProvider=>Boolean(provider));
+  }
+  private select(dataClass:DataClass='private_code'){return this.eligible(dataClass)[0]}
+  status(){const eligibleProviders=this.eligible('private_code');const provider=eligibleProviders[0];return provider?{configured:true,provider:provider.id,model:provider.model,dataClass:'private_code' as const,eligibleProviders:eligibleProviders.map(item=>item.id),lastFailure:this.recentFailure}:{configured:false,dataClass:'private_code' as const,eligibleProviders:[],lastFailure:this.recentFailure}}
 
   async reply(project:Project,turns:ConversationTurn[],input:string,runtime:ConversationRuntimeContext={}):Promise<string>{return (await this.replyDetailed(project,turns,input,runtime)).content}
   async replyDetailed(project:Project,turns:ConversationTurn[],input:string,runtime:ConversationRuntimeContext={}){
+    // A new turn must not inherit diagnostic state from a prior request that timed out.
+    this.recentFailure=undefined;
     const evidence:ConversationEvidence={mode:'system',sources:[]};
     const content=await this.generate(project,turns,input,runtime,evidence);
     return{content,...evidence};
@@ -94,17 +120,17 @@ export class ConversationAi{
         : 'Public web URL’lerini doğrudan okuyabiliyorum. Genel web araması için arama servisi henüz bağlı değil; URL okuma aktif, anahtar kelime araması ise hazır değil.';
     }
     if((runtime.webSearch||wantsWebSearch(input))&&!researchStatus().searchReady)return unavailable('Bu soruyu web üzerinden doğrulamam gerekiyor; arama servisi henüz bağlı değil. Kaynak URL’si gönderirsen sayfayı okuyabilirim.');
-    const provider=this.select('private_code');
-    if(!provider)throw new Error('No policy-approved conversational AI provider is configured for private workspace context.');
+    const providers=this.eligible('private_code').slice(0,3);
+    if(!providers.length)throw new Error('No policy-approved conversational AI provider is configured for private workspace context.');
+    const requestId=randomUUID();
+    const timeoutMs=providerTimeoutMs();
     const runtimeSummary=JSON.stringify({activeMission:runtime.activeMission??null,recentMissions:runtime.recentMissions?.slice(0,5)??[]});
     let sources:Array<{title:string;url:string;text:string}>=[];
     try{sources=await webContext(input,runtime.webSearch)}catch{return unavailable('Web araması şu anda tamamlanamadı. Biraz sonra tekrar deneyebilir veya kaynak bağlantısını gönderebilirsin.')}
     if((runtime.webSearch||wantsWebSearch(input))&&!sources.length)return unavailable('Web araması tamamlandı ancak bu sorgu için kaynak bulunamadı. Soruyu daha belirgin yazabilir veya bir kaynak bağlantısı gönderebilirsin.');
     const sourceContext=sources.length?JSON.stringify(sources):'[]';
     const searchState=researchStatus();
-    const response=await fetch(`${provider.baseUrl}/chat/completions`,{
-      method:'POST',headers:{authorization:`Bearer ${provider.apiKey}`,'content-type':'application/json'},
-      body:JSON.stringify({model:provider.model,temperature:.32,messages:[{role:'system',content:[
+    const providerMessages=[{role:'system',content:[
         tasoCharacterInstructions(),
         personal.instructions,
         'Emoji, markdown başlığı, tablo ve uzun madde listesi kullanma; kullanıcı özellikle isterse uygun biçimde kullanabilirsin.',
@@ -117,9 +143,74 @@ export class ConversationAi{
         `Web durumu: URL fetch=${searchState.fetchReady?'ready':'unavailable'}, search=${searchState.searchReady?'ready':'not-configured'}.`,
         sources.length?'Web araştırması kullandıysan cevabın sonunda kısa Kaynaklar satırında yalnız gerçekten kullanılan URL’leri belirt.':'Web kaynağı kullanılmadı.',
         `Aktif proje: ${project.name}`,`Repository: ${project.repository}`,`Runtime bağlamı: ${runtimeSummary}`,`Web araştırma bağlamı: ${sourceContext}`,
-      ].join('\n')},...turns.slice(-16),{role:'user',content:input}]}),signal:AbortSignal.timeout(60_000)});
-    if(!response.ok)throw new Error(`Conversation provider failed with HTTP ${response.status}.`);
-    const payload=await response.json() as {choices?:Array<{message?:{content?:string}}>};const content=payload.choices?.[0]?.message?.content?.trim();if(!content)throw new Error('Conversation provider returned an empty response.');
-    evidence.mode='ai';evidence.sources=sources.map(({title,url})=>({title,url}));return content;
+      ].join('\n')},...turns.slice(-16),{role:'user',content:input}];
+    let attempts=0;
+    let lastFailure='UNAVAILABLE';
+    const providerDeadline=Date.now()+providerBudgetMs();
+    for(const provider of providers){
+      const providerRequest=JSON.stringify({model:provider.model,temperature:.32,messages:providerMessages});
+      // Retry a single provider once for fast HTTP throttling/5xx responses, but
+      // never spend a second full timeout on the same unresponsive endpoint.
+      const maxAttempts=providers.length===1?2:1;
+      for(let attempt=0;attempt<maxAttempts;attempt++){
+        const remainingMs=providerDeadline-Date.now();
+        if(remainingMs<1_000){lastFailure='TOTAL_BUDGET_EXHAUSTED';break}
+        attempts++;
+        const attemptStartedAt=Date.now();
+        let phase:ConversationProviderFailure['phase']='request';
+        let stopRetryingProvider=false;
+        try{
+          const response=await fetch(`${provider.baseUrl}/chat/completions`,{
+            method:'POST',
+            headers:{authorization:`Bearer ${provider.apiKey}`,'content-type':'application/json'},
+            body:providerRequest,
+            signal:AbortSignal.timeout(Math.max(1_000,Math.min(timeoutMs,remainingMs))),
+          });
+          if(!response.ok){
+            const code='HTTP_'+response.status;
+            lastFailure=code;
+            phase='http-status';
+            this.recordFailure(requestId,provider.id,code,phase,attempts,Date.now()-attemptStartedAt);
+            try{await response.body?.cancel()}catch{/* response body cleanup is best-effort */}
+            if(![408,425,429,500,502,503,504].includes(response.status))
+              throw new Error('Conversation provider refused request ('+code+').');
+          }else{
+            phase='response-body';
+            const payload=await response.json() as {choices?:Array<{message?:{content?:string}}>} ;
+            const content=payload.choices?.[0]?.message?.content?.trim();
+            if(content){
+              this.recentFailure=undefined;
+              evidence.mode='ai';evidence.sources=sources.map(({title,url})=>({title,url}));
+              return content;
+            }
+            lastFailure='EMPTY_RESPONSE';
+            this.recordFailure(requestId,provider.id,lastFailure,phase,attempts,Date.now()-attemptStartedAt);
+          }
+        }catch(error){
+          const message=error instanceof Error?error.message:'';
+          if(message.startsWith('Conversation provider refused request'))throw error;
+          const name=error instanceof Error?error.name:'';
+          if(name==='TimeoutError'||name==='AbortError'){
+            lastFailure='TIMEOUT';
+            this.recordFailure(requestId,provider.id,lastFailure,phase,attempts,Date.now()-attemptStartedAt);
+            stopRetryingProvider=true;
+          }else if(error instanceof TypeError){
+            lastFailure='NETWORK';
+            this.recordFailure(requestId,provider.id,lastFailure,phase,attempts,Date.now()-attemptStartedAt);
+            stopRetryingProvider=true;
+          }else if(error instanceof SyntaxError){
+            lastFailure='INVALID_RESPONSE';
+            this.recordFailure(requestId,provider.id,lastFailure,phase,attempts,Date.now()-attemptStartedAt);
+          }else{
+            throw error;
+          }
+        }
+        if(stopRetryingProvider)break;
+        // Retry only fast HTTP throttling/5xx or invalid payloads, with a small bounded pause.
+        if(attempt+1<maxAttempts)await new Promise(resolve=>setTimeout(resolve,350+attempt*350));
+      }
+      if(Date.now()>=providerDeadline)lastFailure='TOTAL_BUDGET_EXHAUSTED';
+    }
+    throw new Error('Conversation provider temporarily unavailable (requestId='+requestId+'; category='+lastFailure+').');
   }
 }
