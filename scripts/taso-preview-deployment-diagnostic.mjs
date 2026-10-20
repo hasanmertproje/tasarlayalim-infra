@@ -11,7 +11,7 @@ export function classifyDeploymentFailure(input) {
   const text = raw.replace(/\u001b\[[0-9;]*m/g, '').toLowerCase();
   if (!text.trim()) return 'LOG_UNAVAILABLE';
   if (/no space left on device|not enough space|disk quota exceeded/.test(text)) return 'DISK_CAPACITY';
-  if (/npm err!|eresolve|etimedout.*registry|eai_again.*registry|npm ci|npm install|pnpm install|yarn install/.test(text)) return 'DEPENDENCY_INSTALL';
+  if (/npm err!|eresolve|etimedout.*registry|eai_again.*registry|registry[^\n]*eai_again|npm ci|npm install|pnpm install|yarn install/.test(text)) return 'DEPENDENCY_INSTALL';
   if (/\bts\d{4}\b|typescript|vite build|tsc -/.test(text)) return 'SOURCE_BUILD';
   if (/err_module_not_found|cannot find module|syntaxerror|referenceerror|uncaught exception|failed to start application/.test(text)) return 'RUNTIME_STARTUP';
   if (/unauthorized|authentication required|denied: requested access|repository not found|invalid username or password/.test(text)) return 'REGISTRY_AUTH';
