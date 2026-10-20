@@ -64,7 +64,7 @@ function style(input: unknown): StudioNodeStyle {
   for (const key of ['fontSize', 'padding', 'borderRadius', 'fontWeight'] as const) {
     const v = obj[key];
     if (v === undefined) continue;
-    const bounds = key === 'fontSize' ? [10, 96] : key === 'padding' ? [0, 100] : key === 'borderRadius' ? [0, 100] : [100, 900];
+    const bounds: [number, number] = key === 'fontSize' ? [10, 96] : key === 'padding' ? [0, 100] : key === 'borderRadius' ? [0, 100] : [100, 900];
     if (typeof v !== 'number' || !Number.isInteger(v) || v < bounds[0] || v > bounds[1] || (key === 'fontWeight' && v % 100 !== 0)) throw new StudioError(400, 'Invalid Studio style value: ' + key);
     out[key] = v;
   }
