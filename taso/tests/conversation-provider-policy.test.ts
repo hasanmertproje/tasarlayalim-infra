@@ -115,18 +115,20 @@ test('timeout on first approved provider falls back without leaking raw errors',
  }finally{globalThis.fetch=original;keys.forEach((k,i)=>{if(old[i]===undefined)delete process.env[k];else process.env[k]=old[i]})}
 });
 
-test('single-provider timeout is bounded, classified, and correlated without credentials',async()=>{
+test('single-provider timeout stops after one bounded attempt and emits correlated phase metadata',async()=>{
  const restore=withNvidiaRuntime();const original=globalThis.fetch;
  try{
   let count=0;
   globalThis.fetch=async()=>{count++;throw new DOMException('do not surface transport internals','TimeoutError')};
   const ai=new ConversationAi(new ProviderRouter([descriptor(['private_code'])]));
   await assert.rejects(ai.replyDetailed({name:'QA project',repository:'taso/test'} as never,[],'Explain the project'),/category=TIMEOUT/);
-  assert.equal(count,2);
+  assert.equal(count,1,'an unresponsive provider must not consume a second full timeout on the same endpoint');
   const failure=ai.status().lastFailure;
-  assert.equal(failure?.code,'TIMEOUT');assert.equal(failure?.provider,'nvidia');assert.equal(failure?.attempts,2);
+  assert.equal(failure?.code,'TIMEOUT');assert.equal(failure?.provider,'nvidia');assert.equal(failure?.attempts,1);
+  assert.equal(failure?.phase,'request');
   assert.match(failure?.requestId||'',/^[0-9a-f-]{36}$/i);
   assert.equal(typeof failure?.elapsedMs,'number');
+  assert.deepEqual(ai.status().eligibleProviders,['nvidia']);
   assert.doesNotMatch(JSON.stringify(failure),/test-key|private|do not surface|https?:/i);
  }finally{globalThis.fetch=original;restore()}
 });
