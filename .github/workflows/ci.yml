@@ -7,6 +7,7 @@ on:
   pull_request:
     branches:
       - main
+      - feature/taso-next-foundation-20261020
   workflow_dispatch:
 
 concurrency:
