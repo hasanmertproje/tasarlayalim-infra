@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import type { DataClass, Project } from './domain.js';
 import { PersonalizationStore } from './personalization-store.js';
 import type { ProviderRouter } from './provider-router.js';
@@ -16,6 +17,12 @@ export type ConversationRuntimeContext = {
   webSearch?:boolean;
 };
 type RuntimeConversationProvider = { id:string;baseUrl:string;apiKey:string;model:string };
+type ConversationProviderFailure = {requestId:string;provider:string;code:string;at:string;attempts:number;elapsedMs:number};
+const DEFAULT_PROVIDER_TIMEOUT_MS=22_000;
+function providerTimeoutMs(){
+ const value=Number(process.env.TASO_CONVERSATION_PROVIDER_TIMEOUT_MS);
+ return Number.isInteger(value)&&value>=5_000&&value<=30_000?value:DEFAULT_PROVIDER_TIMEOUT_MS;
+}
 function envPrefix(id:string){return `TASO_PROVIDER_${id.toUpperCase().replace(/-/g,'_')}`}
 function runtimeProvider(id:string):RuntimeConversationProvider|undefined{const prefix=envPrefix(id);const baseUrl=process.env[`${prefix}_BASE_URL`]?.trim();const apiKey=process.env[`${prefix}_API_KEY`]?.trim();const model=process.env[`${prefix}_MODEL`]?.trim();if(!baseUrl||!apiKey||!model)return undefined;return{id,baseUrl:baseUrl.replace(/\/$/,''),apiKey,model}}
 function normalized(input:string){return input.trim().toLocaleLowerCase('tr-TR')}
@@ -63,7 +70,13 @@ async function webContext(input:string,forceSearch=false){
 
 export class ConversationAi{
   constructor(private readonly router:ProviderRouter, private readonly personalization=new PersonalizationStore()){}
-  private recentFailure?:{code:string;at:string;attempts:number};
+  private recentFailure?:ConversationProviderFailure;
+  private recordFailure(requestId:string,provider:string,code:string,attempts:number,elapsedMs:number){
+    const failure:ConversationProviderFailure={requestId,provider,code,at:new Date().toISOString(),attempts,elapsedMs:Math.max(0,Math.round(elapsedMs))};
+    this.recentFailure=failure;
+    // Deliberately log only fixed metadata; never log prompts, request headers, URLs, or provider bodies.
+    console.warn(JSON.stringify({event:'taso_conversation_provider_attempt_failed',...failure}));
+  }
   private eligible(dataClass:DataClass='private_code'){
     return this.router.route({dataClass,paidAi:false,preferFree:true})
       .map(descriptor=>runtimeProvider(descriptor.id))
@@ -102,6 +115,8 @@ export class ConversationAi{
     if((runtime.webSearch||wantsWebSearch(input))&&!researchStatus().searchReady)return unavailable('Bu soruyu web üzerinden doğrulamam gerekiyor; arama servisi henüz bağlı değil. Kaynak URL’si gönderirsen sayfayı okuyabilirim.');
     const providers=this.eligible('private_code').slice(0,3);
     if(!providers.length)throw new Error('No policy-approved conversational AI provider is configured for private workspace context.');
+    const requestId=randomUUID();
+    const timeoutMs=providerTimeoutMs();
     const runtimeSummary=JSON.stringify({activeMission:runtime.activeMission??null,recentMissions:runtime.recentMissions?.slice(0,5)??[]});
     let sources:Array<{title:string;url:string;text:string}>=[];
     try{sources=await webContext(input,runtime.webSearch)}catch{return unavailable('Web araması şu anda tamamlanamadı. Biraz sonra tekrar deneyebilir veya kaynak bağlantısını gönderebilirsin.')}
@@ -129,39 +144,52 @@ export class ConversationAi{
       const maxAttempts=providers.length===1?2:1;
       for(let attempt=0;attempt<maxAttempts;attempt++){
         attempts++;
+        const attemptStartedAt=Date.now();
         try{
           const response=await fetch(`${provider.baseUrl}/chat/completions`,{
             method:'POST',
             headers:{authorization:`Bearer ${provider.apiKey}`,'content-type':'application/json'},
-            body:providerRequest,signal:AbortSignal.timeout(27_000),
+            body:providerRequest,signal:AbortSignal.timeout(timeoutMs),
           });
           if(!response.ok){
             const code='HTTP_'+response.status;
-            this.recentFailure={code,at:new Date().toISOString(),attempts};
-            if(![429,500,502,503,504].includes(response.status))
-              throw new Error('Conversation provider refused request ('+code+').');
             lastFailure=code;
+            this.recordFailure(requestId,provider.id,code,attempts,Date.now()-attemptStartedAt);
+            try{await response.body?.cancel()}catch{/* response body cleanup is best-effort */}
+            if(![408,425,429,500,502,503,504].includes(response.status))
+              throw new Error('Conversation provider refused request ('+code+').');
           }else{
             const payload=await response.json() as {choices?:Array<{message?:{content?:string}}>} ;
             const content=payload.choices?.[0]?.message?.content?.trim();
-            if(!content)throw new Error('Conversation provider returned an empty response.');
-            this.recentFailure=undefined;
-            evidence.mode='ai';evidence.sources=sources.map(({title,url})=>({title,url}));
-            return content;
+            if(content){
+              this.recentFailure=undefined;
+              evidence.mode='ai';evidence.sources=sources.map(({title,url})=>({title,url}));
+              return content;
+            }
+            lastFailure='EMPTY_RESPONSE';
+            this.recordFailure(requestId,provider.id,lastFailure,attempts,Date.now()-attemptStartedAt);
           }
         }catch(error){
           const message=error instanceof Error?error.message:'';
-          if(message.startsWith('Conversation provider refused request')||message==='Conversation provider returned an empty response.')throw error;
+          if(message.startsWith('Conversation provider refused request'))throw error;
           const name=error instanceof Error?error.name:'';
-          if(name!=='TimeoutError'&&name!=='AbortError'&&!(error instanceof TypeError))throw error;
-          lastFailure=name==='TimeoutError'||name==='AbortError'?'TIMEOUT':'NETWORK';
-          this.recentFailure={code:lastFailure,at:new Date().toISOString(),attempts};
+          if(name==='TimeoutError'||name==='AbortError'){
+            lastFailure='TIMEOUT';
+            this.recordFailure(requestId,provider.id,lastFailure,attempts,Date.now()-attemptStartedAt);
+          }else if(error instanceof TypeError){
+            lastFailure='NETWORK';
+            this.recordFailure(requestId,provider.id,lastFailure,attempts,Date.now()-attemptStartedAt);
+          }else if(error instanceof SyntaxError){
+            lastFailure='INVALID_RESPONSE';
+            this.recordFailure(requestId,provider.id,lastFailure,attempts,Date.now()-attemptStartedAt);
+          }else{
+            throw error;
+          }
         }
-        // Retry only bounded transient failures. No duplicate Core conversation writes:
-        // this loop retries the idempotent *provider inference*, not /v1/conversations.
-        if(attempt+1<maxAttempts)await new Promise(resolve=>setTimeout(resolve,450));
+        // The retry budget is fixed. Retry inference only, never the Core POST that records the turn.
+        if(attempt+1<maxAttempts)await new Promise(resolve=>setTimeout(resolve,350+attempt*350));
       }
     }
-    throw new Error('Conversation provider temporarily unavailable after bounded attempts: '+lastFailure+'.');
+    throw new Error('Conversation provider temporarily unavailable (requestId='+requestId+'; category='+lastFailure+').');
   }
 }
