@@ -42,10 +42,16 @@ export function registerStudioRoutes(app: FastifyInstance, projects: ProjectRegi
     if (!authorize(request,reply,false) || !projectCheck(request.params.id,reply,false)) return;
     return { document:studio.get(request.params.id) ?? null };
   });
-  app.get<{ Params: Params & { pageId: string } }>('/v1/projects/:id/studio/pages/:pageId/export.html',async(request,reply)=>{
+  app.get<{ Params: Params & { pageId: string }; Querystring: { version?: string } }>('/v1/projects/:id/studio/pages/:pageId/export.html',async(request,reply)=>{
     if (!authorize(request,reply,false) || !projectCheck(request.params.id,reply,false)) return;
     const doc=studio.get(request.params.id);
     if(!doc)return reply.code(404).send({error:'Studio document not initialized.'});
+    const requestedVersion=request.query?.version;
+    if (requestedVersion!==undefined &&
+      (!/^[1-9][0-9]{0,9}$/.test(requestedVersion)||Number(requestedVersion)!==doc.version)) {
+      return reply.code(409).send({error:'Studio export source version changed; reload before downloading.'});
+    }
+    reply.header('X-Taso-Studio-Version',String(doc.version));
     const page=doc.pages.find(p=>p.id===request.params.pageId);
     if(!page)return reply.code(404).send({error:'Studio page not found.'});
     // This is a source artifact, not an executable dashboard route or simulated deploy.
