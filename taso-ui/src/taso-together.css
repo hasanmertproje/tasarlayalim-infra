@@ -1,0 +1,53 @@
+/* TASO Together: separate project-context collaboration, never a fake conversation. */
+.taso-together{--tg-bg:#0c122b;--tg-surface:#141c38;--tg-border:#30365b;--tg-muted:#aab5d9;color:#f5f5ff;min-height:100%;padding:clamp(14px,2vw,30px);background:radial-gradient(ellipse at 65% -10%,#372b8352,transparent 42%),var(--tg-bg);overflow-x:clip}
+.taso-together *{box-sizing:border-box;min-width:0}
+.taso-together button,.taso-together input,.taso-together textarea,.taso-together select{font:inherit}
+.taso-together button{cursor:pointer}
+.taso-together button:disabled{opacity:.48;cursor:not-allowed}
+.taso-together :focus-visible{outline:2px solid #a38bff;outline-offset:3px}
+.together-header{display:flex;justify-content:space-between;align-items:center;gap:18px;padding:18px clamp(16px,2vw,27px);border:1px solid #5f4c9f73;background:radial-gradient(circle at 85% 0%,#4725a74a,transparent 52%),linear-gradient(118deg,#1a174a,#141a3d);border-radius:20px}
+.together-kicker{color:#c0a3ff;font-weight:800;font-size:10px;letter-spacing:.12em}
+.together-header h1{font-size:clamp(26px,3.2vw,42px);letter-spacing:-.05em;line-height:1.12;margin:11px 0}.together-header h1 em{font-style:normal;color:#ad8cff}
+.together-header p{font-size:12px;color:#b5c1e5;line-height:1.6;margin:0}.together-header>button,.together-context button,.together-card>header button{border:1px solid #534b83;border-radius:11px;padding:11px 13px;background:#24265a;color:#f4edff;font-size:12px;white-space:nowrap}
+.together-context{display:flex;flex-wrap:wrap;align-items:center;gap:16px;margin:13px 0;border:1px solid var(--tg-border);border-radius:13px;background:var(--tg-surface);padding:12px 16px;color:var(--tg-muted);font-size:12px}
+.together-context label{display:flex;gap:10px;align-items:center;font-size:11px;font-weight:700}
+.together-context select{background:#0c1230;color:#fff;border:1px solid #464c79;border-radius:9px;min-height:42px;padding:9px;max-width:min(42vw,280px)}
+.together-context>span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.together-context button{background:linear-gradient(110deg,#813fea,#3a61e4);border-color:#815ee6}
+.together-layout{display:grid;grid-template-columns:minmax(245px,310px) minmax(0,1fr);gap:14px;align-items:start}
+.together-sidebar,.together-main{display:grid;gap:14px;align-content:start;min-width:0}
+.together-card{background:var(--tg-surface);border:1px solid var(--tg-border);border-radius:16px;padding:18px;box-shadow:0 8px 28px #05071935;min-width:0}
+.together-card>header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}
+.together-card h2{margin:7px 0 11px;font-size:18px;line-height:1.2;letter-spacing:-.025em}
+.together-card p,.together-card small{font-size:12px;color:var(--tg-muted);line-height:1.6;overflow-wrap:anywhere}
+.together-card form,.together-card form label{display:grid;gap:8px}
+.together-card form{gap:13px}.together-card form label{color:var(--tg-muted);font-size:11px;font-weight:700}
+.together-card textarea,.together-card select{width:100%;border-radius:11px;padding:11px 13px;border:1px solid #485077;background:#0a1332;color:#fff;font-size:13px;line-height:1.5}
+.together-card textarea{min-height:93px;resize:vertical}
+.together-card form>button,.together-proposal>button,.together-decision button:last-child{padding:12px;border-radius:10px;border:1px solid #855de4;color:white;font-weight:750;background:linear-gradient(115deg,#823cef,#4267f5);font-size:12px}
+.together-facts{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;padding-top:15px;margin-top:15px;border-top:1px solid var(--tg-border)}
+.together-facts>div{display:grid;gap:4px}.together-facts strong{font-size:22px;letter-spacing:-.04em}.together-facts span{color:var(--tg-muted);font-size:9px}
+.together-task{display:grid;gap:4px;padding:11px 0;border-top:1px solid var(--tg-border)}
+.together-task strong{font-size:11px;font-weight:700;line-height:1.4;overflow-wrap:anywhere}.together-task small{font-size:10px;color:#bda1ff}
+.together-chat{padding:18px;min-height:490px}
+.together-chat>.dashboard-chat{max-width:none;width:100%;margin:0;box-shadow:none;border:0;background:none;padding:0}
+.together-chat .dashboard-chat-messages{min-height:170px;max-height:440px}
+.together-chat .dashboard-chat-input-row{display:flex;gap:10px}
+.together-chat .dashboard-chat-input-row textarea{flex:1;min-width:0}
+.together-chat .dashboard-chat-mic{min-width:54px;min-height:52px}
+.together-proposal>header{margin-bottom:12px}.together-proposal>header button{font-size:11px}
+.together-ai-excerpt{border:1px solid #564c86;border-radius:11px;background:#111733;padding:16px;white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px;max-height:190px;overflow:auto;color:#e8e8ff;line-height:1.6;margin:12px 0}
+.together-proposal code{word-break:break-all;color:#a9baff}
+.together-diff{display:grid;gap:13px;padding-top:16px;margin-top:14px;border-top:1px solid var(--tg-border)}
+.together-diff>label{display:grid;gap:6px;font-size:11px;color:var(--tg-muted)}
+.together-diff-columns{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.together-diff-columns>div{border:1px solid #455080;background:#0b1330;border-radius:11px;padding:12px;min-height:130px}
+.together-diff-columns b{font-size:11px;color:#c1a8ff}.together-diff-columns p{font-size:12px;color:#e2e6fb;white-space:pre-wrap;overflow-wrap:anywhere}
+.together-diff-columns textarea{min-height:136px;margin-top:10px}
+.together-consent{display:flex!important;flex-direction:row;gap:10px;align-items:center;color:#f1e6ff!important;line-height:1.6;font-size:12px!important}
+.together-consent input{width:19px;height:19px;flex:none;accent-color:#8453f0}
+.together-decision{display:flex;gap:10px;flex-wrap:wrap}.together-decision button{min-height:44px;padding:11px 17px;background:#29335f;color:white;border:1px solid #58639b;border-radius:10px;font-size:12px}
+.together-error,.together-success{padding:12px 15px;border:1px solid #b85874;background:#68304750;color:#ffd4dc;border-radius:12px;font-size:12px;line-height:1.6;overflow-wrap:anywhere}.together-success{border-color:#478e73;background:#144a3d60;color:#b9f6e1}
+@media(max-width:1100px){.together-layout{grid-template-columns:minmax(205px,280px) minmax(0,1fr)}.together-card{padding:14px}}
+@media(max-width:900px){.together-layout{display:flex;flex-direction:column}.together-main{order:1;width:100%}.together-sidebar{order:2;width:100%;grid-template-columns:repeat(2,minmax(0,1fr))}.together-sidebar>.together-card:last-child{grid-column:1/-1}}
+@media(max-width:620px){.taso-together{padding:12px}.together-header{align-items:flex-start;flex-direction:column;padding:21px 17px}.together-header>button{width:100%}.together-header h1{font-size:29px}.together-context{gap:10px;padding:11px}.together-context label{width:100%;flex-direction:column;align-items:flex-start}.together-context select{width:100%;max-width:none}.together-context>span{width:100%;flex:none;font-size:10px}.together-context button{width:100%}.together-sidebar{grid-template-columns:1fr}.together-sidebar>.together-card:last-child{grid-column:auto}.together-diff-columns{grid-template-columns:1fr}.together-chat .dashboard-chat-input-row{flex-wrap:wrap}.together-decision button{flex:1}.together-card{padding:13px}}
+@media(prefers-reduced-motion:reduce){.taso-together *{animation:none!important;transition:none!important}}
