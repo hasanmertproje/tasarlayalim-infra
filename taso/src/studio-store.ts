@@ -119,7 +119,8 @@ export function validateStudioLibrary(value: unknown): StudioLibraryEntry[] {
     ids.add(entry.id);
     const name = label(entry.name, 80);
     const page = validateStudioPages([{id:'page_library',name:'Template',slug:'template',nodes:[entry.node]}])[0];
-    const node = page.nodes[0];
+    const node = page?.nodes[0];
+    if (!node) throw new StudioError(400, 'Library component cannot be empty.');
     function size(n:StudioNode):number { return 1+n.children.reduce((sum,child)=>sum+size(child),0); }
     if (size(node)>20) throw new StudioError(400, 'Library component exceeds 20 nested nodes.');
     return {id:entry.id,name,node};
