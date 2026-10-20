@@ -24,6 +24,14 @@ test('HTML export is from authoritative saved Studio tree, escaped and permissio
   const changed=await app.inject({method:'PUT',url:base,headers:write,payload:{expectedVersion:1,pages:[{...page,nodes:[{id:'node_export1',kind:'heading',text,style:{color:'#ABCDEF',fontSize:32,textAlign:'center',fontWeight:700},children:[]}]}]}});
   assert.equal(changed.statusCode,200);
   const saved=changed.json().document.pages[0];
+  const oldVersion=await app.inject({method:'GET',url:exportUrl+'?version=1',headers:read});
+  assert.equal(oldVersion.statusCode,409);
+  assert.match(oldVersion.body,/version changed/);
+  const badVersion=await app.inject({method:'GET',url:exportUrl+'?version=1%3Balert',headers:read});
+  assert.equal(badVersion.statusCode,409);
+  const correct=await app.inject({method:'GET',url:exportUrl+'?version=2',headers:read});
+  assert.equal(correct.statusCode,200);
+  assert.equal(correct.headers['x-taso-studio-version'],'2');
   const exportResponse=await app.inject({method:'GET',url:exportUrl,headers:read});
   assert.equal(exportResponse.statusCode,200);
   assert.match(exportResponse.headers['content-type'] as string,/text\/html/);
