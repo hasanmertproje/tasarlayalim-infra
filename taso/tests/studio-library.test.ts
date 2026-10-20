@@ -31,7 +31,7 @@ test('library validation rejects unsafe styles, duplicates, oversized trees and 
  assert.throws(()=>validateStudioLibrary([entry(),entry()]),/duplicate library/);
  assert.throws(()=>validateStudioLibrary([{...entry(),name:'<svg>'.repeat(100)}]),/label/);
  assert.throws(()=>validateStudioLibrary([{...entry(),node:{...entry().node,style:{background:'url(javascript:alert(1))'}}}]),/HEX colors/);
- assert.throws(()=>validateStudioLibrary([{...entry(),node:{...entry().node,children:[entry().node]}}]),/Only sections/);
+ assert.throws(()=>validateStudioLibrary([{...entry(),node:{...entry().node,children:[{...entry().node,id:'node_child_02'}]}}]),/Only sections/);
  assert.throws(()=>validateStudioLibrary(Array.from({length:25},(_,i)=>({...entry(),id:'lib_item_'+i}))),/24 items/);
  const store=new StudioStore();const current=store.create('project_access','owner');
  const after=store.replace('project_access','owner',{expectedVersion:1,pages:current.pages,library:[{...entry(),node:{...entry().node,kind:'text',text:'<script>alert(1)</script>'}}]});
