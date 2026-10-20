@@ -49,6 +49,9 @@ jobs:
       - name: Test redacted preview deployment diagnostics
         run: node --test tests/taso-preview-deployment-diagnostic.test.mjs
 
+      - name: Test one-shot production release contract
+        run: node --check scripts/taso-production-one-shot-20261020.mjs && node --test tests/taso-production-one-shot-20261020.test.mjs
+
       - name: Validate shell scripts
         run: |
           sh -n scripts/healthcheck.sh
