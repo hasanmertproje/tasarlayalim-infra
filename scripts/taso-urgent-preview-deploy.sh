@@ -66,13 +66,24 @@ chat_code="$(curl -sS --max-time 105 -b "$jar" -o "$chat_file" -w '%{http_code}'
 if [[ "$chat_code" != 201 ]];then
  health_file="$TMP/ai-health.json"
  curl -sS --max-time 12 -o "$health_file" "https://$TASO_PREVIEW_DOMAIN/api/health" || true
- category="$(jq -r '.conversation.lastFailure.code//"UNKNOWN"' "$health_file" 2>/dev/null || echo UNKNOWN)"
- attempts="$(jq -r '.conversation.lastFailure.attempts//0' "$health_file" 2>/dev/null || echo 0)"
- configured="$(jq -r '.conversation.configured//false' "$health_file" 2>/dev/null || echo false)"
+ category="$(jq -r '.conversation.lastFailure.code//"UNKNOWN"' "$chat_file" 2>/dev/null || echo UNKNOWN)"
  [[ "$category" =~ ^[A-Z0-9_]{1,30}$ ]]||category=UNKNOWN
+ attempts="$(jq -r '.conversation.lastFailure.attempts//0' "$chat_file" 2>/dev/null || echo 0)"
+ provider="$(jq -r '.conversation.lastFailure.provider//.conversation.provider//"unknown"' "$chat_file" 2>/dev/null || echo unknown)"
+ phase="$(jq -r '.conversation.lastFailure.phase//"unknown"' "$chat_file" 2>/dev/null || echo unknown)"
+ elapsed_ms="$(jq -r '.conversation.lastFailure.elapsedMs//0' "$chat_file" 2>/dev/null || echo 0)"
+ diagnostic_id="$(jq -r '.diagnosticId//.conversation.lastFailure.requestId//"unavailable"' "$chat_file" 2>/dev/null || echo unavailable)"
+ eligible="$(jq -r '(.conversation.eligibleProviders//[])|length' "$chat_file" 2>/dev/null || echo 0)"
+ configured="$(jq -r '.conversation.configured//false' "$chat_file" 2>/dev/null || echo false)"
  [[ "$attempts" =~ ^[0-9]{1,3}$ ]]||attempts=0
+ [[ "$elapsed_ms" =~ ^[0-9]{1,8}$ ]]||elapsed_ms=0
+ [[ "$eligible" =~ ^[0-9]{1,3}$ ]]||eligible=0
+ [[ "$provider" =~ ^[a-zA-Z0-9_-]{1,40}$ ]]||provider=unknown
+ [[ "$phase" =~ ^[a-z-]{1,30}$ ]]||phase=unknown
+ [[ "$diagnostic_id" =~ ^[0-9a-fA-F-]{36}$ ]]||diagnostic_id=unavailable
  [[ "$configured" == true || "$configured" == false ]]||configured=false
- echo "::error::Real AI chat failed: HTTP $chat_code; category=$category; attempts=$attempts; provider_configured=$configured"
+ # These are closed enums/metadata only; never print response bodies or request data.
+ echo "::error::Real AI chat failed: HTTP $chat_code; category=$category; phase=$phase; provider=$provider; attempts=$attempts; elapsed_ms=$elapsed_ms; eligible_providers=$eligible; provider_configured=$configured; diagnostic_id=$diagnostic_id"
  exit 1
 fi
 jq -e '.assistantMessage.replyMode=="ai" and (.assistantMessage.content|length>10)' "$chat_file">/dev/null||{ echo "::error::Real AI response missing or non-AI";exit 1;}
