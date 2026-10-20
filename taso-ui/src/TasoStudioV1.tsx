@@ -14,12 +14,12 @@ async function request<T>(path:string,init:RequestInit={}):Promise<T>{
 }
 function clone<T>(v:T):T{return structuredClone(v)}
 const kindLabel:Record<NodeKind,string>={section:'Bölüm',heading:'Başlık',text:'Metin',button:'Buton'};
-function NodeView({node,selected,onSelect}:{node:DesignNode;selected:boolean;onSelect:(id:string)=>void}){
+function NodeView({node,selectedId,onSelect}:{node:DesignNode;selectedId:string;onSelect:(id:string)=>void}){
  const tag=node.kind==='heading'?'h2':node.kind==='text'?'p':'div';
  const css:CSSProperties={...node.style,whiteSpace:'pre-wrap',overflowWrap:'anywhere'};
- return <div className={'studio-node studio-node--'+node.kind+(selected?' is-selected':'')} data-node-id={node.id} onClick={event=>{event.stopPropagation();onSelect(node.id)}} role="button" tabIndex={0} aria-label={kindLabel[node.kind]+': '+(node.text||'Boş')}
+ return <div className={'studio-node studio-node--'+node.kind+(selectedId===node.id?' is-selected':'')} data-node-id={node.id} onClick={event=>{event.stopPropagation();onSelect(node.id)}} role="button" tabIndex={0} aria-label={kindLabel[node.kind]+': '+(node.text||'Boş')}
    onKeyDown={event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();onSelect(node.id)}}} style={css}>
-    {node.kind==='section'?node.children.length?node.children.map(child=><NodeView key={child.id} node={child} selected={selected&&child.id===node.id} onSelect={onSelect}/>):<span className="studio-node__empty">Bölüm boş — katmandan içerik ekle</span>:
+    {node.kind==='section'?node.children.length?node.children.map(child=><NodeView key={child.id} node={child} selectedId={selectedId} onSelect={onSelect}/>):<span className="studio-node__empty">Bölüm boş — katmandan içerik ekle</span>:
      node.kind==='button'?<span className="studio-node__button">{node.text}</span>:
      tag==='h2'?<h2>{node.text}</h2>:<p>{node.text}</p>}
  </div>;
@@ -152,7 +152,7 @@ export default function TasoStudioV1(){
        <div className="studio-tools"><div className="studio-tools__insert">{(['section','heading','text','button'] as NodeKind[]).map(kind=><button type="button" key={kind} onClick={()=>addNode(kind)} disabled={!canWrite} title={kindLabel[kind]}>＋ {kindLabel[kind]}</button>)}</div><div className="studio-tools__view" role="group" aria-label="Artboard boyutu">{(['desktop','tablet','mobile'] as Mode[]).map(mode=><button type="button" aria-pressed={viewport===mode} className={viewport===mode?'active':''} key={mode} onClick={()=>setViewport(mode)}>{mode==='desktop'?'Masaüstü':mode==='tablet'?'Tablet':'Mobil'}</button>)}</div><button type="button" className="studio-code-toggle" aria-pressed={showCode} onClick={()=>setShowCode(x=>!x)}>{showCode?'Tuval':'Kod'} görünümü</button></div>
        <div className="studio-board" data-viewport={viewport}><div className={'studio-artboard studio-artboard--'+viewport}><div className="studio-artboard__title"><span>{page?.name||'Sayfa'}</span><span>{viewport==='desktop'?'1440 × 900':viewport==='tablet'?'768 × 1024':'390 × 844'}</span></div>
          {showCode?<pre className="studio-source" aria-label="Deterministik HTML kaynağı"><code>{markup}</code></pre>:<div className="studio-canvas" aria-label="Sayfa tuvali" onClick={()=>setSelectedId('')}>
-           {page?.nodes.map(n=><NodeView key={n.id} node={n} selected={selectedId===n.id} onSelect={setSelectedId}/>)}
+           {page?.nodes.map(n=><NodeView key={n.id} node={n} selectedId={selectedId} onSelect={setSelectedId}/>)}
            {!page?.nodes.length&&<div className="studio-canvas__empty">Tuval boş. Bölüm, başlık, metin veya buton ekleyerek başlayın.</div>}
          </div>}</div></div>
        <section className="studio-history"><div><b>Sürüm geçmişi</b><small>Sunucuya kaydedilmiş geri dönüş noktaları</small></div>
