@@ -81,6 +81,8 @@ jobs:
           npx playwright install --with-deps chromium
       - name: Capture and assert visual acceptance
         run: node scripts/taso-visual-acceptance.mjs
+      - name: Accept authenticated TASO Studio editor and capture 320–1920px evidence
+        run: node scripts/taso-studio-browser-acceptance.mjs
       - name: Reset isolated stack for project lifecycle acceptance
         run: |
           docker rm -f taso-visual-ui taso-visual-core 2>/dev/null || true
