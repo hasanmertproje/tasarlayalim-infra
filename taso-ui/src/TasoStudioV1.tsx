@@ -1,4 +1,4 @@
-import {useEffect,useMemo,useState,type CSSProperties,type ReactNode} from 'react';
+import {useEffect,useMemo,useRef,useState,type CSSProperties,type ReactNode} from 'react';
 import {navigateTaso} from './navigation';
 import NextOrb from './NextOrb';
 import {createNode,createPage,locate,nodeHtml,pageHtml,removeNode,shiftNode,moveStudioNode,updateNode,type NodeKind,type DesignDocument,type DesignNode,type DesignPage,type NodeStyle,type StudioDropPlacement,type StudioLibraryEntry,instantiateLibraryNode} from './studio-document';
@@ -24,18 +24,18 @@ function NodeView({node,selectedId,onSelect}:{node:DesignNode;selectedId:string;
      tag==='h2'?<h2>{node.text}</h2>:<p>{node.text}</p>}
  </div>;
 }
-function Tree({nodes,selected,onPick,onMove,canWrite,level=0}:{nodes:DesignNode[];selected:string;onPick:(id:string)=>void;onMove:(source:string,target:string,placement:StudioDropPlacement)=>void;canWrite:boolean;level?:number}):ReactNode{
+function Tree({nodes,selected,onPick,onMove,canWrite,dragSource,level=0}:{nodes:DesignNode[];selected:string;onPick:(id:string)=>void;onMove:(source:string,target:string,placement:StudioDropPlacement)=>void;canWrite:boolean;dragSource:{current:string|null};level?:number}):ReactNode{
  return nodes.map(node=><div key={node.id} className="studio-tree-branch">
   <div className="studio-tree-row" data-studio-drop-id={node.id}
     onDragOver={e=>{if(canWrite)e.preventDefault()}}
-    onDrop={e=>{e.preventDefault();const src=e.dataTransfer.getData('application/x-taso-node');if(src&&canWrite)onMove(src,node.id,node.kind==='section'?'inside':'before')}}>
+    onDrop={e=>{e.preventDefault();const src=e.dataTransfer.getData('application/x-taso-node')||dragSource.current;dragSource.current=null;if(src&&canWrite)onMove(src,node.id,node.kind==='section'?'inside':'before')}}>
     <button type="button" style={{paddingLeft:12+level*16}} className={'studio-tree-item'+(selected===node.id?' is-selected':'')} onClick={()=>onPick(node.id)} aria-current={selected===node.id?'true':undefined}>
       <span aria-hidden="true">{node.kind==='section'?'▦':node.kind==='heading'?'T':node.kind==='button'?'◇':'≡'}</span><span>{node.kind==='section'?'Bölüm':node.text.slice(0,32)||kindLabel[node.kind]}</span>
     </button>
     <button type="button" className="studio-tree-handle" disabled={!canWrite} draggable={canWrite}
       title="Sürükle veya dokunarak yeniden sırala"
       aria-label={kindLabel[node.kind]+' katmanını taşı'}
-      onDragStart={e=>{e.dataTransfer.effectAllowed='move';e.dataTransfer.setData('application/x-taso-node',node.id)}}
+      onDragStart={e=>{dragSource.current=node.id;e.dataTransfer.effectAllowed='move';e.dataTransfer.setData('application/x-taso-node',node.id);e.dataTransfer.setData('text/plain',node.id)}} onDragEnd={()=>{dragSource.current=null}}
       onPointerDown={e=>{if(e.pointerType==='touch'){e.currentTarget.setPointerCapture(e.pointerId)}}}
       onPointerUp={e=>{
         if(e.pointerType!=='touch'||!canWrite)return;
@@ -44,10 +44,11 @@ function Tree({nodes,selected,onPick,onMove,canWrite,level=0}:{nodes:DesignNode[
         if(target&&target!==node.id){const destKind=locate(nodes,target)?.kind;onMove(node.id,target,destKind==='section'?'inside':'before')}
       }}>↕</button>
   </div>
-  {node.children.length?<Tree nodes={node.children} selected={selected} onPick={onPick} onMove={onMove} canWrite={canWrite} level={level+1}/>:null}
+  {node.children.length?<Tree nodes={node.children} selected={selected} onPick={onPick} onMove={onMove} canWrite={canWrite} dragSource={dragSource} level={level+1}/>:null}
  </div>);
 }
 export default function TasoStudioV1(){
+ const dragSource=useRef<string|null>(null);
  const [projects,setProjects]=useState<Project[]>([]),[projectId,setProjectId]=useState('');
  const [serverDoc,setServerDoc]=useState<DesignDocument|null>(null),[draft,setDraft]=useState<DesignDocument|null>(null);
  const [past,setPast]=useState<DesignDocument[]>([]),[future,setFuture]=useState<DesignDocument[]>([]);
@@ -191,7 +192,7 @@ export default function TasoStudioV1(){
   <div className="studio-copilot"><b>✦ TASO AI Copilot</b><p>Model tabanlı kod/değişiklik önerisi henüz etkin değil. Değişiklikleri AI üretmiş gibi göstermiyoruz. İleride öneri → diff → onay → uygulama akışıyla bağlanacak.</p></div>
  </>;
  const layerPanel=<><div className="studio-panel__title"><b>Katmanlar</b><small>{page?.nodes.length??0} kök öğe</small></div>
-  <div className="studio-layer-list">{page?.nodes.length?<Tree nodes={page.nodes} selected={selectedId} onPick={setSelectedId} onMove={moveTo} canWrite={canWrite}/>:<p className="studio-hint">Bu sayfa henüz boş. Yukarıdaki araçlardan bir bileşen ekleyin.</p>}</div>
+  <div className="studio-layer-list">{page?.nodes.length?<Tree nodes={page.nodes} selected={selectedId} onPick={setSelectedId} onMove={moveTo} canWrite={canWrite} dragSource={dragSource}/>:<p className="studio-hint">Bu sayfa henüz boş. Yukarıdaki araçlardan bir bileşen ekleyin.</p>}</div>
   <div className="studio-insert-list">{(['section','heading','text','button'] as NodeKind[]).map(kind=><button type="button" key={kind} disabled={!draft||!canWrite} onClick={()=>addNode(kind)}>＋ {kindLabel[kind]}</button>)}</div>
   <section className="studio-library" aria-label="Proje bileşen kütüphanesi">
    <div className="studio-panel__title"><b>Proje bileşenleri</b><small>{(draft?.library||[]).length}/24</small></div>
