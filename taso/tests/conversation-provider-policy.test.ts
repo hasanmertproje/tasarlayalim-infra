@@ -92,3 +92,35 @@ test('bounded 429 retry succeeds, 403 is permanent, and failure evidence has no 
   assert.doesNotMatch(JSON.stringify(ai.status()),/test-key/);
  }finally{globalThis.fetch=original;restore()}
 });
+
+test('bounded provider timeout emits correlation and duration without prompts, endpoints or secrets',async()=>{
+ const restore=withNvidiaRuntime();
+ const previousFetch=globalThis.fetch;
+ const previousDiagnostics=process.env.TASO_CONVERSATION_DIAGNOSTICS;
+ const previousWarn=console.warn;
+ const warnings:string[]=[];
+ try{
+  process.env.TASO_CONVERSATION_DIAGNOSTICS='1';
+  console.warn=(...args:unknown[])=>{warnings.push(args.map(String).join(' '))};
+  let calls=0;
+  globalThis.fetch=async()=>{calls++;throw new DOMException('timeout','TimeoutError')};
+  const ai=new ConversationAi(new ProviderRouter([descriptor(['private_code'])]));
+  await assert.rejects(ai.replyDetailed({name:'QA',repository:'repo/private'} as never,[],'Gizli soru: içerik asla loglanmamalı'),/TIMEOUT/);
+  assert.equal(calls,2);
+  const failure=ai.status().lastFailure;
+  assert.equal(failure?.code,'TIMEOUT');
+  assert.equal(failure?.phase,'timeout');
+  assert.equal(failure?.attempts,2);
+  assert.equal(failure?.provider,'nvidia');
+  assert.equal(typeof failure?.durationMs,'number');
+  assert.match(failure?.correlationId||'',/^[0-9a-f-]{36}$/);
+  assert.equal(warnings.length,2);
+  const serialized=JSON.stringify({failure,warnings});
+  assert.doesNotMatch(serialized,/test-key|example\.invalid|Gizli soru|repo\/private/);
+ }finally{
+  globalThis.fetch=previousFetch;console.warn=previousWarn;
+  if(previousDiagnostics===undefined)delete process.env.TASO_CONVERSATION_DIAGNOSTICS;
+  else process.env.TASO_CONVERSATION_DIAGNOSTICS=previousDiagnostics;
+  restore();
+ }
+});
