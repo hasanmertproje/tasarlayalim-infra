@@ -105,6 +105,21 @@ try{
    root[0].children[0].text!=='Gerçek Studio • İlk Sürüm'||root[0].children[1].kind!=='text')
    throw Error('Studio V2 drag did not save nested canonical tree');
  observations.push({step:'V2 desktop drag and nested Core persistence',version:nested.document.version});
+ // Export is generated from the saved, authorized Core page, not from unsaved UI draft.
+ const exportUrl='/api/v1/projects/'+encodeURIComponent(projectId)+'/studio/pages/'+encodeURIComponent(nested.document.pages[1].id)+'/export.html';
+ const serverHtml=await page.evaluate(async url=>{
+   const r=await fetch(url,{credentials:'same-origin'});
+   return {status:r.status,type:r.headers.get('content-type'),html:await r.text()};
+ },exportUrl);
+ if(serverHtml.status!==200||!serverHtml.type.includes('text/html'))throw Error('Studio Core HTML exporter route failed');
+ const source=await page.locator('.studio-source').textContent();
+ if(source?.trim()!==serverHtml.html.trim())throw Error('Persisted Core HTML != editor code preview');
+ const waiting=page.waitForEvent('download');
+ await page.getByRole('button',{name:/HTML indir/}).click();
+ const download=await waiting;
+ if(!download.suggestedFilename().endsWith('.html'))throw Error('Studio downloaded wrong file format');
+ observations.push({step:'Studio source matches authoritative Core HTML and downloads',download:download.suggestedFilename()});
+
 
  for(const width of [320,360,390,430,768,1024,1440,1920]){
   await page.setViewportSize({width,height:width<=430?844:1000});
