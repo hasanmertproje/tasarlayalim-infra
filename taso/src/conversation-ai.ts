@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import type { DataClass, Project } from './domain.js';
 import { PersonalizationStore } from './personalization-store.js';
 import type { ProviderRouter } from './provider-router.js';
@@ -63,7 +64,14 @@ async function webContext(input:string,forceSearch=false){
 
 export class ConversationAi{
   constructor(private readonly router:ProviderRouter, private readonly personalization=new PersonalizationStore()){}
-  private recentFailure?:{code:string;at:string;attempts:number};
+  private recentFailure?:{code:string;at:string;attempts:number;provider:string;durationMs:number;phase:'http'|'network'|'timeout'|'response';correlationId:string};
+  private recordFailure(entry:{code:string;attempts:number;provider:string;durationMs:number;phase:'http'|'network'|'timeout'|'response';correlationId:string}){
+    // This metadata must NEVER include prompt, API key, provider URL or response body.
+    this.recentFailure={...entry,at:new Date().toISOString()};
+    if(process.env.TASO_CONVERSATION_DIAGNOSTICS==='1'){
+      console.warn('taso_conversation_provider_attempt='+JSON.stringify(this.recentFailure));
+    }
+  }
   private eligible(dataClass:DataClass='private_code'){
     return this.router.route({dataClass,paidAi:false,preferFree:true})
       .map(descriptor=>runtimeProvider(descriptor.id))
@@ -123,12 +131,14 @@ export class ConversationAi{
         `Aktif proje: ${project.name}`,`Repository: ${project.repository}`,`Runtime bağlamı: ${runtimeSummary}`,`Web araştırma bağlamı: ${sourceContext}`,
       ].join('\n')},...turns.slice(-16),{role:'user',content:input}];
     let attempts=0;
+    const correlationId=randomUUID();
     let lastFailure='UNAVAILABLE';
     for(const provider of providers){
       const providerRequest=JSON.stringify({model:provider.model,temperature:.32,messages:providerMessages});
       const maxAttempts=providers.length===1?2:1;
       for(let attempt=0;attempt<maxAttempts;attempt++){
         attempts++;
+        const started=performance.now();
         try{
           const response=await fetch(`${provider.baseUrl}/chat/completions`,{
             method:'POST',
@@ -137,14 +147,14 @@ export class ConversationAi{
           });
           if(!response.ok){
             const code='HTTP_'+response.status;
-            this.recentFailure={code,at:new Date().toISOString(),attempts};
+            this.recordFailure({code,attempts,provider:provider.id,durationMs:Math.round(performance.now()-started),phase:'http',correlationId});
             if(![429,500,502,503,504].includes(response.status))
               throw new Error('Conversation provider refused request ('+code+').');
             lastFailure=code;
           }else{
             const payload=await response.json() as {choices?:Array<{message?:{content?:string}}>} ;
             const content=payload.choices?.[0]?.message?.content?.trim();
-            if(!content)throw new Error('Conversation provider returned an empty response.');
+            if(!content){this.recordFailure({code:'EMPTY_RESPONSE',attempts,provider:provider.id,durationMs:Math.round(performance.now()-started),phase:'response',correlationId});throw new Error('Conversation provider returned an empty response.');}
             this.recentFailure=undefined;
             evidence.mode='ai';evidence.sources=sources.map(({title,url})=>({title,url}));
             return content;
@@ -155,7 +165,7 @@ export class ConversationAi{
           const name=error instanceof Error?error.name:'';
           if(name!=='TimeoutError'&&name!=='AbortError'&&!(error instanceof TypeError))throw error;
           lastFailure=name==='TimeoutError'||name==='AbortError'?'TIMEOUT':'NETWORK';
-          this.recentFailure={code:lastFailure,at:new Date().toISOString(),attempts};
+          this.recordFailure({code:lastFailure,attempts,provider:provider.id,durationMs:Math.round(performance.now()-started),phase:lastFailure==='TIMEOUT'?'timeout':'network',correlationId});
         }
         // Retry only bounded transient failures. No duplicate Core conversation writes:
         // this loop retries the idempotent *provider inference*, not /v1/conversations.
