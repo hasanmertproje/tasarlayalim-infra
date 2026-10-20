@@ -59,7 +59,23 @@ projects="$(curl -fsS -b "$jar" "https://$TASO_PREVIEW_DOMAIN/api/v1/projects")"
 echo 'acceptance: direct search provider'
 research_file="$TMP/research.json";research_code="$(curl -sS -b "$jar" -o "$research_file" -w '%{http_code}' -H 'content-type: application/json' --data-binary '{"query":"OpenAI official site","limit":3}' "https://$TASO_PREVIEW_DOMAIN/api/v1/research/search")";if [[ "$research_code" != 200 ]];then research_error="$(jq -r '.error//"unknown research error"' "$research_file" 2>/dev/null|head -c 300)";echo "::error::Direct research search failed (HTTP $research_code): $research_error";exit 1;fi;jq -e '(.results//[])|length>0' "$research_file">/dev/null||{ echo '::error::Direct research search returned no sources.';exit 1;}
 echo 'acceptance: real AI chat'
-chat="$(curl -fsS -b "$jar" -H 'content-type: application/json' --data-binary "$(jq -nc --arg projectId "$project_id" '{projectId:$projectId,text:"Merhaba Taso. Kendini tek cümlede tanıt."}')" "https://$TASO_PREVIEW_DOMAIN/api/v1/conversations/messages")";jq -e '.assistantMessage.replyMode=="ai" and (.assistantMessage.content|length>10)'<<<"$chat">/dev/null
+# Do not retry the Core conversation POST: that would create duplicate history.
+# On failure, only log safe provider category/attempt-count diagnostics, never body/keys.
+chat_file="$TMP/ai-chat.json"
+chat_code="$(curl -sS --max-time 105 -b "$jar" -o "$chat_file" -w '%{http_code}' -H 'content-type: application/json' --data-binary "$(jq -nc --arg projectId "$project_id" '{projectId:$projectId,text:"Merhaba Taso. Kendini tek cümlede tanıt."}')" "https://$TASO_PREVIEW_DOMAIN/api/v1/conversations/messages" || true)"
+if [[ "$chat_code" != 201 ]];then
+ health_file="$TMP/ai-health.json"
+ curl -sS --max-time 12 -o "$health_file" "https://$TASO_PREVIEW_DOMAIN/api/health" || true
+ category="$(jq -r '.conversation.lastFailure.code//"UNKNOWN"' "$health_file" 2>/dev/null || echo UNKNOWN)"
+ attempts="$(jq -r '.conversation.lastFailure.attempts//0' "$health_file" 2>/dev/null || echo 0)"
+ configured="$(jq -r '.conversation.configured//false' "$health_file" 2>/dev/null || echo false)"
+ [[ "$category" =~ ^[A-Z0-9_]{1,30}$ ]]||category=UNKNOWN
+ [[ "$attempts" =~ ^[0-9]{1,3}$ ]]||attempts=0
+ [[ "$configured" == true || "$configured" == false ]]||configured=false
+ echo "::error::Real AI chat failed: HTTP $chat_code; category=$category; attempts=$attempts; provider_configured=$configured"
+ exit 1
+fi
+jq -e '.assistantMessage.replyMode=="ai" and (.assistantMessage.content|length>10)' "$chat_file">/dev/null||{ echo "::error::Real AI response missing or non-AI";exit 1;}
 echo 'acceptance: sourced web search'
 web="$(curl -fsS -b "$jar" -H 'content-type: application/json' --data-binary "$(jq -nc --arg projectId "$project_id" '{projectId:$projectId,text:"OpenAI resmi sitesini webde ara ve kaynakla yanıtla.",webSearch:true}')" "https://$TASO_PREVIEW_DOMAIN/api/v1/conversations/messages")";jq -e '.assistantMessage.replyMode=="ai" and (.assistantMessage.sources|length>0)'<<<"$web">/dev/null
 printf '### TASO urgent preview verified\n- URL: https://%s\n- UI health: PASS\n- Session gate: PASS\n- Direct search provider: PASS\n- Real AI chat: PASS\n- Web search with sources: PASS\n- QA account expires automatically within one hour.\n' "$TASO_PREVIEW_DOMAIN" >>"${GITHUB_STEP_SUMMARY:-/dev/null}"

@@ -63,8 +63,14 @@ async function webContext(input:string,forceSearch=false){
 
 export class ConversationAi{
   constructor(private readonly router:ProviderRouter, private readonly personalization=new PersonalizationStore()){}
-  private select(dataClass:DataClass='private_code'){const eligible=this.router.route({dataClass,paidAi:false,preferFree:true});for(const provider of eligible){const runtime=runtimeProvider(provider.id);if(runtime)return runtime}return undefined}
-  status(){const provider=this.select('private_code');return provider?{configured:true,provider:provider.id,model:provider.model,dataClass:'private_code' as const}:{configured:false,dataClass:'private_code' as const}}
+  private recentFailure?:{code:string;at:string;attempts:number};
+  private eligible(dataClass:DataClass='private_code'){
+    return this.router.route({dataClass,paidAi:false,preferFree:true})
+      .map(descriptor=>runtimeProvider(descriptor.id))
+      .filter((provider):provider is RuntimeConversationProvider=>Boolean(provider));
+  }
+  private select(dataClass:DataClass='private_code'){return this.eligible(dataClass)[0]}
+  status(){const provider=this.select('private_code');return provider?{configured:true,provider:provider.id,model:provider.model,dataClass:'private_code' as const,lastFailure:this.recentFailure}:{configured:false,dataClass:'private_code' as const,lastFailure:this.recentFailure}}
 
   async reply(project:Project,turns:ConversationTurn[],input:string,runtime:ConversationRuntimeContext={}):Promise<string>{return (await this.replyDetailed(project,turns,input,runtime)).content}
   async replyDetailed(project:Project,turns:ConversationTurn[],input:string,runtime:ConversationRuntimeContext={}){
@@ -94,17 +100,15 @@ export class ConversationAi{
         : 'Public web URL’lerini doğrudan okuyabiliyorum. Genel web araması için arama servisi henüz bağlı değil; URL okuma aktif, anahtar kelime araması ise hazır değil.';
     }
     if((runtime.webSearch||wantsWebSearch(input))&&!researchStatus().searchReady)return unavailable('Bu soruyu web üzerinden doğrulamam gerekiyor; arama servisi henüz bağlı değil. Kaynak URL’si gönderirsen sayfayı okuyabilirim.');
-    const provider=this.select('private_code');
-    if(!provider)throw new Error('No policy-approved conversational AI provider is configured for private workspace context.');
+    const providers=this.eligible('private_code').slice(0,3);
+    if(!providers.length)throw new Error('No policy-approved conversational AI provider is configured for private workspace context.');
     const runtimeSummary=JSON.stringify({activeMission:runtime.activeMission??null,recentMissions:runtime.recentMissions?.slice(0,5)??[]});
     let sources:Array<{title:string;url:string;text:string}>=[];
     try{sources=await webContext(input,runtime.webSearch)}catch{return unavailable('Web araması şu anda tamamlanamadı. Biraz sonra tekrar deneyebilir veya kaynak bağlantısını gönderebilirsin.')}
     if((runtime.webSearch||wantsWebSearch(input))&&!sources.length)return unavailable('Web araması tamamlandı ancak bu sorgu için kaynak bulunamadı. Soruyu daha belirgin yazabilir veya bir kaynak bağlantısı gönderebilirsin.');
     const sourceContext=sources.length?JSON.stringify(sources):'[]';
     const searchState=researchStatus();
-    const response=await fetch(`${provider.baseUrl}/chat/completions`,{
-      method:'POST',headers:{authorization:`Bearer ${provider.apiKey}`,'content-type':'application/json'},
-      body:JSON.stringify({model:provider.model,temperature:.32,messages:[{role:'system',content:[
+    const providerMessages=[{role:'system',content:[
         tasoCharacterInstructions(),
         personal.instructions,
         'Emoji, markdown başlığı, tablo ve uzun madde listesi kullanma; kullanıcı özellikle isterse uygun biçimde kullanabilirsin.',
@@ -117,9 +121,47 @@ export class ConversationAi{
         `Web durumu: URL fetch=${searchState.fetchReady?'ready':'unavailable'}, search=${searchState.searchReady?'ready':'not-configured'}.`,
         sources.length?'Web araştırması kullandıysan cevabın sonunda kısa Kaynaklar satırında yalnız gerçekten kullanılan URL’leri belirt.':'Web kaynağı kullanılmadı.',
         `Aktif proje: ${project.name}`,`Repository: ${project.repository}`,`Runtime bağlamı: ${runtimeSummary}`,`Web araştırma bağlamı: ${sourceContext}`,
-      ].join('\n')},...turns.slice(-16),{role:'user',content:input}]}),signal:AbortSignal.timeout(60_000)});
-    if(!response.ok)throw new Error(`Conversation provider failed with HTTP ${response.status}.`);
-    const payload=await response.json() as {choices?:Array<{message?:{content?:string}}>};const content=payload.choices?.[0]?.message?.content?.trim();if(!content)throw new Error('Conversation provider returned an empty response.');
-    evidence.mode='ai';evidence.sources=sources.map(({title,url})=>({title,url}));return content;
+      ].join('\n')},...turns.slice(-16),{role:'user',content:input}];
+    let attempts=0;
+    let lastFailure='UNAVAILABLE';
+    for(const provider of providers){
+      const providerRequest=JSON.stringify({model:provider.model,temperature:.32,messages:providerMessages});
+      const maxAttempts=providers.length===1?2:1;
+      for(let attempt=0;attempt<maxAttempts;attempt++){
+        attempts++;
+        try{
+          const response=await fetch(`${provider.baseUrl}/chat/completions`,{
+            method:'POST',
+            headers:{authorization:`Bearer ${provider.apiKey}`,'content-type':'application/json'},
+            body:providerRequest,signal:AbortSignal.timeout(27_000),
+          });
+          if(!response.ok){
+            const code='HTTP_'+response.status;
+            this.recentFailure={code,at:new Date().toISOString(),attempts};
+            if(![429,500,502,503,504].includes(response.status))
+              throw new Error('Conversation provider refused request ('+code+').');
+            lastFailure=code;
+          }else{
+            const payload=await response.json() as {choices?:Array<{message?:{content?:string}}>} ;
+            const content=payload.choices?.[0]?.message?.content?.trim();
+            if(!content)throw new Error('Conversation provider returned an empty response.');
+            this.recentFailure=undefined;
+            evidence.mode='ai';evidence.sources=sources.map(({title,url})=>({title,url}));
+            return content;
+          }
+        }catch(error){
+          const message=error instanceof Error?error.message:'';
+          if(message.startsWith('Conversation provider refused request')||message==='Conversation provider returned an empty response.')throw error;
+          const name=error instanceof Error?error.name:'';
+          if(name!=='TimeoutError'&&name!=='AbortError'&&!(error instanceof TypeError))throw error;
+          lastFailure=name==='TimeoutError'||name==='AbortError'?'TIMEOUT':'NETWORK';
+          this.recentFailure={code:lastFailure,at:new Date().toISOString(),attempts};
+        }
+        // Retry only bounded transient failures. No duplicate Core conversation writes:
+        // this loop retries the idempotent *provider inference*, not /v1/conversations.
+        if(attempt+1<maxAttempts)await new Promise(resolve=>setTimeout(resolve,450));
+      }
+    }
+    throw new Error('Conversation provider temporarily unavailable after bounded attempts: '+lastFailure+'.');
   }
 }

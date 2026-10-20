@@ -1,7 +1,7 @@
 name: Taso Urgent Preview
 on:
   pull_request:
-    branches: [main]
+    branches: [main, feature/taso-next-foundation-20261020]
     paths:
       - "taso/**"
       - "taso-ui/**"
