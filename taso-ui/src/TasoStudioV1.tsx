@@ -119,6 +119,22 @@ export default function TasoStudioV1(){
    }else setNotice('Değişiklikler Core üzerinde kaydedildi.');
   }catch(e){setError((e as Error).message)}finally{setBusy(false)}
  }
+ async function downloadHtml(){
+  if(!page||!draft||busy||!canRead)return;
+  if(dirty){setError('HTML çıktısı için önce değişiklikleri Core üzerinde kaydet.');return}
+  setBusy(true);setError('');
+  try{
+   const url=apiPath+'/pages/'+encodeURIComponent(page.id)+'/export.html';
+   const response=await fetch(API+url,{credentials:'same-origin',cache:'no-store',headers:{accept:'text/html'}});
+   if(!response.ok)throw new Error('HTML dışa aktarma izni veya kaynak sürümü doğrulanamadı (HTTP '+response.status+').');
+   if(!(response.headers.get('content-type')||'').includes('text/html'))throw new Error('Core HTML beklenmeyen içerik döndürdü.');
+   const blob=await response.blob();const objectUrl=URL.createObjectURL(blob);
+   const link=document.createElement('a');link.href=objectUrl;link.download='taso-'+page.slug+'.html';
+   document.body.append(link);link.click();link.remove();
+   window.setTimeout(()=>URL.revokeObjectURL(objectUrl),1000);
+   setNotice('Kaydedilmiş Studio sayfası Core üzerinden HTML olarak indirildi. Bu bir yayınlama işlemi değildir.');
+  }catch(e){setError((e as Error).message)}finally{setBusy(false)}
+ }
  async function restore(id:string){
   if(!draft||!canWrite||busy)return;
   if(!window.confirm('Bu sürüme geri dönülsün mü? Kaydedilmemiş değişiklikler kaybolur.'))return;
@@ -158,7 +174,7 @@ export default function TasoStudioV1(){
  </>;
  return <section className="taso-studio" aria-label="TASO Studio">
    <header className="studio-topbar"><div className="studio-brand"><NextOrb size="small"/><div><span>TASO / CREATIVE ENGINE</span><h1>Tasarım Stüdyosu</h1></div></div>
-    <div className="studio-topbar__actions"><button type="button" onClick={()=>navigateTaso('Projects')}>← Projeler</button><button type="button" onClick={undo} disabled={!past.length||busy}>↶ Geri al</button><button type="button" onClick={redo} disabled={!future.length||busy}>↷ Yinele</button><button className="studio-primary" type="button" onClick={()=>void save()} disabled={!draft||!dirty||busy||!canWrite}>{busy?'Kaydediliyor…':dirty?'Değişiklikleri kaydet':'Kaydedildi'}</button></div>
+    <div className="studio-topbar__actions"><button type="button" onClick={()=>navigateTaso('Projects')}>← Projeler</button><button type="button" onClick={undo} disabled={!past.length||busy}>↶ Geri al</button><button type="button" onClick={redo} disabled={!future.length||busy}>↷ Yinele</button><button type="button" onClick={()=>void downloadHtml()} disabled={!draft||!page||busy||!canRead} title={dirty?'Kaydedilmemiş değişiklikleri önce Core\'a kaydet':'Kalıcı Core belge sürümünden HTML indir'}>⇩ HTML indir</button><button className="studio-primary" type="button" onClick={()=>void save()} disabled={!draft||!dirty||busy||!canWrite}>{busy?'Kaydediliyor…':dirty?'Değişiklikleri kaydet':'Kaydedildi'}</button></div>
    </header>
    {error&&<div className="studio-alert" role="alert">{error} <button onClick={()=>setError('')} type="button">×</button></div>}{notice&&<p className="studio-notice" role="status">{notice}</p>}
    <div className="studio-context"><label>Proje <select value={projectId} disabled={loading||busy} onChange={e=>selectProject(e.target.value)}>{available.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></label><span>{draft?'Belge sürümü '+draft.version:loading?'Yükleniyor…':'Henüz Studio belgesi yok'}</span><span>{dirty?'● Kaydedilmemiş değişiklikler':'✓ Sunucuyla eşit'}</span></div>
