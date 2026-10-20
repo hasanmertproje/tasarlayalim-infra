@@ -102,7 +102,7 @@ export default function TasoStudioV1(){
   setBusy(true);setError('');
   try{
    const response=await request<{document:DesignDocument}>(apiPath+'/revisions/'+encodeURIComponent(id)+'/restore',{method:'POST',body:JSON.stringify({expectedVersion:serverDoc?.version})});
-   setServerDoc(response.document);setDraft(clone(response.document));setPast([]);setFuture([]);setPageId(current=>response.document.pages.some(page=>page.id===current)?current:response.document.pages[0]?.id||'');setSelectedId('');setNotice('Önceki sürüm sunucudan geri yüklendi.');
+   setServerDoc(response.document);setDraft(clone(response.document));setPast([]);setFuture([]);setPageId(current=>response.document.pages.some(page=>page.id===current)?current:response.document.pages[0]?.id||'');setSelectedId(current=>{const currentPage=response.document.pages.find(p=>p.id===pageId)||response.document.pages[0];return current&&currentPage&&locate(currentPage.nodes,current)?current:''});setNotice('Önceki sürüm sunucudan geri yüklendi.');
   }catch(e){setError((e as Error).message)}finally{setBusy(false)}
  }
  function undo(){
