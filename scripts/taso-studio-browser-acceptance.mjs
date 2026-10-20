@@ -1,0 +1,79 @@
+import {chromium} from 'playwright';
+import {createHmac} from 'node:crypto';
+import {mkdirSync,writeFileSync} from 'node:fs';
+const base=process.env.TASO_VISUAL_BASE_URL||'http://127.0.0.1:4173';
+const output=process.env.TASO_VISUAL_OUTPUT||'visual-evidence';
+mkdirSync(output,{recursive:true});
+const browser=await chromium.launch({headless:true});
+const context=await browser.newContext({viewport:{width:1440,height:1000}});
+const page=await context.newPage();
+const observations=[];
+function base32Decode(input){const alpha='ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';let bits=0,value=0;const result=[];for(const c of input.toUpperCase().replace(/[^A-Z2-7]/g,'')){value=(value<<5)|alpha.indexOf(c);bits+=5;if(bits>=8){result.push((value>>>(bits-8))&255);bits-=8}}return Buffer.from(result)}
+function totp(secret){const buf=Buffer.alloc(8);buf.writeBigUInt64BE(BigInt(Math.floor(Date.now()/30000)));const d=createHmac('sha1',base32Decode(secret)).update(buf).digest();const offset=d[d.length-1]&15;return String(((((d[offset]&127)<<24)|((d[offset+1]&255)<<16)|((d[offset+2]&255)<<8)|(d[offset+3]&255))%1e6).padStart(6,'0')}
+async function login(){
+ await page.goto(base,{waitUntil:'networkidle'});
+ const data=await page.evaluate(async()=>{const r=await fetch('/api/auth/login',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({email:'owner@ci.local',password:'ci-password'})});return r.json()});
+ if(data.authenticated)return;
+ if(data.requiresTwoFactorSetup&&data.secret&&data.challengeId){
+  const done=await page.evaluate(async({challengeId,code})=>{const r=await fetch('/api/auth/2fa/setup/confirm',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({challengeId,code,deviceName:'Studio CI'})});return r.json()},{challengeId:data.challengeId,code:totp(data.secret)});
+  if(!done.authenticated)throw new Error('Studio TOTP auth failed');return;
+ }
+ throw Error('Cannot authenticate Studio Browser CI');
+}
+try{
+ await login();
+ await page.goto(base+'/?screen=Studio',{waitUntil:'networkidle'});
+ await page.locator('.taso-studio').waitFor({state:'visible',timeout:15000});
+ await page.locator('.studio-empty button').click();
+ await page.locator('.studio-page-list button').first().waitFor({state:'visible'});
+ const projectId=await page.locator('.studio-context select').inputValue();
+ const orig=await page.evaluate(id=>fetch('/api/v1/projects/'+encodeURIComponent(id)+'/studio').then(r=>r.json()),projectId);
+ if(orig.document?.version!==1)throw Error('Studio create not persisted in Core');
+ page.once('dialog',dialog=>dialog.accept('Ürünler'));
+ await page.locator('.studio-panel__title button').filter({hasText:'Ekle'}).first().click();
+ await page.locator('.studio-page-list button').filter({hasText:'Ürünler'}).waitFor();
+ await page.locator('.studio-tools__insert button').filter({hasText:'Başlık'}).click();
+ await page.locator('.studio-fields textarea').fill('Gerçek Studio • İlk Sürüm');
+ await page.locator('.studio-fields input[type="color"]').first().fill('#ffffff');
+ await page.locator('.studio-history__save input').fill('Ürünler ilk sürüm');
+ await page.locator('.studio-history__save button').click();
+ await page.locator('.studio-revisions strong').filter({hasText:'Ürünler ilk sürüm'}).waitFor();
+ let saved=await page.evaluate(id=>fetch('/api/v1/projects/'+encodeURIComponent(id)+'/studio').then(r=>r.json()),projectId);
+ if(saved.document?.pages?.length!==2||saved.document?.revisions?.length!==1)throw Error('Studio page/revision not persisted');
+ if(saved.document.pages[1]?.nodes?.[0]?.text!=='Gerçek Studio • İlk Sürüm')throw Error('Studio text not persisted');
+ observations.push({step:'Core persisted document and revision',projectId,version:saved.document.version});
+ await page.screenshot({path:output+'/studio-editor-1440.png',fullPage:true});
+ await page.locator('.studio-fields textarea').fill('İkinci sürüm');
+ await page.locator('.studio-topbar__actions button').filter({hasText:'Değişiklikleri kaydet'}).click();
+ await page.getByText('Değişiklikler Core üzerinde kaydedildi.').waitFor();
+ page.once('dialog',dialog=>dialog.accept());
+ await page.locator('.studio-revisions button').filter({hasText:'Geri yükle'}).first().click();
+ await page.locator('.studio-fields textarea').waitFor({state:'visible'});
+ if(await page.locator('.studio-fields textarea').inputValue()!=='Gerçek Studio • İlk Sürüm')throw Error('Restore did not recover first version text');
+ await page.locator('.studio-code-toggle').click();
+ const html=await page.locator('.studio-source').innerText();
+ if(!html.includes('Gerçek Studio • İlk Sürüm')||!html.includes('<h2'))throw Error('Code / model mismatch');
+ const after=await page.evaluate(id=>fetch('/api/v1/projects/'+encodeURIComponent(id)+'/studio').then(r=>r.json()),projectId);
+ if(after.document.pages[1].nodes[0].text!=='Gerçek Studio • İlk Sürüm')throw Error('Restore did not persist in Core');
+ observations.push({step:'HTML-model consistency and persisted restore',version:after.document.version});
+ for(const width of [320,360,390,430,768,1024,1440,1920]){
+  await page.setViewportSize({width,height:width<=430?844:1000});
+  await page.locator('.studio-tools__view button').filter({hasText:'Mobil'}).click();
+  if(width<=820){
+   await page.locator('.studio-mobile-tabs button').filter({hasText:'Özellikler'}).click();
+   await page.locator('.studio-fields textarea').waitFor({state:'visible'});
+   await page.locator('.studio-mobile-tabs button').filter({hasText:'Tuval'}).click();
+  }
+  const sizes=await page.evaluate(()=>({width:innerWidth,scrollWidth:document.documentElement.scrollWidth,nav:document.querySelector('.studio-mobile-tabs')?.getBoundingClientRect()?.toJSON()}));
+  if(sizes.scrollWidth>width+2)throw Error('Studio horizontal overflow at '+width+': '+sizes.scrollWidth);
+  await page.screenshot({path:output+'/studio-mobile-artboard-'+width+'.png',fullPage:true});
+  observations.push({step:'responsive viewport',width,scrollWidth:sizes.scrollWidth});
+ }
+ const attacker=await page.evaluate(async id=>{
+  const r=await fetch('/api/v1/projects/'+encodeURIComponent(id)+'/studio',{method:'PUT',headers:{'content-type':'application/json'},body:JSON.stringify({expectedVersion:1,pages:[]})});
+  return r.status;
+ },projectId);
+ if(attacker!==409)throw Error('Core failed to reject stale Studio write');
+ observations.push({step:'Stale mutation rejected',http:attacker});
+ writeFileSync(output+'/studio-report.json',JSON.stringify({passed:true,observations},null,2));
+}finally{await context.close();await browser.close()}
