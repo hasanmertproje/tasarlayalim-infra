@@ -37,7 +37,9 @@ export function moveStudioNode(nodes:DesignNode[],sourceId:string,targetId:strin
  const destination=locatePath(root,targetId);
  if(!destination)return nodes;
  if(placement==='inside'){
-  destination.items[destination.index].children.push(moved);
+  // Dropping onto a section row inserts at the start of its children. The tree,
+  // touch drop target and browser acceptance all share this deterministic rule.
+  destination.items[destination.index].children.unshift(moved);
  }else {
   destination.items.splice(destination.index+(placement==='after'?1:0),0,moved);
  }

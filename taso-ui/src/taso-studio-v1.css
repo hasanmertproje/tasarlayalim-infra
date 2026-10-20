@@ -69,3 +69,12 @@
 .studio-tree-handle:active{cursor:grabbing;background:#493d85}
 .studio-tree-branch>.studio-tree-branch{margin-left:5px;border-left:1px solid #3d4372}
 @media(max-width:820px){.studio-tree-handle{flex-basis:48px;min-height:48px}.studio-tree-row>.studio-tree-item{min-height:48px}}
+
+/* Mobile Studio owns its editing navigation; do not stack the global app dock beneath it. */
+@media(max-width:820px){
+ .ds2-shell[data-screen="Studio"] .ds2-bottom{display:none!important}
+ .ds2-shell[data-screen="Studio"] .taso-studio{padding-bottom:calc(66px + env(safe-area-inset-bottom))}
+ .ds2-shell[data-screen="Studio"] .studio-mobile-tabs{bottom:env(safe-area-inset-bottom)}
+ .ds2-shell[data-screen="Studio"] .studio-left.is-open,
+ .ds2-shell[data-screen="Studio"] .studio-right.is-open{bottom:calc(58px + env(safe-area-inset-bottom))}
+}
