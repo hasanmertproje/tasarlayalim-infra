@@ -1,4 +1,7 @@
-name: TASO One Shot Production Release 2026-10-19
+# Historical one-shot workflow: release #39185000684 completed successfully on 2026-10-19.
+# The temporary no-S3 production mutation job is RETIRED and cannot run again.
+# Keep the contract test for auditability; normal production deploy keeps its S3 preflight.
+name: TASO One Shot Release Contract (Retired)
 
 on:
   pull_request:
@@ -6,17 +9,9 @@ on:
       - scripts/taso-production-one-shot-20261019.mjs
       - tests/taso-production-one-shot-20261019.test.mjs
       - .github/workflows/taso-production-one-shot-20261019.yml
-  push:
-    branches: [main]
-    paths:
-      - .github/workflows/taso-production-one-shot-20261019.yml
 
 permissions:
   contents: read
-
-concurrency:
-  group: taso-production
-  cancel-in-progress: false
 
 jobs:
   contract:
@@ -27,25 +22,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Validate one-shot release safety contracts
+      - name: Validate historical one-shot release safety contract
         run: |
           node --check scripts/taso-production-one-shot-20261019.mjs
           node --test tests/taso-production-one-shot-20261019.test.mjs
-
-  release:
-    if: github.event_name == 'push' && contains(github.event.head_commit.message, 'TASO_ONE_SHOT_RELEASE_20261019')
-    needs: contract
-    runs-on: ubuntu-latest
-    timeout-minutes: 165
-    env:
-      COOLIFY_API_TOKEN: ${{ secrets.COOLIFY_API_TOKEN }}
-      TASO_ONE_SHOT_BACKUP_WAIVER: 2026-10-19-explicit-operator-waiver
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-      - name: Update existing TASO services without mutating volumes, auth or backup settings
-        run: node scripts/taso-production-one-shot-20261019.mjs
-# One-time operator-approved release trigger; the production S3 gate remains unchanged.
-# Diagnostic retry: prints only fixed status codes; preserves every preflight guard.
