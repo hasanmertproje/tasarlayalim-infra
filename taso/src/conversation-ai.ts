@@ -17,8 +17,13 @@ export type ConversationRuntimeContext = {
   webSearch?:boolean;
 };
 type RuntimeConversationProvider = { id:string;baseUrl:string;apiKey:string;model:string };
-type ConversationProviderFailure = {requestId:string;provider:string;code:string;at:string;attempts:number;elapsedMs:number};
-const DEFAULT_PROVIDER_TIMEOUT_MS=22_000;
+type ConversationProviderFailure = {requestId:string;provider:string;code:string;phase:'request'|'response-body'|'http-status';at:string;attempts:number;elapsedMs:number};
+const DEFAULT_PROVIDER_TIMEOUT_MS=18_000;
+const DEFAULT_PROVIDER_BUDGET_MS=35_000;
+function providerBudgetMs(){
+ const value=Number(process.env.TASO_CONVERSATION_TOTAL_TIMEOUT_MS);
+ return Number.isInteger(value)&&value>=10_000&&value<=60_000?value:DEFAULT_PROVIDER_BUDGET_MS;
+}
 function providerTimeoutMs(){
  const value=Number(process.env.TASO_CONVERSATION_PROVIDER_TIMEOUT_MS);
  return Number.isInteger(value)&&value>=5_000&&value<=30_000?value:DEFAULT_PROVIDER_TIMEOUT_MS;
@@ -71,8 +76,8 @@ async function webContext(input:string,forceSearch=false){
 export class ConversationAi{
   constructor(private readonly router:ProviderRouter, private readonly personalization=new PersonalizationStore()){}
   private recentFailure?:ConversationProviderFailure;
-  private recordFailure(requestId:string,provider:string,code:string,attempts:number,elapsedMs:number){
-    const failure:ConversationProviderFailure={requestId,provider,code,at:new Date().toISOString(),attempts,elapsedMs:Math.max(0,Math.round(elapsedMs))};
+  private recordFailure(requestId:string,provider:string,code:string,phase:ConversationProviderFailure['phase'],attempts:number,elapsedMs:number){
+    const failure:ConversationProviderFailure={requestId,provider,code,phase,at:new Date().toISOString(),attempts,elapsedMs:Math.max(0,Math.round(elapsedMs))};
     this.recentFailure=failure;
     // Deliberately log only fixed metadata; never log prompts, request headers, URLs, or provider bodies.
     console.warn(JSON.stringify({event:'taso_conversation_provider_attempt_failed',...failure}));
@@ -83,7 +88,7 @@ export class ConversationAi{
       .filter((provider):provider is RuntimeConversationProvider=>Boolean(provider));
   }
   private select(dataClass:DataClass='private_code'){return this.eligible(dataClass)[0]}
-  status(){const provider=this.select('private_code');return provider?{configured:true,provider:provider.id,model:provider.model,dataClass:'private_code' as const,lastFailure:this.recentFailure}:{configured:false,dataClass:'private_code' as const,lastFailure:this.recentFailure}}
+  status(){const eligibleProviders=this.eligible('private_code');const provider=eligibleProviders[0];return provider?{configured:true,provider:provider.id,model:provider.model,dataClass:'private_code' as const,eligibleProviders:eligibleProviders.map(item=>item.id),lastFailure:this.recentFailure}:{configured:false,dataClass:'private_code' as const,eligibleProviders:[],lastFailure:this.recentFailure}}
 
   async reply(project:Project,turns:ConversationTurn[],input:string,runtime:ConversationRuntimeContext={}):Promise<string>{return (await this.replyDetailed(project,turns,input,runtime)).content}
   async replyDetailed(project:Project,turns:ConversationTurn[],input:string,runtime:ConversationRuntimeContext={}){
@@ -139,26 +144,36 @@ export class ConversationAi{
       ].join('\n')},...turns.slice(-16),{role:'user',content:input}];
     let attempts=0;
     let lastFailure='UNAVAILABLE';
+    const providerDeadline=Date.now()+providerBudgetMs();
     for(const provider of providers){
       const providerRequest=JSON.stringify({model:provider.model,temperature:.32,messages:providerMessages});
+      // Retry a single provider once for fast HTTP throttling/5xx responses, but
+      // never spend a second full timeout on the same unresponsive endpoint.
       const maxAttempts=providers.length===1?2:1;
       for(let attempt=0;attempt<maxAttempts;attempt++){
+        const remainingMs=providerDeadline-Date.now();
+        if(remainingMs<1_000){lastFailure='TOTAL_BUDGET_EXHAUSTED';break}
         attempts++;
         const attemptStartedAt=Date.now();
+        let phase:ConversationProviderFailure['phase']='request';
+        let stopRetryingProvider=false;
         try{
           const response=await fetch(`${provider.baseUrl}/chat/completions`,{
             method:'POST',
             headers:{authorization:`Bearer ${provider.apiKey}`,'content-type':'application/json'},
-            body:providerRequest,signal:AbortSignal.timeout(timeoutMs),
+            body:providerRequest,
+            signal:AbortSignal.timeout(Math.max(1_000,Math.min(timeoutMs,remainingMs))),
           });
           if(!response.ok){
             const code='HTTP_'+response.status;
             lastFailure=code;
-            this.recordFailure(requestId,provider.id,code,attempts,Date.now()-attemptStartedAt);
+            phase='http-status';
+            this.recordFailure(requestId,provider.id,code,phase,attempts,Date.now()-attemptStartedAt);
             try{await response.body?.cancel()}catch{/* response body cleanup is best-effort */}
             if(![408,425,429,500,502,503,504].includes(response.status))
               throw new Error('Conversation provider refused request ('+code+').');
           }else{
+            phase='response-body';
             const payload=await response.json() as {choices?:Array<{message?:{content?:string}}>} ;
             const content=payload.choices?.[0]?.message?.content?.trim();
             if(content){
@@ -167,7 +182,7 @@ export class ConversationAi{
               return content;
             }
             lastFailure='EMPTY_RESPONSE';
-            this.recordFailure(requestId,provider.id,lastFailure,attempts,Date.now()-attemptStartedAt);
+            this.recordFailure(requestId,provider.id,lastFailure,phase,attempts,Date.now()-attemptStartedAt);
           }
         }catch(error){
           const message=error instanceof Error?error.message:'';
@@ -175,20 +190,24 @@ export class ConversationAi{
           const name=error instanceof Error?error.name:'';
           if(name==='TimeoutError'||name==='AbortError'){
             lastFailure='TIMEOUT';
-            this.recordFailure(requestId,provider.id,lastFailure,attempts,Date.now()-attemptStartedAt);
+            this.recordFailure(requestId,provider.id,lastFailure,phase,attempts,Date.now()-attemptStartedAt);
+            stopRetryingProvider=true;
           }else if(error instanceof TypeError){
             lastFailure='NETWORK';
-            this.recordFailure(requestId,provider.id,lastFailure,attempts,Date.now()-attemptStartedAt);
+            this.recordFailure(requestId,provider.id,lastFailure,phase,attempts,Date.now()-attemptStartedAt);
+            stopRetryingProvider=true;
           }else if(error instanceof SyntaxError){
             lastFailure='INVALID_RESPONSE';
-            this.recordFailure(requestId,provider.id,lastFailure,attempts,Date.now()-attemptStartedAt);
+            this.recordFailure(requestId,provider.id,lastFailure,phase,attempts,Date.now()-attemptStartedAt);
           }else{
             throw error;
           }
         }
-        // The retry budget is fixed. Retry inference only, never the Core POST that records the turn.
+        if(stopRetryingProvider)break;
+        // Retry only fast HTTP throttling/5xx or invalid payloads, with a small bounded pause.
         if(attempt+1<maxAttempts)await new Promise(resolve=>setTimeout(resolve,350+attempt*350));
       }
+      if(Date.now()>=providerDeadline)lastFailure='TOTAL_BUDGET_EXHAUSTED';
     }
     throw new Error('Conversation provider temporarily unavailable (requestId='+requestId+'; category='+lastFailure+').');
   }
