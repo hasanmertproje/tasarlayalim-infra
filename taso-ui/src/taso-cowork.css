@@ -1,0 +1,38 @@
+/* TASO CoWork: real project Core conversation + supervised mission creation; not a mock AI agent. */
+.taso-cowork{--cw-bg:var(--ds-bg);--cw-panel:var(--ds-surface);--cw-raised:var(--ds-raised);--cw-line:var(--ds-line);--cw-muted:var(--ds-muted);padding:clamp(15px,2vw,30px);min-width:0;max-width:1600px;margin-inline:auto;color:var(--ds-text)}
+.taso-cowork *,.taso-cowork *::before,.taso-cowork *::after{box-sizing:border-box;min-width:0}
+.taso-cowork button,.taso-cowork textarea,.taso-cowork select{font:inherit}
+.taso-cowork button{cursor:pointer}.taso-cowork button:disabled{opacity:.5;cursor:not-allowed}
+.taso-cowork :focus-visible{outline:2px solid #a38eff;outline-offset:3px}
+.cowork-head{position:relative;display:flex;justify-content:space-between;align-items:center;gap:28px;padding:clamp(23px,3vw,35px);border:1px solid #56539b;border-radius:19px;background:radial-gradient(ellipse at 65% 38%,#4645b87b,transparent 45%),linear-gradient(120deg,#12133c,#0a1738 75%);color:white}
+.cowork-head h1{font-size:clamp(26px,3.2vw,47px);letter-spacing:-.05em;line-height:1.1;margin:13px 0}.cowork-head h1 em{font-style:normal;color:#c39cff}
+.cowork-head p{color:#bfc6e8;font-size:13px;max-width:690px;line-height:1.6;margin:0}.cowork-head .taso-next-orb{margin-right:2vw}
+.cowork-context{display:flex;align-items:flex-end;flex-wrap:wrap;gap:9px;margin:15px 0}
+.cowork-context label{display:grid;gap:8px;color:var(--cw-muted);font-size:11px;flex:1;min-width:210px}
+.cowork-context select,.cowork-context button,.cowork-panel button,.cowork-mission select,.cowork-mission textarea,.cowork-to-tasks{background:var(--cw-raised);border:1px solid var(--cw-line);color:var(--ds-text);border-radius:10px;min-height:44px;padding:11px;font-size:12px}
+.cowork-context button{white-space:nowrap}
+.cowork-context button:last-child,.cowork-mission form>button{background:linear-gradient(110deg,#833fec,#3658e2);color:white;border-color:#8667e6;font-weight:750}
+.cowork-layout{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(285px,.9fr);gap:14px;align-items:start}
+.cowork-talk,.cowork-panel{background:var(--cw-panel);border:1px solid var(--cw-line);border-radius:16px;padding:19px;min-width:0}
+.cowork-section-head{display:grid;gap:8px;margin-bottom:17px}.cowork-section-head>span{font-size:10px;font-weight:750;letter-spacing:.12em;color:#b596ff}.cowork-section-head h2{font-size:19px;letter-spacing:-.035em;margin:0}.cowork-section-head p{font-size:12px;line-height:1.6;color:var(--cw-muted);margin:0}
+.cowork-talk .dashboard-chat{background:transparent!important;padding:0!important;border:0!important;box-shadow:none!important}
+.cowork-talk .dashboard-chat-messages{max-height:480px;min-height:190px}
+.cowork-talk .dashboard-chat-input-row{display:flex;align-items:stretch;gap:10px}
+.cowork-talk .dashboard-chat-mic{min-width:54px;min-height:54px;border-radius:12px;background:var(--cw-raised);border:1px solid var(--cw-line);color:#ba92ff}
+.cowork-talk .dashboard-chat-input-row textarea{flex:1;min-height:68px}
+.cowork-rail{display:grid;gap:14px}
+.cowork-panel dl{display:grid;gap:3px;margin:0 0 15px}.cowork-panel dl div{display:grid;gap:5px;padding:11px 0;border-bottom:1px solid var(--cw-line)}
+.cowork-panel dt{font-size:10px;color:var(--cw-muted)}.cowork-panel dd{font-size:12px;font-weight:650;margin:0;overflow-wrap:anywhere}
+.cowork-panel>button{width:100%;text-align:center}
+.cowork-mission form{display:grid;gap:10px}
+.cowork-mission form>label{font-size:11px;font-weight:650;color:var(--cw-muted)}.cowork-mission textarea{width:100%;min-height:110px;resize:vertical;line-height:1.55}
+.cowork-mission select{width:100%}
+.cowork-mission form p,.cowork-mission form small{font-size:11px;color:var(--cw-muted);line-height:1.6;margin:0}
+.cowork-to-tasks{width:100%;text-align:left;font-weight:700}
+.cowork-error,.cowork-notice{border:1px solid #93596a;background:#722a3b33;color:#ffc9d6;padding:13px;border-radius:10px;margin:12px 0;font-size:12px}
+.cowork-notice{border-color:#428b7c;background:#17644e33;color:#9af3d2}
+:root[data-theme="light"] .cowork-talk,:root[data-theme="light"] .cowork-panel{box-shadow:0 9px 22px #151c5520}
+@media(max-width:1050px){.cowork-layout{grid-template-columns:minmax(0,1fr)}.cowork-rail{grid-template-columns:repeat(2,minmax(0,1fr))}.cowork-to-tasks{grid-column:1/-1}}
+@media(max-width:700px){.taso-cowork{padding:14px 11px 28px}.cowork-head{padding:23px 18px;overflow:hidden;min-height:190px}.cowork-head>div{position:relative;z-index:1}.cowork-head .taso-next-orb{position:absolute;right:-29px;top:20px;opacity:.3}.cowork-head h1{font-size:29px}.cowork-head p{max-width:90%;font-size:12px}.cowork-context{display:grid;grid-template-columns:1fr 1fr;gap:8px}.cowork-context label{grid-column:1/-1}.cowork-context button{white-space:normal;min-height:48px}.cowork-rail{grid-template-columns:1fr}.cowork-to-tasks{grid-column:auto}.cowork-talk,.cowork-panel{padding:15px}.cowork-talk .chat-actions{display:flex;flex-wrap:wrap}.cowork-mission textarea,.cowork-mission select,.cowork-panel button{min-height:48px}}
+@media(max-width:360px){.cowork-head h1{font-size:25px}.cowork-head .taso-next-orb{opacity:.19}.cowork-context{grid-template-columns:1fr}.cowork-context button{grid-column:1}}
+@media(prefers-reduced-motion:reduce){.taso-cowork *{scroll-behavior:auto!important;animation:none!important}}
