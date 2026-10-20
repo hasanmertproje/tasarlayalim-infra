@@ -4,6 +4,7 @@ export const TASO_PRIMARY_SCREENS = [
   'Command Center',
   'Projects',
   'Studio',
+  'CoWork',
   'Tasks',
   'Approvals',
   'Deployments',
@@ -26,7 +27,7 @@ export type TasoScreen = (typeof TASO_SCREENS)[number];
 
 export const TASO_SCREEN_LABELS: Record<TasoScreen, string> = {
   'Command Center': 'Kontrol Merkezi',
-  Projects: 'Projeler', Studio: 'Tasarım Stüdyosu', Tasks: 'Görevler', Approvals: 'Onaylar',
+  Projects: 'Projeler', Studio: 'Tasarım Stüdyosu', CoWork: 'Beraber Yapalım', Tasks: 'Görevler', Approvals: 'Onaylar',
   Deployments: 'Dağıtımlar', 'AI Agents': 'Yapay Zekâ Ajanları',
   Knowledge: 'Bilgi Merkezi', Integrations: 'Entegrasyonlar',
   Monitoring: 'İzleme', Settings: 'Ayarlar',

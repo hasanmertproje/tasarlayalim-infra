@@ -54,7 +54,7 @@ export default function NextWorkspace(){
   const completed=missions.filter(m=>m.status==='completed');
   const recent=[...missions].sort((a,b)=>(b.updatedAt||'').localeCompare(a.updatedAt||'')).slice(0,5);
   const projectName=(id:string)=>projects.find(p=>p.id===id)?.name||'İlgili proje';
-  const go=(screen:'Projects'|'Tasks'|'Approvals'|'Command Center'|'Knowledge')=>navigateTaso(screen);
+  const go=(screen:'Projects'|'Tasks'|'Approvals'|'Command Center'|'CoWork'|'Knowledge')=>navigateTaso(screen);
   return <section className="tn-workspace" aria-label="TASO Çalışma Alanı">
     <header className="tn-workspace__welcome">
       <span className="tn-eyebrow">TASO / ÇALIŞMA ALANI</span>
@@ -72,7 +72,7 @@ export default function NextWorkspace(){
         <h2>Bir fikrin var.<br/><span>TASO yanında.</span></h2>
         <p>Proje bağlamına bağlı gerçek konuşmalara ve görev yürütmeye mevcut TASO Core üzerinden devam et.</p>
         <div className="tn-workspace__hero-actions">
-          <button type="button" className="tn-primary-action" onClick={()=>go('Command Center')}>TASO ile çalış <span aria-hidden="true">↗</span></button>
+          <button type="button" className="tn-primary-action" onClick={()=>go('CoWork')}>TASO ile çalış <span aria-hidden="true">↗</span></button>
           <button type="button" className="tn-ghost-action" onClick={()=>go('Projects')}>Projeleri aç</button>
         </div>
       </div>
