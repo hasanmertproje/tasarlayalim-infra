@@ -183,8 +183,10 @@ export function buildServer() {
           requestId:failure.requestId,
           provider:failure.provider,
           category:failure.code,
+          phase:failure.phase,
           attempts:failure.attempts,
           elapsedMs:failure.elapsedMs,
+          eligibleProviders:conversationAi.status().eligibleProviders,
         },'AI provider request exhausted its bounded retry budget');
       }
       if (decision.intent === 'STATUS') {
