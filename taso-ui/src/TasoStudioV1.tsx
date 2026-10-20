@@ -145,10 +145,11 @@ export default function TasoStudioV1(){
   if(dirty){setError('HTML çıktısı için önce değişiklikleri Core üzerinde kaydet.');return}
   setBusy(true);setError('');
   try{
-   const url=apiPath+'/pages/'+encodeURIComponent(page.id)+'/export.html';
+   const url=apiPath+'/pages/'+encodeURIComponent(page.id)+'/export.html?version='+encodeURIComponent(String(serverDoc?.version));
    const response=await fetch(API+url,{credentials:'same-origin',cache:'no-store',headers:{accept:'text/html'}});
    if(!response.ok)throw new Error('HTML dışa aktarma izni veya kaynak sürümü doğrulanamadı (HTTP '+response.status+').');
    if(!(response.headers.get('content-type')||'').includes('text/html'))throw new Error('Core HTML beklenmeyen içerik döndürdü.');
+   if(response.headers.get('x-taso-studio-version')!==String(serverDoc?.version))throw new Error('HTML çıktısı kaydedilen Studio sürümüyle eşleşmiyor. Yeniden yükleyin.');
    const blob=await response.blob();const objectUrl=URL.createObjectURL(blob);
    const link=document.createElement('a');link.href=objectUrl;link.download='taso-'+page.slug+'.html';
    document.body.append(link);link.click();link.remove();
