@@ -81,6 +81,8 @@ try{
  await page.getByText('Değişiklikler Core üzerinde kaydedildi.').waitFor();
  page.once('dialog',dialog=>dialog.accept());
  await page.locator('.studio-revisions button').filter({hasText:'Geri yükle'}).first().click();
+ // Restoring a revision deliberately clears the selection. Re-select the persisted node.
+ await page.locator('.studio-tree-item').filter({hasText:'Gerçek Studio • İlk Sürüm'}).first().click();
  await page.waitForFunction(()=>document.querySelector('.studio-fields textarea')?.value==='Gerçek Studio • İlk Sürüm',{},{timeout:15000});
  const restored=await page.evaluate(id=>fetch('/api/v1/projects/'+encodeURIComponent(id)+'/studio').then(r=>r.json()),projectId);
  if(restored.document.pages[1]?.nodes[0]?.text!=='Gerçek Studio • İlk Sürüm')throw Error('Core Studio restore did not persist correct version');
