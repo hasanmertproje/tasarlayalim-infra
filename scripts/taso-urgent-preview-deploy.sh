@@ -62,7 +62,7 @@ echo 'acceptance: real AI chat'
 # Do not retry the Core conversation POST: that would create duplicate history.
 # On failure, only log safe provider category/attempt-count diagnostics, never body/keys.
 chat_file="$TMP/ai-chat.json"
-chat_code="$(curl -sS --max-time 105 -b "$jar" -o "$chat_file" -w '%{http_code}' -H 'content-type: application/json' --data-binary "$(jq -nc --arg projectId "$project_id" '{projectId:$projectId,text:"Merhaba Taso. Kendini tek cümlede tanıt."}')" "https://$TASO_PREVIEW_DOMAIN/api/v1/conversations/messages")" || true)"
+chat_code="$(curl -sS --max-time 105 -b "$jar" -o "$chat_file" -w '%{http_code}' -H 'content-type: application/json' --data-binary "$(jq -nc --arg projectId "$project_id" '{projectId:$projectId,text:"Merhaba Taso. Kendini tek cümlede tanıt."}')" "https://$TASO_PREVIEW_DOMAIN/api/v1/conversations/messages" || true)"
 if [[ "$chat_code" != 201 ]];then
  health_file="$TMP/ai-health.json"
  curl -sS --max-time 12 -o "$health_file" "https://$TASO_PREVIEW_DOMAIN/api/health" || true
