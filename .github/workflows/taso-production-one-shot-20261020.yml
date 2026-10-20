@@ -1,0 +1,51 @@
+name: TASO NEXT One-Shot Production Release 2026-10-20
+
+on:
+  pull_request:
+    paths:
+      - scripts/taso-production-one-shot-20261020.mjs
+      - tests/taso-production-one-shot-20261020.test.mjs
+      - .github/workflows/taso-production-one-shot-20261020.yml
+  push:
+    branches: [main]
+    paths:
+      - scripts/taso-production-one-shot-20261020.mjs
+      - tests/taso-production-one-shot-20261020.test.mjs
+      - .github/workflows/taso-production-one-shot-20261020.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: taso-production
+  cancel-in-progress: false
+
+jobs:
+  contract:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Validate one-shot release script and production mutation guards
+        run: |
+          node --check scripts/taso-production-one-shot-20261020.mjs
+          node --test tests/taso-production-one-shot-20261020.test.mjs
+
+  release:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && startsWith(github.event.head_commit.message, 'TASO_ONE_SHOT_RELEASE_20261020')
+    runs-on: ubuntu-latest
+    timeout-minutes: 165
+    env:
+      COOLIFY_API_TOKEN: \${{ secrets.COOLIFY_API_TOKEN }}
+      TASO_ONE_SHOT_BACKUP_WAIVER: 2026-10-20-explicit-operator-waiver
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Deploy only the existing six TASO production services at the exact release SHA
+        run: node scripts/taso-production-one-shot-20261020.mjs
