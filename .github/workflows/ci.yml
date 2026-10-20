@@ -42,6 +42,9 @@ jobs:
       - name: Assert production release requires manual dispatch
         run: node scripts/taso-production-workflow-gate-check.mjs
 
+      - name: Test redacted preview deployment diagnostics
+        run: node --test tests/taso-preview-deployment-diagnostic.test.mjs
+
       - name: Validate shell scripts
         run: |
           sh -n scripts/healthcheck.sh
