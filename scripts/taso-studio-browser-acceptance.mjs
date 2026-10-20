@@ -160,6 +160,31 @@ try{
   await page.screenshot({path:output+'/studio-mobile-artboard-'+width+'.png',fullPage:true});
   observations.push({step:'responsive viewport',width,scrollWidth:sizes.scrollWidth});
  }
+ // CoWork M4: one user-visible journey spanning Studio -> same Core project
+ // conversation -> supervised mission. Provider-independent status turn is truthful.
+ await page.getByRole('button',{name:/Proje hakkında konuş/}).click();
+ await page.locator('.taso-cowork').waitFor({state:'visible'});
+ await page.waitForFunction(id=>document.querySelector('#cowork-project')?.value===id,projectId);
+ await page.locator('#dashboard-question').fill('Sistem durumu');
+ await page.locator('.cowork-talk .chat-actions button').click();
+ await page.locator('.cowork-talk .from-taso').last().waitFor({state:'visible',timeout:15000});
+ const messages=await page.evaluate(async id=>fetch('/api/v1/conversations?projectId='+encodeURIComponent(id)).then(r=>r.json()),projectId);
+ if(!messages.messages?.some(m=>m.projectId===projectId&&m.role==='assistant'&&m.replyMode==='system'))
+  throw Error('CoWork did not persist the truthful Core status conversation');
+ const objective='Studio CI proje bağlamı ve READ görev kaydı doğrulaması';
+ await page.locator('#cowork-objective').fill(objective);
+ await page.getByRole('button',{name:/Core üzerinde görev başlat/}).click();
+ await page.getByText('Görev TASO Core üzerinde oluşturuldu.').waitFor({timeout:15000});
+ const taskState=await page.evaluate(async id=>fetch('/api/v1/missions').then(r=>r.json()),projectId);
+ if(!taskState.missions?.some(m=>m.projectId===projectId&&m.objective===objective&&m.riskLevel==='READ'))
+  throw Error('CoWork did not persist a real project-scoped READ mission');
+ for(const width of [320,390,1440]){
+  await page.setViewportSize({width,height:width<500?844:1000});
+  const contentWidth=await page.evaluate(()=>document.documentElement.scrollWidth);
+  if(contentWidth>width+2)throw Error('CoWork horizontal overflow at '+width);
+  await page.screenshot({path:output+'/cowork-project-'+width+'.png',fullPage:true});
+ }
+ observations.push({step:'CoWork canonical Studio context, real saved conversation and supervised READ mission',projectId});
  const attacker=await page.evaluate(async id=>{
   const r=await fetch('/api/v1/projects/'+encodeURIComponent(id)+'/studio',{method:'PUT',headers:{'content-type':'application/json'},body:JSON.stringify({expectedVersion:1,pages:[]})});
   return r.status;
