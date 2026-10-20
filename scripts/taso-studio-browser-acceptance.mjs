@@ -81,8 +81,9 @@ try{
  await page.getByText('Değişiklikler Core üzerinde kaydedildi.').waitFor();
  page.once('dialog',dialog=>dialog.accept());
  await page.locator('.studio-revisions button').filter({hasText:'Geri yükle'}).first().click();
- await page.locator('.studio-fields textarea').waitFor({state:'visible'});
- if(await page.locator('.studio-fields textarea').inputValue()!=='Gerçek Studio • İlk Sürüm')throw Error('Restore did not recover first version text');
+ await page.waitForFunction(()=>document.querySelector('.studio-fields textarea')?.value==='Gerçek Studio • İlk Sürüm',{},{timeout:15000});
+ const restored=await page.evaluate(id=>fetch('/api/v1/projects/'+encodeURIComponent(id)+'/studio').then(r=>r.json()),projectId);
+ if(restored.document.pages[1]?.nodes[0]?.text!=='Gerçek Studio • İlk Sürüm')throw Error('Core Studio restore did not persist correct version');
  await page.locator('.studio-code-toggle').click();
  const html=await page.locator('.studio-source').innerText();
  if(!html.includes('Gerçek Studio • İlk Sürüm')||!html.includes('<h2'))throw Error('Code / model mismatch');
