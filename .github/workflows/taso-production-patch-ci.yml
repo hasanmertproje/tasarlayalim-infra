@@ -49,6 +49,8 @@ jobs:
         env:
           TASO_PATCH_VALIDATE_ONLY: "1"
         run: bash scripts/taso-production-ui-retry-compat.sh
+      - name: Restore source deploy script after mutation-based patch validation
+        run: git checkout -- scripts/taso-production-deploy.sh
       - name: Reject unexpected production secret rotation
         run: node --test tests/taso-production-secret-preservation.test.mjs tests/taso-production-s3-preflight.test.mjs
       - name: Confirm no production token is required
