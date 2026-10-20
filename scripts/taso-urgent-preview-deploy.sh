@@ -88,5 +88,24 @@ if [[ "$chat_code" != 201 ]];then
 fi
 jq -e '.assistantMessage.replyMode=="ai" and (.assistantMessage.content|length>10)' "$chat_file">/dev/null||{ echo "::error::Real AI response missing or non-AI";exit 1;}
 echo 'acceptance: sourced web search'
-web="$(curl -fsS -b "$jar" -H 'content-type: application/json' --data-binary "$(jq -nc --arg projectId "$project_id" '{projectId:$projectId,text:"OpenAI resmi sitesini webde ara ve kaynakla yanıtla.",webSearch:true}')" "https://$TASO_PREVIEW_DOMAIN/api/v1/conversations/messages")";jq -e '.assistantMessage.replyMode=="ai" and (.assistantMessage.sources|length>0)'<<<"$web">/dev/null
+web_file="$TMP/ai-web-search.json"
+web_code="$(curl -sS --max-time 105 -b "$jar" -o "$web_file" -w '%{http_code}' -H 'content-type: application/json' --data-binary "$(jq -nc --arg projectId "$project_id" '{projectId:$projectId,text:"OpenAI resmi sitesini webde ara ve kaynakla yanıtla.",webSearch:true}')" "https://$TASO_PREVIEW_DOMAIN/api/v1/conversations/messages" || true)"
+if [[ "$web_code" != 201 ]];then
+ category="$(jq -r '.conversation.lastFailure.code//"UNKNOWN"' "$web_file" 2>/dev/null || echo UNKNOWN)"
+ [[ "$category" =~ ^[A-Z0-9_]{1,30}$ ]]||category=UNKNOWN
+ attempts="$(jq -r '.conversation.lastFailure.attempts//0' "$web_file" 2>/dev/null || echo 0)"
+ provider="$(jq -r '.conversation.lastFailure.provider//.conversation.provider//"unknown"' "$web_file" 2>/dev/null || echo unknown)"
+ phase="$(jq -r '.conversation.lastFailure.phase//"unknown"' "$web_file" 2>/dev/null || echo unknown)"
+ elapsed_ms="$(jq -r '.conversation.lastFailure.elapsedMs//0' "$web_file" 2>/dev/null || echo 0)"
+ diagnostic_id="$(jq -r '.diagnosticId//.conversation.lastFailure.requestId//"unavailable"' "$web_file" 2>/dev/null || echo unavailable)"
+ [[ "$attempts" =~ ^[0-9]{1,3}$ ]]||attempts=0
+ [[ "$elapsed_ms" =~ ^[0-9]{1,8}$ ]]||elapsed_ms=0
+ [[ "$provider" =~ ^[a-zA-Z0-9_-]{1,40}$ ]]||provider=unknown
+ [[ "$phase" =~ ^[a-z-]{1,30}$ ]]||phase=unknown
+ [[ "$diagnostic_id" =~ ^[0-9a-fA-F-]{36}$ ]]||diagnostic_id=unavailable
+ echo "::error::Sourced AI web acceptance failed: HTTP $web_code; category=$category; phase=$phase; provider=$provider; attempts=$attempts; elapsed_ms=$elapsed_ms; diagnostic_id=$diagnostic_id"
+ exit 1
+fi
+web="$(cat "$web_file")"
+jq -e '.assistantMessage.replyMode=="ai" and (.assistantMessage.sources|length>0)'<<<"$web">/dev/null||{ echo "::error::Sourced web search returned no AI response or verifiable sources";exit 1;}
 printf '### TASO urgent preview verified\n- URL: https://%s\n- UI health: PASS\n- Session gate: PASS\n- Direct search provider: PASS\n- Real AI chat: PASS\n- Web search with sources: PASS\n- QA account expires automatically within one hour.\n' "$TASO_PREVIEW_DOMAIN" >>"${GITHUB_STEP_SUMMARY:-/dev/null}"
