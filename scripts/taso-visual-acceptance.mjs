@@ -61,6 +61,14 @@ async function shot({viewport,theme,screen}){
  await page.evaluate(themeValue=>{document.documentElement.dataset.theme=themeValue;localStorage.setItem('taso-theme',themeValue)},theme);
  const suffix=screen?`?screen=${encodeURIComponent(screen)}`:'';
  await page.goto(`${base}/${suffix}`,{waitUntil:'networkidle'});
+ if(screen){
+  const active=await page.locator('.ds2-shell').getAttribute('data-screen');
+  if(active!==screen)throw new Error(`Route ${screen} resolved as ${active}`);
+  const mainText=(await page.locator('.ds2-main').innerText()).trim();
+  if(mainText.length<20)throw new Error(`Route ${screen} has no meaningful page content`);
+  if(['Live Site Editor','Code & Files','Team','Personalization','Account Settings','Infrastructure'].includes(screen)&&!(await page.locator('.tn-capability').isVisible()))throw new Error(`Route ${screen} must expose an explicit safe capability boundary`);
+  if(screen==='Workspace'&&!(await page.locator('.tn-workspace').isVisible()))throw new Error('Workspace route did not render its Core-backed page');
+ }
  await inspect(page,`${screen||'Dashboard'}-${theme}-${viewport.width}`);
  const file=`${out}/${(screen||'dashboard').toLowerCase().replace(/\s+/g,'-')}-${theme}-${viewport.width}.png`;
  await page.screenshot({path:file,fullPage:true});
@@ -257,7 +265,7 @@ async function mobileDockAcceptance(){
  }
 }
 
-const screens=[undefined,'Projects','Tasks','Approvals','Deployments','Monitoring','AI Agents','Knowledge','Integrations','Notifications','Settings'];
+const screens=[undefined,'Projects','Studio','Tasks','Approvals','Deployments','Monitoring','AI Agents','Knowledge','Integrations','Notifications','Infrastructure','Settings','Workspace','My Projects','Assign TASO','Work Together','Workspace Studio','Live Site Editor','Code & Files','Content','My Agents','Conversations','Task History','Publications','Team','Workspace Notifications','Personalization','Account Settings'];
 for(const viewport of[{width:390,height:844},{width:1440,height:1000}])for(const theme of['dark','light'])for(const screen of screens)await shot({viewport,theme,screen});
 await voiceCoreAcceptance();
 await voiceFailureAcceptance();
