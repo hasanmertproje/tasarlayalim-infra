@@ -17,8 +17,23 @@ readonly TMP="$(mktemp -d)"
 readonly RESP="$TMP/response.json"
 readonly PAYLOAD="$TMP/payload.json"
 trap 'rm -rf "$TMP"' EXIT
-api(){ local method="$1" path="$2" body="${3:-}" code; local args=(--silent --show-error --connect-timeout 15 --max-time 180 --output "$RESP" --write-out '%{http_code}' --header "Authorization: Bearer $COOLIFY_API_TOKEN" --header 'Accept: application/json'); if [[ -n "$body" ]];then printf '%s' "$body">"$PAYLOAD";args+=(--header 'Content-Type: application/json' --data-binary "@$PAYLOAD");fi;code="$(curl "${args[@]}" -X "$method" "$API_BASE/$path")";[[ "$code" =~ ^2 ]]||{ echo "::error::Coolify API $method $path failed (HTTP $code)." >&2;# Do not emit raw Coolify error messages: they may contain credentials or request data.
-return 1;};cat "$RESP";}
+api(){
+ local method="$1" path="$2" body="${3:-}" code="" attempt=1 curl_ok=0
+ local args=(--silent --show-error --connect-timeout 15 --max-time 180 --output "$RESP" --write-out '%{http_code}' --header "Authorization: Bearer $COOLIFY_API_TOKEN" --header 'Accept: application/json')
+ if [[ -n "$body" ]];then printf '%s' "$body">"$PAYLOAD";args+=(--header 'Content-Type: application/json' --data-binary "@$PAYLOAD");fi
+ while :;do
+  : >"$RESP"
+  if code="$(curl "${args[@]}" -X "$method" "$API_BASE/$path")";then curl_ok=1;else curl_ok=0;fi
+  if [[ "$curl_ok" == 1 && "$code" =~ ^2 ]];then cat "$RESP";return 0;fi
+  # Retry only idempotent GETs on transport errors or 5xx. Never replay POST/PATCH mutations.
+  if [[ "$method" == GET && "$attempt" -lt 3 && ( "$curl_ok" == 0 || "$code" == 000 || "$code" =~ ^5[0-9][0-9]$ ) ]];then
+   attempt=$((attempt+1));echo "::warning::Transient Coolify GET failure; retrying safe read ($attempt/3)." >&2;sleep "$attempt";continue
+  fi
+  echo "::error::Coolify API $method $path failed (HTTP ${code:-000})." >&2
+  # Do not emit raw Coolify error messages: they may contain credentials or request data.
+  return 1
+ done
+}
 mask(){ [[ -n "${1:-}" ]]&&printf '::add-mask::%s\n' "$1"; }
 apps="$(api GET applications)"
 ensure_app(){ local name="$1" base="$2" port="$3" alias="$4" domain="${5:-}" uuid detail;uuid="$(jq -r --arg n "$name" '.[]|select(.name==$n)|.uuid'<<<"$apps"|head -n1)";if [[ -n "$uuid" ]];then detail="$(api GET "applications/$uuid")";jq -e --arg r "$REPOSITORY" '.environment_id==3 and .git_repository==$r'<<<"$detail">/dev/null||{ echo "::error::Refusing to alter unexpected app $name.";return 1;};else APP_NAME="$name" APP_BASE="$base" APP_PORT="$port" APP_ALIAS="$alias" APP_DOMAIN="$domain" node - <<'NODE' >"$PAYLOAD"
