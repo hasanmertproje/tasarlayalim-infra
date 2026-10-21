@@ -15,7 +15,8 @@ const ICON_PATHS: Record<string, string> = {
   Notifications:'M5 17h14l-2-3V9a5 5 0 0 0-10 0v5zM10 21h4',Infrastructure:'M3 4h18v7H3zM3 13h18v7H3zM7 8h.01M7 17h.01',
 };
 export function NavGlyph({screen}:{screen:TasoScreen}) {
-  const path = ICON_PATHS[screen] || 'M4 4h16v16H4zM8 8h8M8 12h8M8 16h5';\n  return <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={path}/></svg>;
+  const path = ICON_PATHS[screen] || 'M4 4h16v16H4zM8 8h8M8 12h8M8 16h5';
+  return <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={path}/></svg>;
 }
 function initialTheme():Theme {
   try { const saved=localStorage.getItem('taso-theme'); if(saved==='dark'||saved==='light')return saved; }catch{}
