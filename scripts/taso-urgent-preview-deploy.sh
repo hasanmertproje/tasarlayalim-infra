@@ -40,12 +40,12 @@ diagnose_deployment_failure(){
  if api GET "deployments/$deployment_uuid" >"$payload" 2>/dev/null; then
   jq -r '.logs // ""' "$payload" >"$logs"
   echo "Deployment log error signatures (secrets redacted):"
-  sed -E "s|${gateway}|[REDACTED]|g;s|${authkey}|[REDACTED]|g;s|${search_secret}|[REDACTED]|g;s|${qa_password}|[REDACTED]|g;s|${qa_email}|[REDACTED]|g;s/(Bearer )[A-Za-z0-9._-]+/\\1[REDACTED]/g;s/((PASSWORD|TOKEN|SECRET|API_KEY|PRIVATE_KEY)[=: ]+)[^ ,;]+/\\1[REDACTED]/Ig" "$logs" | grep -Ei 'error|fatal|failed|failure|exception|cannot|not found|permission denied|exit code|health check|npm ERR|ELIFECYCLE|SIGTERM|SIGKILL' | tail -n 35 | cut -c1-500 || true
+  DIAG_GATEWAY="$gateway" DIAG_AUTHKEY="$authkey" DIAG_SEARCH_SECRET="$search_secret" DIAG_QA_PASSWORD="$qa_password" DIAG_QA_EMAIL="$qa_email" perl -pe 's/\\Q$ENV{DIAG_GATEWAY}\\E/[REDACTED]/g;s/\\Q$ENV{DIAG_AUTHKEY}\\E/[REDACTED]/g;s/\\Q$ENV{DIAG_SEARCH_SECRET}\\E/[REDACTED]/g;s/\\Q$ENV{DIAG_QA_PASSWORD}\\E/[REDACTED]/g;s/\\Q$ENV{DIAG_QA_EMAIL}\\E/[REDACTED]/g;s/(Bearer )[A-Za-z0-9._-]+/$1[REDACTED]/g;s/((PASSWORD|TOKEN|SECRET|API_KEY|PRIVATE_KEY)[=: ]+)[^ ,;]+/$1[REDACTED]/ig' "$logs" | grep -Ei 'error|fatal|failed|failure|exception|cannot|not found|permission denied|exit code|health check|npm ERR|ELIFECYCLE|SIGTERM|SIGKILL' | tail -n 35 | cut -c1-500 || true
  else echo "Deployment record logs unavailable through Coolify API."; fi
  if api GET "applications/$app_uuid/logs?lines=100" >"$payload" 2>/dev/null; then
   jq -r '.logs // ""' "$payload" >"$logs"
   echo "Runtime log error signatures (secrets redacted):"
-  sed -E "s|${gateway}|[REDACTED]|g;s|${authkey}|[REDACTED]|g;s|${search_secret}|[REDACTED]|g;s|${qa_password}|[REDACTED]|g;s|${qa_email}|[REDACTED]|g;s/(Bearer )[A-Za-z0-9._-]+/\\1[REDACTED]/g;s/((PASSWORD|TOKEN|SECRET|API_KEY|PRIVATE_KEY)[=: ]+)[^ ,;]+/\\1[REDACTED]/Ig" "$logs" | grep -Ei 'error|fatal|failed|failure|exception|cannot|not found|permission denied|exit code|health check|npm ERR|ELIFECYCLE|SIGTERM|SIGKILL' | tail -n 35 | cut -c1-500 || true
+  DIAG_GATEWAY="$gateway" DIAG_AUTHKEY="$authkey" DIAG_SEARCH_SECRET="$search_secret" DIAG_QA_PASSWORD="$qa_password" DIAG_QA_EMAIL="$qa_email" perl -pe 's/\\Q$ENV{DIAG_GATEWAY}\\E/[REDACTED]/g;s/\\Q$ENV{DIAG_AUTHKEY}\\E/[REDACTED]/g;s/\\Q$ENV{DIAG_SEARCH_SECRET}\\E/[REDACTED]/g;s/\\Q$ENV{DIAG_QA_PASSWORD}\\E/[REDACTED]/g;s/\\Q$ENV{DIAG_QA_EMAIL}\\E/[REDACTED]/g;s/(Bearer )[A-Za-z0-9._-]+/$1[REDACTED]/g;s/((PASSWORD|TOKEN|SECRET|API_KEY|PRIVATE_KEY)[=: ]+)[^ ,;]+/$1[REDACTED]/ig' "$logs" | grep -Ei 'error|fatal|failed|failure|exception|cannot|not found|permission denied|exit code|health check|npm ERR|ELIFECYCLE|SIGTERM|SIGKILL' | tail -n 35 | cut -c1-500 || true
  else echo "Application runtime logs unavailable (container may not have started or token lacks read:sensitive)."; fi
  echo "::endgroup::"
 }
