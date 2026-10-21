@@ -41,7 +41,7 @@ export const TASO_WORKSPACE_SCREENS = [
 
 export const TASO_SCREENS = [
   ...TASO_ADMIN_SCREENS,
-  ...TASO_WORKSPACE_SCREENS.filter((screen) => screen !== 'Workspace'),
+  ...TASO_WORKSPACE_SCREENS,
 ] as const;
 
 export type TasoPrimaryScreen = (typeof TASO_PRIMARY_SCREENS)[number];
