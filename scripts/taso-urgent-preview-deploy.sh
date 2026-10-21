@@ -86,6 +86,7 @@ if [[ "$chat_code" != 201 ]];then
  [[ "$category" =~ ^[A-Z0-9_]{1,30}$ ]]||category=UNKNOWN
  attempts="$(jq -r '.conversation.lastFailure.attempts//0' "$chat_file" 2>/dev/null || echo 0)"
  provider="$(jq -r '.conversation.lastFailure.provider//.conversation.provider//"unknown"' "$chat_file" 2>/dev/null || echo unknown)"
+ model="$(jq -r '.conversation.lastFailure.model//.conversation.model//"unknown"' "$chat_file" 2>/dev/null || echo unknown)"
  phase="$(jq -r '.conversation.lastFailure.phase//"unknown"' "$chat_file" 2>/dev/null || echo unknown)"
  elapsed_ms="$(jq -r '.conversation.lastFailure.elapsedMs//0' "$chat_file" 2>/dev/null || echo 0)"
  diagnostic_id="$(jq -r '.diagnosticId//.conversation.lastFailure.requestId//"unavailable"' "$chat_file" 2>/dev/null || echo unavailable)"
@@ -95,11 +96,12 @@ if [[ "$chat_code" != 201 ]];then
  [[ "$elapsed_ms" =~ ^[0-9]{1,8}$ ]]||elapsed_ms=0
  [[ "$eligible" =~ ^[a-zA-Z0-9_-]{1,40}(,[a-zA-Z0-9_-]{1,40}){0,5}$ ]]||eligible=unknown
  [[ "$provider" =~ ^[a-zA-Z0-9_-]{1,40}$ ]]||provider=unknown
+ [[ "$model" =~ ^[a-zA-Z0-9._/-]{1,100}$ ]]||model=unknown
  [[ "$phase" =~ ^[a-z-]{1,30}$ ]]||phase=unknown
  [[ "$diagnostic_id" =~ ^[0-9a-fA-F-]{36}$ ]]||diagnostic_id=unavailable
  [[ "$configured" == true || "$configured" == false ]]||configured=false
  # These are closed enums/metadata only; never print response bodies or request data.
- echo "::error::Real AI chat failed: HTTP $chat_code; category=$category; phase=$phase; provider=$provider; attempts=$attempts; elapsed_ms=$elapsed_ms; eligible_providers=$eligible; provider_configured=$configured; diagnostic_id=$diagnostic_id"
+ echo "::error::Real AI chat failed: HTTP $chat_code; category=$category; phase=$phase; provider=$provider; model=$model; attempts=$attempts; elapsed_ms=$elapsed_ms; eligible_providers=$eligible; provider_configured=$configured; diagnostic_id=$diagnostic_id"
  exit 1
 fi
 jq -e '.assistantMessage.replyMode=="ai" and (.assistantMessage.content|length>10)' "$chat_file">/dev/null||{ echo "::error::Real AI response missing or non-AI";exit 1;}
