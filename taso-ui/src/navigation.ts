@@ -25,7 +25,7 @@ export const TASO_WORKSPACE_SCREENS = [
   'My Projects',
   'Assign TASO',
   'Work Together',
-  'Studio',
+  'Workspace Studio',
   'Live Site Editor',
   'Code & Files',
   'Content',
@@ -41,7 +41,7 @@ export const TASO_WORKSPACE_SCREENS = [
 
 export const TASO_SCREENS = [
   ...TASO_ADMIN_SCREENS,
-  ...TASO_WORKSPACE_SCREENS.filter((screen) => screen !== 'Studio' && screen !== 'Workspace'),
+  ...TASO_WORKSPACE_SCREENS.filter((screen) => screen !== 'Workspace'),
 ] as const;
 
 export type TasoPrimaryScreen = (typeof TASO_PRIMARY_SCREENS)[number];
@@ -53,6 +53,7 @@ export const TASO_SCREEN_LABELS: Record<TasoScreen, string> = {
   'Command Center': 'Kontrol Merkezi',
   Projects: 'Projeler',
   Studio: 'Tasarım Stüdyosu',
+  'Workspace Studio': 'Tasarım Stüdyosu',
   Tasks: 'Görevler',
   Approvals: 'Onaylar',
   Deployments: 'Dağıtımlar',
@@ -92,7 +93,7 @@ function emit() {
   }
 }
 
-export function isTasoScreen(value: unknown): value is TasoScreen {
+export function isWorkspaceScreen(value: TasoScreen): boolean {\n  return (TASO_WORKSPACE_SCREENS as readonly string[]).includes(value);\n}\n\nexport function isTasoScreen(value: unknown): value is TasoScreen {
   return typeof value === 'string' && (TASO_SCREENS as readonly string[]).includes(value);
 }
 
