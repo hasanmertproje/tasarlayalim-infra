@@ -48,7 +48,7 @@ export default function DashboardShellV2({children}:{children:ReactNode}) {
   },[menuOpen]);
   const go=(target:TasoScreen)=>{navigate(target);setMenuOpen(false)};
   function mobileVoice(){
-    const voiceScreen: TasoScreen = workspaceMode ? 'Conversations' : 'Command Center';
+    const voiceScreen: TasoScreen = workspaceMode ? 'Conversations' : 'Voice';
     if(screen!==voiceScreen){
       // Switching routes unmounts the chat; never simulate a later permission gesture.
       go(voiceScreen);
