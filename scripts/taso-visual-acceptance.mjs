@@ -309,5 +309,26 @@ async function workspaceRealDataAcceptance(){
   await context.close();
 }
 await workspaceRealDataAcceptance();
+async function workspaceAssignmentAcceptance(){
+ const context=await browser.newContext({viewport:{width:390,height:844}});
+ const page=await context.newPage();
+ let missionPosts=0;
+ page.on('request',request=>{if(request.method()==='POST'&&/\/api\/v1\/missions(?:$|\?)/.test(request.url()))missionPosts+=1});
+ await authenticate(page);
+ await page.goto(base+'/?screen=Assign%20TASO',{waitUntil:'networkidle'});
+ await page.locator('.tn-assign').waitFor({state:'visible'});
+ await page.waitForFunction(()=>document.querySelector('.tn-assign__health')?.classList.contains('is-ready'));
+ if(await page.locator('#tn-assign-project option').count()<1)throw new Error('Workspace assignment has no Core-backed active project');
+ await page.locator('#tn-assign-objective').fill('Browser acceptance: dedicated TASO workspace assignment flow');
+ await page.locator('#tn-assign-risk').selectOption('READ');
+ await page.locator('.tn-assign__submit').click();
+ await page.locator('.tn-assign__message.is-success').waitFor({state:'visible',timeout:15000});
+ if(missionPosts!==1)throw new Error('Workspace assignment did not send exactly one real mission request');
+ await page.locator('.tn-assign__message.is-success button').click();
+ await page.waitForFunction(()=>document.querySelector('.ds2-shell')?.getAttribute('data-screen')==='Tasks');
+ results.push({name:'taso-next-workspace-assignment-core-flow',missionPosts,realCore:true});
+ await context.close();
+}
+await workspaceAssignmentAcceptance();
 writeFileSync(`${out}/report.json`,JSON.stringify({generatedAt:new Date().toISOString(),screens:screens.map(v=>v||'Dashboard'),results},null,2));
 await browser.close();
