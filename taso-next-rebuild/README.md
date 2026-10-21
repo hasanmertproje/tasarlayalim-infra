@@ -1,4 +1,4 @@
-# TASO NEXT — Rebuild Lab M1
+# TASO NEXT — Rebuild Lab M2 (Reference Fidelity)
 
 Independent, offline-first React/TypeScript UX prototype for TASO. **Not production / not merged.**
 
@@ -32,3 +32,6 @@ Existing TASO Core API and the existing `taso-ui` package are unchanged. The cur
 
 ## CI
 An isolated GitHub Actions job for this directory performs clean dependency installation, TypeScript typecheck, both Vite modes and uploads a one-file HTML artifact. **Only a green run on this exact branch SHA is evidence that the Vite build works.**
+## M2 visual-reference milestone
+
+See [REFERENCE_ACCEPTANCE_M2.md](REFERENCE_ACCEPTANCE_M2.md). M1 charcoal/lime design was rejected and replaced with the reference navy, indigo, violet and blue visual identity. `src/TasoOrb.tsx` renders the reference-aligned orb without external resources; `src/reference-fidelity.css` supplies the multi-viewport visual system. Studio and Voice are still offline demo experiences; this milestone is NOT a 35-screen full functional acceptance.
