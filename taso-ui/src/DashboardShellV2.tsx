@@ -46,9 +46,10 @@ export default function DashboardShellV2({children}:{children:ReactNode}) {
   },[menuOpen]);
   const go=(target:TasoScreen)=>{navigate(target);setMenuOpen(false)};
   function mobileVoice(){
-    if(screen!=='Command Center'){
+    const voiceScreen: TasoScreen = workspaceMode ? 'Conversations' : 'Command Center';
+    if(screen!==voiceScreen){
       // Switching routes unmounts the chat; never simulate a later permission gesture.
-      go('Command Center');
+      go(voiceScreen);
       return;
     }
     const mic=document.querySelector<HTMLButtonElement>('.dashboard-chat .dashboard-chat-mic');
@@ -68,7 +69,7 @@ export default function DashboardShellV2({children}:{children:ReactNode}) {
       <main className="ds2-main" id="taso-main">{children}</main>
     </div>
     <nav className="ds2-bottom" aria-label="Mobil ana menü">
-      {([workspaceMode?'Workspace':'Command Center','Projects'] as TasoScreen[]).map(target=><button key={target} type="button" className={screen===target?'is-active':''} aria-current={screen===target?'page':undefined} onClick={()=>go(target)}><NavGlyph screen={target}/><span>{target==='Command Center'?'Kontrol':target==='Workspace'?'Alanım':TASO_SCREEN_LABELS[target]}</span></button>)}
+      {([workspaceMode?'Workspace':'Command Center',workspaceMode?'My Projects':'Projects'] as TasoScreen[]).map(target=><button key={target} type="button" className={screen===target?'is-active':''} aria-current={screen===target?'page':undefined} onClick={()=>go(target)}><NavGlyph screen={target}/><span>{target==='Command Center'?'Kontrol':target==='Workspace'?'Alanım':TASO_SCREEN_LABELS[target]}</span></button>)}
       <button type="button" className="ds2-voice" onClick={mobileVoice} aria-label={screen==='Command Center'?'TASO Voice ile konuş':'TASO Voice ekranına git'} title="TASO Voice"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" width="22" height="22" aria-hidden="true"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3M9 21h6"/></svg><span>Ses</span></button>
       <button type="button" className={screen==='Tasks'?'is-active':''} aria-current={screen==='Tasks'?'page':undefined} onClick={()=>go('Tasks')}><NavGlyph screen="Tasks"/><span>Görevler</span></button>
       <button ref={triggerRef} type="button" onClick={()=>setMenuOpen(true)} aria-label="Tüm menüyü aç" aria-expanded={menuOpen} aria-controls="ds2-drawer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="20" height="20" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg><span>Menü</span></button>
