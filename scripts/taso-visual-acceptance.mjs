@@ -70,7 +70,7 @@ async function shot({viewport,theme,screen}){
   if(['Live Site Editor','Code & Files','Content','My Agents','Publications','Team','Workspace Notifications','Personalization','Account Settings','Infrastructure'].includes(screen)&&!(await page.locator('.tn-capability').isVisible()))throw new Error(`Route ${screen} must expose an explicit safe capability boundary`);
   if(screen==='Workspace'&&!(await page.locator('.tn-workspace').isVisible()))throw new Error('Workspace route did not render its Core-backed page');
   if(screen==='Assign TASO'&&!(await page.locator('.tn-assign').isVisible()))throw new Error('Workspace assignment route did not render its Core-backed form');
-  if(['Work Together','Conversations'].includes(screen)&&!(await page.locator('.tn-workspace-chat').isVisible()))throw new Error('Workspace collaboration route did not render its Core chat surface');
+  if(['Work Together','Conversations','Voice'].includes(screen)&&!(await page.locator('.tn-workspace-chat').isVisible()))throw new Error('Workspace collaboration route did not render its Core chat surface');
  }
  await inspect(page,`${screen||'Dashboard'}-${theme}-${viewport.width}`);
  const file=`${out}/${(screen||'dashboard').toLowerCase().replace(/\s+/g,'-')}-${theme}-${viewport.width}.png`;
@@ -268,7 +268,7 @@ async function mobileDockAcceptance(){
  }
 }
 
-const screens=[undefined,'Projects','Studio','Tasks','Approvals','Deployments','Monitoring','AI Agents','Knowledge','Integrations','Notifications','Infrastructure','Settings','Workspace','My Projects','Assign TASO','Work Together','Workspace Studio','Live Site Editor','Code & Files','Content','My Agents','Conversations','Task History','Publications','Team','Workspace Notifications','Personalization','Account Settings'];
+const screens=[undefined,'Projects','Studio','Voice','Tasks','Approvals','Deployments','Monitoring','AI Agents','Knowledge','Integrations','Notifications','Infrastructure','Settings','Workspace','My Projects','Assign TASO','Work Together','Workspace Studio','Live Site Editor','Code & Files','Content','My Agents','Conversations','Task History','Publications','Team','Workspace Notifications','Personalization','Account Settings'];
 for(const viewport of[{width:390,height:844},{width:1440,height:1000}])for(const theme of['dark','light'])for(const screen of screens)await shot({viewport,theme,screen});
 await voiceCoreAcceptance();
 await voiceFailureAcceptance();
