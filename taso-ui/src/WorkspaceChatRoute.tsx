@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import DashboardChat from './DashboardChat';
-import { navigateTaso, type TasoScreen } from './navigation';
+import { navigateTaso } from './navigation';
 
 type Project={id:string;name:string;repository?:string;lifecycleStatus?:string};
 type Props={screen:'Work Together'|'Conversations'};
