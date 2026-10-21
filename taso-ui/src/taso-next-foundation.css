@@ -140,3 +140,22 @@
 :root[data-theme="light"] .tn-capability__main,:root[data-theme="light"] .tn-capability__side{box-shadow:0 14px 42px #26365a0c}
 @media(max-width:760px){.tn-capability__layout{grid-template-columns:minmax(0,1fr)}.tn-capability__main,.tn-capability__side{border-radius:15px}.tn-capability{padding:16px}.tn-capability h2{margin-top:20px}.tn-capability__actions button{flex:1 1 100%}}
 @media(max-width:360px){.tn-capability{padding:12px}.tn-capability__main,.tn-capability__side{padding:17px}.tn-capability h2{font-size:26px}}
+
+
+/* Project-scoped conversation surfaces use the real Core conversation adapter. */
+.tn-workspace-chat{max-width:1500px;margin:0 auto;padding:clamp(16px,2.5vw,34px);min-width:0;color:var(--ds-text)}
+.tn-workspace-chat__header{display:flex;justify-content:space-between;align-items:flex-start;gap:20px;padding:clamp(22px,3vw,38px);border:1px solid var(--ds-line);border-radius:20px;background:radial-gradient(ellipse at 86% 0%,#4f4ad01a,transparent 50%),var(--ds-surface)}
+.tn-workspace-chat__header>div{min-width:0}.tn-workspace-chat__header h2{font-size:clamp(27px,3.5vw,42px);letter-spacing:-.045em;line-height:1.12;margin:13px 0 12px;text-wrap:balance}
+.tn-workspace-chat__header p{max-width:700px;color:var(--ds-muted);line-height:1.7;font-size:14px;overflow-wrap:anywhere}
+.tn-workspace-chat__header>button,.tn-workspace-chat__empty button,.tn-workspace-chat__error button{flex:none;min-height:43px;padding:10px 14px;border:1px solid var(--ds-line);border-radius:11px;background:var(--ds-raised);color:var(--ds-text);font-weight:700}
+.tn-workspace-chat__context{display:grid;grid-template-columns:minmax(120px,.4fr) minmax(180px,1fr) minmax(150px,.8fr);gap:12px;align-items:center;margin:18px 0;padding:14px 16px;border:1px solid var(--ds-line);border-radius:14px;background:var(--ds-surface);min-width:0}
+.tn-workspace-chat__context label{font-size:12px;font-weight:750}.tn-workspace-chat__context select{width:100%;min-width:0;min-height:42px;padding:8px 11px;border:1px solid var(--ds-line);border-radius:9px;background:var(--ds-raised);color:var(--ds-text)}
+.tn-workspace-chat__context span{font-size:11px;line-height:1.5;color:var(--ds-muted);overflow-wrap:anywhere}
+.tn-workspace-chat__conversation{min-width:0;border:1px solid var(--ds-line);border-radius:18px;overflow:hidden;background:var(--ds-surface)}
+.tn-workspace-chat__conversation .dashboard-chat{max-width:none;width:100%;border:0;border-radius:0}
+.tn-workspace-chat__state,.tn-workspace-chat__empty,.tn-workspace-chat__error{margin-top:18px;padding:22px;border:1px solid var(--ds-line);border-radius:14px;background:var(--ds-surface);color:var(--ds-muted);line-height:1.65}
+.tn-workspace-chat__empty h3,.tn-workspace-chat__error strong{display:block;color:var(--ds-text);font-size:18px;margin-bottom:7px}.tn-workspace-chat__empty p,.tn-workspace-chat__error p{max-width:720px;overflow-wrap:anywhere}
+.tn-workspace-chat__empty button,.tn-workspace-chat__error button{margin-top:15px}
+.tn-workspace-chat__error{border-color:#d56b6b66}
+@media(max-width:720px){.tn-workspace-chat{padding:14px}.tn-workspace-chat__header{display:grid;padding:20px;gap:16px;border-radius:15px}.tn-workspace-chat__header>button{width:100%}.tn-workspace-chat__context{grid-template-columns:minmax(0,1fr);gap:8px}.tn-workspace-chat__conversation{border-radius:13px}}
+@media(max-width:360px){.tn-workspace-chat{padding:10px}.tn-workspace-chat__header{padding:16px}.tn-workspace-chat__header h2{font-size:26px}}
