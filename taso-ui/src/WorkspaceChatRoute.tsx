@@ -32,7 +32,8 @@ export default function WorkspaceChatRoute({screen}:Props){
    .finally(()=>{if(!controller.signal.aborted)setLoading(false)});
   return()=>controller.abort();
  },[]);
- const together=screen==='Work Together';\n const voice=screen==='Voice';
+ const together=screen==='Work Together';
+ const voice=screen==='Voice';
  return <section className="tn-workspace-chat" aria-labelledby="tn-workspace-chat-title">
   <header className="tn-workspace-chat__header">
    <div><span className="tn-eyebrow">{voice?'TASO VOICE':together?'TASO İLE BİRLİKTE':'KONUŞMA GEÇMİŞİ'}</span>
