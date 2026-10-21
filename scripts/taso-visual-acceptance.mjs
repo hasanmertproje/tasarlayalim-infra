@@ -257,7 +257,7 @@ async function mobileDockAcceptance(){
  }
 }
 
-const screens=[undefined,'Projects','Tasks','Approvals','Deployments','Monitoring','AI Agents','Knowledge','Integrations','Notifications','Settings'];
+const screens=[undefined,'Projects','Tasks','Approvals','Deployments','Infrastructure','Monitoring','AI Agents','Knowledge','Integrations','Notifications','Settings'];
 for(const viewport of[{width:390,height:844},{width:1440,height:1000}])for(const theme of['dark','light'])for(const screen of screens)await shot({viewport,theme,screen});
 await voiceCoreAcceptance();
 await voiceFailureAcceptance();
