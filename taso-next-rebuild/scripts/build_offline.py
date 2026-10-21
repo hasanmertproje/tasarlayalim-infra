@@ -15,8 +15,8 @@ react_assets=Path('/mnt/data/TASO-NEXT-REBUILT-SOURCE.zip')
 with zipfile.ZipFile(react_assets) as z:
  react=z.read('taso-next/assets/react.production.min.js').decode()
  reactdom=z.read('taso-next/assets/react-dom.production.min.js').decode()
-js='''(function(){var packages={};function make(name,code){var module={exports:{}};var exports=module.exports;var require=function(id){if(id==='react')return window.React;if(id==='./domain')return packages.domain;throw new Error('Unknown module '+id)};new Function('module','exports','require',code)(module,exports,require);packages[name]=module.exports;}'''+ 'make("domain",'+json.dumps(transpile('domain.ts'))+');make("App",'+json.dumps(transpile('App.tsx'))+');ReactDOM.render(React.createElement(packages.App.default),document.getElementById("root"));})();'
-css=(R/'src/style.css').read_text()
+js='''(function(){var packages={};function make(name,code){var module={exports:{}};var exports=module.exports;var require=function(id){if(id==='react')return window.React;if(id==='./domain')return packages.domain;if(id==='./TasoOrb')return packages.TasoOrb;throw new Error('Unknown module '+id)};new Function('module','exports','require',code)(module,exports,require);packages[name]=module.exports;}'''+ 'make("domain",'+json.dumps(transpile('domain.ts'))+');make("TasoOrb",'+json.dumps(transpile('TasoOrb.tsx'))+');make("App",'+json.dumps(transpile('App.tsx'))+');ReactDOM.render(React.createElement(packages.App.default),document.getElementById("root"));})();'
+css=(R/'src/style.css').read_text()+'\n'+(R/'src/reference-fidelity.css').read_text()
 html='<!doctype html><html lang="tr"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>TASO NEXT | REBUILD LAB (OFFLINE DEMO)</title><style>'+css+'</style><div id="root"></div><script>'+react+'</script><script>'+reactdom+'</script><script>'+js+'</script>'
 (R/'TASO-NEXT-LAB-ANDROID.html').write_text(html,encoding='utf8')
 print('Created',R/'TASO-NEXT-LAB-ANDROID.html','bytes',len(html.encode()))
