@@ -63,7 +63,7 @@ async function shot({viewport,theme,screen}){
  await page.goto(`${base}/${suffix}`,{waitUntil:'networkidle'});
  if(screen){
   const active=await page.locator('.ds2-shell').getAttribute('data-screen');
-  if(active!==screen)throw new Error(`Route ${screen} resolved as ${active}`);
+  if(active!==screen)throw new Error(`Route ${screen} resolved as ${active}`);\n  if(new URL(page.url()).searchParams.get('screen')!==screen)throw new Error(`Route ${screen} did not retain its deep link`);
   const mainText=(await page.locator('.ds2-main').innerText()).trim();
   if(mainText.length<20)throw new Error(`Route ${screen} has no meaningful page content`);
   if(['Live Site Editor','Code & Files','Team','Personalization','Account Settings','Infrastructure'].includes(screen)&&!(await page.locator('.tn-capability').isVisible()))throw new Error(`Route ${screen} must expose an explicit safe capability boundary`);
@@ -297,6 +297,9 @@ async function workspaceRealDataAcceptance(){
   if(shown.some(x=>x==='—'))throw new Error('Workspace has unresolved counters after Core responded');
   await page.locator('.ds2-bottom button').first().click();
   if(!(await page.locator('.tn-workspace').isVisible()))throw new Error('Workspace mobile navigation lost user area');
+  await page.locator('.ds2-bottom button').nth(1).click();
+  if(await page.locator('.ds2-shell').getAttribute('data-screen')!=='My Projects')throw new Error('Workspace mobile projects shortcut escaped to Admin navigation');
+  await page.locator('.ds2-bottom button').first().click();
   await page.locator('.tn-workspace__shortcut-grid button').first().click();
   await page.locator('.cc30').waitFor({state:'visible'});
   results.push({name:'taso-next-workspace-core-contract',projectCount:payload.projects,missionCount:payload.missions,realCore:true});
