@@ -63,7 +63,8 @@ async function shot({viewport,theme,screen}){
  await page.goto(`${base}/${suffix}`,{waitUntil:'networkidle'});
  if(screen){
   const active=await page.locator('.ds2-shell').getAttribute('data-screen');
-  if(active!==screen)throw new Error(`Route ${screen} resolved as ${active}`);\n  if(new URL(page.url()).searchParams.get('screen')!==screen)throw new Error(`Route ${screen} did not retain its deep link`);
+  if(active!==screen)throw new Error(`Route ${screen} resolved as ${active}`);
+  if(new URL(page.url()).searchParams.get('screen')!==screen)throw new Error(`Route ${screen} did not retain its deep link`);
   const mainText=(await page.locator('.ds2-main').innerText()).trim();
   if(mainText.length<20)throw new Error(`Route ${screen} has no meaningful page content`);
   if(['Live Site Editor','Code & Files','Team','Personalization','Account Settings','Infrastructure'].includes(screen)&&!(await page.locator('.tn-capability').isVisible()))throw new Error(`Route ${screen} must expose an explicit safe capability boundary`);
