@@ -88,11 +88,11 @@ if [[ "$chat_code" != 201 ]];then
  phase="$(jq -r '.conversation.lastFailure.phase//"unknown"' "$chat_file" 2>/dev/null || echo unknown)"
  elapsed_ms="$(jq -r '.conversation.lastFailure.elapsedMs//0' "$chat_file" 2>/dev/null || echo 0)"
  diagnostic_id="$(jq -r '.diagnosticId//.conversation.lastFailure.requestId//"unavailable"' "$chat_file" 2>/dev/null || echo unavailable)"
- eligible="$(jq -r '(.conversation.eligibleProviders//[])|length' "$chat_file" 2>/dev/null || echo 0)"
+ eligible="$(jq -r '(.conversation.eligibleProviders//[])|map(select(type=="string" and test("^[a-zA-Z0-9_-]{1,40}$")))|join(",")' "$chat_file" 2>/dev/null || echo unknown)"
  configured="$(jq -r '.conversation.configured//false' "$chat_file" 2>/dev/null || echo false)"
  [[ "$attempts" =~ ^[0-9]{1,3}$ ]]||attempts=0
  [[ "$elapsed_ms" =~ ^[0-9]{1,8}$ ]]||elapsed_ms=0
- [[ "$eligible" =~ ^[0-9]{1,3}$ ]]||eligible=0
+ [[ "$eligible" =~ ^[a-zA-Z0-9_-]{1,40}(,[a-zA-Z0-9_-]{1,40}){0,5}$ ]]||eligible=unknown
  [[ "$provider" =~ ^[a-zA-Z0-9_-]{1,40}$ ]]||provider=unknown
  [[ "$phase" =~ ^[a-z-]{1,30}$ ]]||phase=unknown
  [[ "$diagnostic_id" =~ ^[0-9a-fA-F-]{36}$ ]]||diagnostic_id=unavailable
