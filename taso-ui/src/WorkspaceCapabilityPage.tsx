@@ -12,6 +12,38 @@ type Capability = {
 };
 
 const CAPABILITIES: Partial<Record<TasoScreen, Capability>> = {
+  Content: {
+    eyebrow: 'İÇERİK YÖNETİMİ',
+    title: 'İçerik yönetimi henüz etkin değil',
+    description: 'Proje bilgisi ve teknik manifest, web sitesi içeriklerinin yönetildiği bir CMS değildir.',
+    reason: 'İçerik kayıtları, taslak/yayın yaşam döngüsü ve proje kapsamı için ayrı bir Core sözleşmesi doğrulanana kadar bu ekran yazma işlemi sunmaz.',
+    supported: ['Proje teknik bilgisi ve bilgi merkezi', 'TASO Studio içindeki tasarım belgesi'],
+    next: [{ label: 'Projelerimi aç', target: 'My Projects' }, { label: 'Tasarım Stüdyosunu aç', target: 'Workspace Studio' }],
+  },
+  'My Agents': {
+    eyebrow: 'AJANLARIM',
+    title: 'Proje kapsamlı ajan görünümü henüz etkin değil',
+    description: 'Yönetim tarafındaki ajan filosunu kullanıcıya özel atanmış ajanlar gibi göstermek doğru olmaz.',
+    reason: 'Proje üyeliğine bağlı ajan ataması ve sunucu tarafında kapsam filtrelemesi doğrulanana kadar yönetim filosu bu alana yansıtılmaz.',
+    supported: ['Görevler içindeki gerçek yürütme ve ajan adımları', 'Core tarafından döndürülen görev durumu'],
+    next: [{ label: 'Görev geçmişini aç', target: 'Task History' }, { label: 'Projelerimi aç', target: 'My Projects' }],
+  },
+  Publications: {
+    eyebrow: 'YAYINLAR',
+    title: 'Proje kapsamlı yayın geçmişi henüz etkin değil',
+    description: 'Genel dağıtım konsolu, kullanıcının projelerine ait yayın geçmişiyle aynı şey değildir.',
+    reason: 'Proje kimliğiyle filtrelenen release/artifact kayıtları ve yayın yetkileri doğrulanana kadar bu ekran genel dağıtım verilerini göstermiyor.',
+    supported: ['Görev geçmişindeki preview/PR bilgileri', 'Mevcut projeye bağlı görev durumu'],
+    next: [{ label: 'Görev geçmişini aç', target: 'Task History' }, { label: 'Projelerimi aç', target: 'My Projects' }],
+  },
+  'Workspace Notifications': {
+    eyebrow: 'BİLDİRİMLER',
+    title: 'Kişisel bildirim akışı henüz etkin değil',
+    description: 'Yönetim operasyon akışını kişisel bildirim kutusu olarak sunmuyoruz.',
+    reason: 'Kullanıcıya ait okunma durumu, tercih ve erişim kapsamı API ile doğrulanana kadar bu alan salt güvenli bilgilendirme ekranıdır.',
+    supported: ['Görev geçmişindeki gerçek durum ve yürütme kayıtları', 'Mevcut Core oturumu'],
+    next: [{ label: 'Görev geçmişini aç', target: 'Task History' }, { label: 'Ana sayfaya dön', target: 'Workspace' }],
+  },
   'Live Site Editor': {
     eyebrow: 'YAYIN GÜVENLİĞİ',
     title: 'Canlı Site Editörü henüz etkin değil',
