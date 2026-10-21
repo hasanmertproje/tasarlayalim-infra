@@ -4,7 +4,8 @@ import { TASO_ADMIN_SCREENS, TASO_WORKSPACE_SCREENS, TASO_SCREEN_LABELS, isWorks
 
 type Theme = 'dark' | 'light';
 const ICON_PATHS: Record<string, string> = {
-  'Command Center':'M3 3h8v8H3zM13 3h8v5h-8zM13 10h8v11h-8zM3 13h8v8H3z',\n  Voice:'M9 5a3 3 0 0 1 6 0v6a3 3 0 0 1-6 0zM5 11a7 7 0 0 0 14 0M12 18v3M9 21h6',
+  'Command Center':'M3 3h8v8H3zM13 3h8v5h-8zM13 10h8v11h-8zM3 13h8v8H3z',
+  Voice:'M9 5a3 3 0 0 1 6 0v6a3 3 0 0 1-6 0zM5 11a7 7 0 0 0 14 0M12 18v3M9 21h6',
   Projects:'M3 7h18v13H3zM3 7V4h7l2 3',Studio:'M3 5h18v14H3zM7 9h10M7 13h6',Tasks:'M4 6h2m4 0h10M4 12h2m4 0h10M4 18h2m4 0h10',
   Approvals:'M12 2 4 6v6c0 5 3 8 8 10 5-2 8-5 8-10V6zM8 12l3 3 5-6',
   Deployments:'M12 2 4 6v14l8-4 8 4V6zM4 6l8 5 8-5M12 11v5',
