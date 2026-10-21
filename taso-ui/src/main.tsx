@@ -29,14 +29,14 @@ const rootElement=document.getElementById('root')!;const requestedScreen=new URL
 function OperationsSurfaceBridge(){
  const[activeScreen,navigate]=useTasoNavigation();
  useEffect(()=>{const handle=(event:Event)=>{const missionId=(event as CustomEvent<{missionId?:string}>).detail?.missionId;if(missionId)navigate('Tasks')};window.addEventListener('taso:open-mission',handle);return()=>window.removeEventListener('taso:open-mission',handle)},[navigate]);
- const dedicated=['Command Center','Projects','Tasks','Approvals','Deployments','Monitoring','AI Agents','Notifications','Knowledge','Integrations','Settings','Workspace','Studio','Infrastructure','My Projects','Assign TASO','Work Together','Workspace Studio','Live Site Editor','Code & Files','Content','My Agents','Conversations','Task History','Publications','Team','Workspace Notifications','Personalization','Account Settings'].includes(activeScreen);
+ const dedicated=['Command Center','Projects','Voice','Tasks','Approvals','Deployments','Monitoring','AI Agents','Notifications','Knowledge','Integrations','Settings','Workspace','Studio','Infrastructure','My Projects','Assign TASO','Work Together','Workspace Studio','Live Site Editor','Code & Files','Content','My Agents','Conversations','Task History','Publications','Team','Workspace Notifications','Personalization','Account Settings'].includes(activeScreen);
  const capability=['Infrastructure','Live Site Editor','Code & Files','Content','My Agents','Publications','Team','Workspace Notifications','Personalization','Account Settings'].includes(activeScreen);
  return <>
   {activeScreen==='Command Center'&&<CommandCenterV30/>}
   {activeScreen==='Workspace'&&<NextWorkspace/>}
   {activeScreen==='Assign TASO'&&<WorkspaceAssignRoute/>}
   {(activeScreen==='Studio'||activeScreen==='Workspace Studio')&&<TasoStudioV1/>}
-  {(activeScreen==='Work Together'||activeScreen==='Conversations')&&<WorkspaceChatRoute screen={activeScreen}/>} 
+  {(activeScreen==='Work Together'||activeScreen==='Conversations'||activeScreen==='Voice')&&<WorkspaceChatRoute screen={activeScreen}/>} 
   {(activeScreen==='Projects'||activeScreen==='My Projects')&&<ProjectCenterV9/>}
   {(activeScreen==='Tasks'||activeScreen==='Task History')&&<MissionControlV8/>}
   {activeScreen==='Approvals'&&<ApprovalCenterV9/>}
