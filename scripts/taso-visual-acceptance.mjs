@@ -270,16 +270,13 @@ async function mobileDockAcceptance(){
 
 const screens=[undefined,'Projects','Studio','Voice','Tasks','Approvals','Deployments','Monitoring','AI Agents','Knowledge','Integrations','Notifications','Infrastructure','Settings','Workspace','My Projects','Assign TASO','Work Together','Workspace Studio','Live Site Editor','Code & Files','Content','My Agents','Conversations','Task History','Publications','Team','Workspace Notifications','Personalization','Account Settings'];
 for(const viewport of[{width:390,height:844},{width:1440,height:1000}])for(const theme of['dark','light'])for(const screen of screens)await shot({viewport,theme,screen});
+// Every route is inspected at the remaining required widths, not just the home screen.
+for(const width of [320,360,430,768,1024,1920])for(const screen of screens.filter(Boolean))await shot({viewport:{width,height:width<=430?844:1000},theme:'dark',screen});
 await voiceCoreAcceptance();
 await voiceFailureAcceptance();
 await markdownSecurityAcceptance();
 await mobileDockAcceptance();
 await newShellAcceptance();
-// TASO NEXT milestone-1: authenticate against isolated Core, then verify Workspace
-// at genuinely different responsive viewports rather than using prototype local data.
-for (const width of [320,360,390,430,768,1024,1440,1920]) {
-  await shot({viewport:{width,height:width<=430?844:1000},theme:'dark',screen:'Workspace'});
-}
 async function workspaceRealDataAcceptance(){
   const context=await browser.newContext({viewport:{width:390,height:844}});
   const page=await context.newPage();
