@@ -3,7 +3,7 @@ import DashboardChat from './DashboardChat';
 import { navigateTaso } from './navigation';
 
 type Project={id:string;name:string;repository?:string;lifecycleStatus?:string};
-type Props={screen:'Work Together'|'Conversations'};
+type Props={screen:'Work Together'|'Conversations'|'Voice'};
 
 const API=((import.meta.env.VITE_TASO_API_URL as string|undefined)||'/api').replace(/\/$/,'');
 async function get<T>(path:string,signal:AbortSignal):Promise<T>{
@@ -32,12 +32,12 @@ export default function WorkspaceChatRoute({screen}:Props){
    .finally(()=>{if(!controller.signal.aborted)setLoading(false)});
   return()=>controller.abort();
  },[]);
- const together=screen==='Work Together';
+ const together=screen==='Work Together';\n const voice=screen==='Voice';
  return <section className="tn-workspace-chat" aria-labelledby="tn-workspace-chat-title">
   <header className="tn-workspace-chat__header">
-   <div><span className="tn-eyebrow">{together?'TASO İLE BİRLİKTE':'KONUŞMA GEÇMİŞİ'}</span>
-    <h2 id="tn-workspace-chat-title">{together?'Birlikte düşün, birlikte üret.':'Projeye bağlı konuşmalar'}</h2>
-    <p>{together?'Seçili proje bağlamında TASO ile gerçek Core sohbetini sürdür. Mesajlar proje konuşma kaydına yazılır.':'Önce projeni seç; TASO Core üzerinden kaydedilmiş konuşma geçmişin yüklensin.'}</p>
+   <div><span className="tn-eyebrow">{voice?'TASO VOICE':together?'TASO İLE BİRLİKTE':'KONUŞMA GEÇMİŞİ'}</span>
+    <h2 id="tn-workspace-chat-title">{voice?'Sesli ve yazılı TASO sohbeti':together?'Birlikte düşün, birlikte üret.':'Projeye bağlı konuşmalar'}</h2>
+    <p>{voice?'Mikrofon izni ve tarayıcı desteği uygunsa gerçek TASO Core konuşmasında sesli etkileşimi kullan.':together?'Seçili proje bağlamında TASO ile gerçek Core sohbetini sürdür. Mesajlar proje konuşma kaydına yazılır.':'Önce projeni seç; TASO Core üzerinden kaydedilmiş konuşma geçmişin yüklensin.'}</p>
    </div>
    <button type="button" onClick={()=>navigateTaso('My Projects')}>Projelerim <span aria-hidden="true">↗</span></button>
   </header>
