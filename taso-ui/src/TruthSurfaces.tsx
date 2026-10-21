@@ -80,7 +80,7 @@ export default function TruthSurfaces() {
   const active = screen === 'Monitoring' || screen === 'Settings' || screen === 'Deployments' || screen === 'Infrastructure';
 
   useEffect(() => {
-    setTarget(document.querySelector('.main-area'));
+    setTarget(document.querySelector('.ds2-main'));
   }, []);
 
   async function refresh() {
