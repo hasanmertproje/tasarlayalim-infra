@@ -93,7 +93,11 @@ function emit() {
   }
 }
 
-export function isWorkspaceScreen(value: TasoScreen): boolean {\n  return (TASO_WORKSPACE_SCREENS as readonly string[]).includes(value);\n}\n\nexport function isTasoScreen(value: unknown): value is TasoScreen {
+export function isWorkspaceScreen(value: TasoScreen): boolean {
+  return (TASO_WORKSPACE_SCREENS as readonly string[]).includes(value);
+}
+
+export function isTasoScreen(value: unknown): value is TasoScreen {
   return typeof value === 'string' && (TASO_SCREENS as readonly string[]).includes(value);
 }
 
