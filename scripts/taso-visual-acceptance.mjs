@@ -67,7 +67,7 @@ async function shot({viewport,theme,screen}){
   if(new URL(page.url()).searchParams.get('screen')!==screen)throw new Error(`Route ${screen} did not retain its deep link`);
   const mainText=(await page.locator('.ds2-main').innerText()).trim();
   if(mainText.length<20)throw new Error(`Route ${screen} has no meaningful page content`);
-  if(['Live Site Editor','Code & Files','Team','Personalization','Account Settings','Infrastructure'].includes(screen)&&!(await page.locator('.tn-capability').isVisible()))throw new Error(`Route ${screen} must expose an explicit safe capability boundary`);
+  if(['Live Site Editor','Code & Files','Content','My Agents','Publications','Team','Workspace Notifications','Personalization','Account Settings','Infrastructure'].includes(screen)&&!(await page.locator('.tn-capability').isVisible()))throw new Error(`Route ${screen} must expose an explicit safe capability boundary`);
   if(screen==='Workspace'&&!(await page.locator('.tn-workspace').isVisible()))throw new Error('Workspace route did not render its Core-backed page');
   if(screen==='Assign TASO'&&!(await page.locator('.tn-assign').isVisible()))throw new Error('Workspace assignment route did not render its Core-backed form');
   if(['Work Together','Conversations'].includes(screen)&&!(await page.locator('.tn-workspace-chat').isVisible()))throw new Error('Workspace collaboration route did not render its Core chat surface');
