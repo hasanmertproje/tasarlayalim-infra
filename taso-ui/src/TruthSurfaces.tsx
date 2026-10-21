@@ -77,7 +77,7 @@ export default function TruthSurfaces() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  const active = screen === 'Monitoring' || screen === 'Settings' || screen === 'Deployments';
+  const active = screen === 'Monitoring' || screen === 'Settings' || screen === 'Deployments' || screen === 'Infrastructure';
 
   useEffect(() => {
     setTarget(document.querySelector('.main-area'));
@@ -121,6 +121,52 @@ export default function TruthSurfaces() {
   const readyAgents = useMemo(() => snapshot?.operations?.agents?.filter((agent) => /ready|online/i.test(agent.state ?? '')).length ?? 0, [snapshot]);
 
   if (!target || !active) return null;
+
+  if (screen === 'Infrastructure') {
+    return createPortal(
+      <section className="truth-surface monitoring-truth infrastructure-truth" aria-label="TASO Infrastructure">
+        <header className="truth-header">
+          <div><span>PLATFORM INFRASTRUCTURE</span><h2>Altyapı durumu</h2><p>Bu ekran Core health ve executor capability sözleşmelerinden okunan durumu gösterir. Sunucu kaynak ölçümleri ve sağlayıcı servislerinin canlı health endpoint'leri yoksa tahmin edilmez.</p></div>
+          <div className="truth-actions"><small>{snapshot ? `SYNC ${formatTime(snapshot.generatedAt)}` : 'SYNCING'}</small><button type="button" onClick={() => void refresh()} disabled={loading}>{loading ? '…' : '↻ Yenile'}</button></div>
+        </header>
+        {error && <div role="alert" className="truth-error">Altyapı snapshot'ı okunamadı: {error}</div>}
+        <div className="truth-summary-grid">
+          <article className={health.ok ? 'ready' : 'unavailable'}><span>CORE API</span><strong>{health.ok ? 'ONLINE' : 'UNAVAILABLE'}</strong><small>{health.service ?? 'taso-core'} {health.version ? `v${health.version}` : ''}</small></article>
+          <article className={health.gateway === 'configured' ? 'ready' : 'unavailable'}><span>GATEWAY</span><strong>{health.gateway?.toUpperCase() ?? 'UNKNOWN'}</strong><small>Authenticated UI → Core</small></article>
+          <article className={health.state === 'persistent' ? 'ready' : 'guarded'}><span>STATE STORE</span><strong>{health.state?.toUpperCase() ?? 'UNKNOWN'}</strong><small>Reported persistence mode</small></article>
+          <article className={executor.coolify?.configured ? 'ready' : 'unavailable'}><span>COOLIFY BROKER</span><strong>{executor.coolify?.configured ? 'CONFIGURED' : 'UNAVAILABLE'}</strong><small>Configuration, not deployment health</small></article>
+        </div>
+        <div className="truth-layout">
+          <article className="truth-panel">
+            <div className="truth-panel-head"><span>EXECUTION CAPABILITIES</span><small>Core-reported</small></div>
+            <div className="truth-capability-grid three">
+              <div className={executor.readyForRead ? 'ready' : 'unavailable'}><span>READ</span><strong>{boolLabel(executor.readyForRead)}</strong></div>
+              <div className={executor.readyForWrite ? 'ready' : 'unavailable'}><span>WRITE</span><strong>{boolLabel(executor.readyForWrite)}</strong></div>
+              <div className={executor.readyForDeploy ? 'ready' : 'unavailable'}><span>DEPLOY</span><strong>{boolLabel(executor.readyForDeploy)}</strong></div>
+            </div>
+            <div className="truth-facts">
+              <div><span>GitHub broker</span><strong>{executor.github?.configured ? 'CONFIGURED' : 'MISSING'}</strong></div>
+              <div><span>AI runtime</span><strong>{executor.ai?.configured ? 'CONFIGURED' : 'MISSING'}</strong></div>
+              <div><span>Active missions</span><strong>{executor.activeMissionIds?.length ?? '—'}</strong></div>
+              <div><span>Planning deadline</span><strong>{executor.planningTimeoutMs ? `${Math.round(executor.planningTimeoutMs / 1000)}s` : '—'}</strong></div>
+            </div>
+          </article>
+          <article className="truth-panel">
+            <div className="truth-panel-head"><span>AGENT & ACTIVITY SNAPSHOT</span><small>operations API</small></div>
+            <div className="truth-facts">
+              <div><span>Reported agents</span><strong>{snapshot?.operations?.agents?.length ?? '—'}</strong></div>
+              <div><span>Ready / online agents</span><strong>{snapshot?.operations ? readyAgents : '—'}</strong></div>
+              <div><span>Recent activity records</span><strong>{snapshot?.operations?.activity?.length ?? '—'}</strong></div>
+              <div><span>Project records</span><strong>{snapshot?.operations?.projects?.length ?? '—'}</strong></div>
+            </div>
+            <p className="truth-boundary">Bu sayılar Core operations cevabından gelir. CPU, RAM, disk, uptime veya servis başına canlı health ölçümü bu API tarafından sunulmadığından gösterilmez.</p>
+          </article>
+        </div>
+        <div className="truth-boundary">Güvenlik sınırı: Bu ekran yalnızca gözlem yapar; deploy, restart, secret görüntüleme veya production değişikliği tetiklemez. READY durumu canlı dağıtımın başarılı olduğunu kanıtlamaz.</div>
+      </section>,
+      target,
+    );
+  }
 
   if (screen === 'Deployments') {
     return createPortal(
