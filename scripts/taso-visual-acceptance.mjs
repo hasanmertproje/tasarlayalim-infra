@@ -61,6 +61,10 @@ async function shot({viewport,theme,screen}){
  await page.evaluate(themeValue=>{document.documentElement.dataset.theme=themeValue;localStorage.setItem('taso-theme',themeValue)},theme);
  const suffix=screen?`?screen=${encodeURIComponent(screen)}`:'';
  await page.goto(`${base}/${suffix}`,{waitUntil:'networkidle'});
+ if(screen==='Infrastructure'){
+  await page.getByRole('heading',{name:'Altyapı durumu'}).waitFor({state:'visible',timeout:10000});
+  await page.getByRole('region',{name:'TASO Infrastructure'}).waitFor({state:'visible',timeout:10000});
+ }
  await inspect(page,`${screen||'Dashboard'}-${theme}-${viewport.width}`);
  const file=`${out}/${(screen||'dashboard').toLowerCase().replace(/\s+/g,'-')}-${theme}-${viewport.width}.png`;
  await page.screenshot({path:file,fullPage:true});
