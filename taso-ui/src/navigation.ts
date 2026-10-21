@@ -101,11 +101,33 @@ export function getTasoScreen() {
   return activeScreen;
 }
 
-export function navigateTaso(screen: TasoScreen) {
+export function initializeTasoScreen(screen: TasoScreen) {
   if (screen === activeScreen) return;
   activeScreen = screen;
   emit();
+}
+
+export function navigateTaso(screen: TasoScreen) {
+  if (screen === activeScreen) return;
+  if (typeof window !== 'undefined') {
+    const url = new URL(window.location.href);
+    url.searchParams.set('screen', screen);
+    window.history.pushState({ tasoScreen: screen }, '', url);
+  }
+  activeScreen = screen;
+  emit();
   if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'auto' });
+}
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('popstate', () => {
+    const requested = new URLSearchParams(window.location.search).get('screen');
+    const screen = isTasoScreen(requested) ? requested : 'Command Center';
+    if (screen !== activeScreen) {
+      activeScreen = screen;
+      emit();
+    }
+  });
 }
 
 export function subscribeTasoNavigation(listener: Listener) {
