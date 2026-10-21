@@ -61,6 +61,17 @@ async function shot({viewport,theme,screen}){
  await page.evaluate(themeValue=>{document.documentElement.dataset.theme=themeValue;localStorage.setItem('taso-theme',themeValue)},theme);
  const suffix=screen?`?screen=${encodeURIComponent(screen)}`:'';
  await page.goto(`${base}/${suffix}`,{waitUntil:'networkidle'});
+ if(screen){
+  const active=await page.locator('.ds2-shell').getAttribute('data-screen');
+  if(active!==screen)throw new Error(`Route ${screen} resolved as ${active}`);
+  if(new URL(page.url()).searchParams.get('screen')!==screen)throw new Error(`Route ${screen} did not retain its deep link`);
+  const mainText=(await page.locator('.ds2-main').innerText()).trim();
+  if(mainText.length<20)throw new Error(`Route ${screen} has no meaningful page content`);
+  if(['Live Site Editor','Code & Files','Content','My Agents','Publications','Team','Workspace Notifications','Personalization','Account Settings','Infrastructure'].includes(screen)&&!(await page.locator('.tn-capability').isVisible()))throw new Error(`Route ${screen} must expose an explicit safe capability boundary`);
+  if(screen==='Workspace'&&!(await page.locator('.tn-workspace').isVisible()))throw new Error('Workspace route did not render its Core-backed page');
+  if(screen==='Assign TASO'&&!(await page.locator('.tn-assign').isVisible()))throw new Error('Workspace assignment route did not render its Core-backed form');
+  if(['Work Together','Conversations','Voice'].includes(screen)&&!(await page.locator('.tn-workspace-chat').isVisible()))throw new Error('Workspace collaboration route did not render its Core chat surface');
+ }
  await inspect(page,`${screen||'Dashboard'}-${theme}-${viewport.width}`);
  const file=`${out}/${(screen||'dashboard').toLowerCase().replace(/\s+/g,'-')}-${theme}-${viewport.width}.png`;
  await page.screenshot({path:file,fullPage:true});
@@ -257,18 +268,15 @@ async function mobileDockAcceptance(){
  }
 }
 
-const screens=[undefined,'Projects','Tasks','Approvals','Deployments','Monitoring','AI Agents','Knowledge','Integrations','Notifications','Settings'];
+const screens=[undefined,'Projects','Studio','Voice','Tasks','Approvals','Deployments','Monitoring','AI Agents','Knowledge','Integrations','Notifications','Infrastructure','Settings','Workspace','My Projects','Assign TASO','Work Together','Workspace Studio','Live Site Editor','Code & Files','Content','My Agents','Conversations','Task History','Publications','Team','Workspace Notifications','Personalization','Account Settings'];
 for(const viewport of[{width:390,height:844},{width:1440,height:1000}])for(const theme of['dark','light'])for(const screen of screens)await shot({viewport,theme,screen});
+// Every route is inspected at the remaining required widths, not just the home screen.
+for(const width of [320,360,430,768,1024,1920])for(const screen of screens.filter(Boolean))await shot({viewport:{width,height:width<=430?844:1000},theme:'dark',screen});
 await voiceCoreAcceptance();
 await voiceFailureAcceptance();
 await markdownSecurityAcceptance();
 await mobileDockAcceptance();
 await newShellAcceptance();
-// TASO NEXT milestone-1: authenticate against isolated Core, then verify Workspace
-// at genuinely different responsive viewports rather than using prototype local data.
-for (const width of [320,360,390,430,768,1024,1440,1920]) {
-  await shot({viewport:{width,height:width<=430?844:1000},theme:'dark',screen:'Workspace'});
-}
 async function workspaceRealDataAcceptance(){
   const context=await browser.newContext({viewport:{width:390,height:844}});
   const page=await context.newPage();
@@ -289,11 +297,35 @@ async function workspaceRealDataAcceptance(){
   if(shown.some(x=>x==='—'))throw new Error('Workspace has unresolved counters after Core responded');
   await page.locator('.ds2-bottom button').first().click();
   if(!(await page.locator('.tn-workspace').isVisible()))throw new Error('Workspace mobile navigation lost user area');
+  await page.locator('.ds2-bottom button').nth(1).click();
+  if(await page.locator('.ds2-shell').getAttribute('data-screen')!=='My Projects')throw new Error('Workspace mobile projects shortcut escaped to Admin navigation');
+  await page.locator('.ds2-bottom button').first().click();
   await page.locator('.tn-workspace__shortcut-grid button').first().click();
   await page.locator('.cc30').waitFor({state:'visible'});
   results.push({name:'taso-next-workspace-core-contract',projectCount:payload.projects,missionCount:payload.missions,realCore:true});
   await context.close();
 }
 await workspaceRealDataAcceptance();
+async function workspaceAssignmentAcceptance(){
+ const context=await browser.newContext({viewport:{width:390,height:844}});
+ const page=await context.newPage();
+ let missionPosts=0;
+ page.on('request',request=>{if(request.method()==='POST'&&/\/api\/v1\/missions(?:$|\?)/.test(request.url()))missionPosts+=1});
+ await authenticate(page);
+ await page.goto(base+'/?screen=Assign%20TASO',{waitUntil:'networkidle'});
+ await page.locator('.tn-assign').waitFor({state:'visible'});
+ await page.waitForFunction(()=>document.querySelector('.tn-assign__health')?.classList.contains('is-ready'));
+ if(await page.locator('#tn-assign-project option').count()<1)throw new Error('Workspace assignment has no Core-backed active project');
+ await page.locator('#tn-assign-objective').fill('Browser acceptance: dedicated TASO workspace assignment flow');
+ await page.locator('#tn-assign-risk').selectOption('READ');
+ await page.locator('.tn-assign__submit').click();
+ await page.locator('.tn-assign__message.is-success').waitFor({state:'visible',timeout:15000});
+ if(missionPosts!==1)throw new Error('Workspace assignment did not send exactly one real mission request');
+ await page.locator('.tn-assign__message.is-success button').click();
+ await page.waitForFunction(()=>document.querySelector('.ds2-shell')?.getAttribute('data-screen')==='Tasks');
+ results.push({name:'taso-next-workspace-assignment-core-flow',missionPosts,realCore:true});
+ await context.close();
+}
+await workspaceAssignmentAcceptance();
 writeFileSync(`${out}/report.json`,JSON.stringify({generatedAt:new Date().toISOString(),screens:screens.map(v=>v||'Dashboard'),results},null,2));
 await browser.close();

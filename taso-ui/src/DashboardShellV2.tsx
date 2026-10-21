@@ -1,10 +1,11 @@
 import { type ReactNode, useEffect, useRef, useState } from 'react';
 import { useAuthSession } from './AuthGateV17';
-import { TASO_PRIMARY_SCREENS, TASO_SCREEN_LABELS, type TasoScreen, useTasoNavigation } from './navigation';
+import { TASO_ADMIN_SCREENS, TASO_WORKSPACE_SCREENS, TASO_SCREEN_LABELS, isWorkspaceScreen, type TasoScreen, useTasoNavigation } from './navigation';
 
 type Theme = 'dark' | 'light';
 const ICON_PATHS: Record<string, string> = {
   'Command Center':'M3 3h8v8H3zM13 3h8v5h-8zM13 10h8v11h-8zM3 13h8v8H3z',
+  Voice:'M9 5a3 3 0 0 1 6 0v6a3 3 0 0 1-6 0zM5 11a7 7 0 0 0 14 0M12 18v3M9 21h6',
   Projects:'M3 7h18v13H3zM3 7V4h7l2 3',Studio:'M3 5h18v14H3zM7 9h10M7 13h6',Tasks:'M4 6h2m4 0h10M4 12h2m4 0h10M4 18h2m4 0h10',
   Approvals:'M12 2 4 6v6c0 5 3 8 8 10 5-2 8-5 8-10V6zM8 12l3 3 5-6',
   Deployments:'M12 2 4 6v14l8-4 8 4V6zM4 6l8 5 8-5M12 11v5',
@@ -15,7 +16,8 @@ const ICON_PATHS: Record<string, string> = {
   Notifications:'M5 17h14l-2-3V9a5 5 0 0 0-10 0v5zM10 21h4',Infrastructure:'M3 4h18v7H3zM3 13h18v7H3zM7 8h.01M7 17h.01',
 };
 export function NavGlyph({screen}:{screen:TasoScreen}) {
-  return <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={ICON_PATHS[screen]}/></svg>;
+  const path = ICON_PATHS[screen] || 'M4 4h16v16H4zM8 8h8M8 12h8M8 16h5';
+  return <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={path}/></svg>;
 }
 function initialTheme():Theme {
   try { const saved=localStorage.getItem('taso-theme'); if(saved==='dark'||saved==='light')return saved; }catch{}
@@ -23,7 +25,7 @@ function initialTheme():Theme {
 }
 export default function DashboardShellV2({children}:{children:ReactNode}) {
   const [screen,navigate]=useTasoNavigation();
-  const workspaceMode=screen==='Workspace';
+  const workspaceMode=isWorkspaceScreen(screen);
   const {session,logout}=useAuthSession();
   const [theme,setTheme]=useState<Theme>(initialTheme);
   const [expanded,setExpanded]=useState(()=>localStorage.getItem('taso-sidebar-expanded')!=='false');
@@ -46,16 +48,17 @@ export default function DashboardShellV2({children}:{children:ReactNode}) {
   },[menuOpen]);
   const go=(target:TasoScreen)=>{navigate(target);setMenuOpen(false)};
   function mobileVoice(){
-    if(screen!=='Command Center'){
+    const voiceScreen: TasoScreen = workspaceMode ? 'Conversations' : 'Command Center';
+    if(screen!==voiceScreen){
       // Switching routes unmounts the chat; never simulate a later permission gesture.
-      go('Command Center');
+      go(voiceScreen);
       return;
     }
     const mic=document.querySelector<HTMLButtonElement>('.dashboard-chat .dashboard-chat-mic');
     if(mic&&!mic.disabled)mic.click();
   }
   const item=(target:TasoScreen)=><button key={target} type="button" className={screen===target?'ds2-link is-active':'ds2-link'} onClick={()=>go(target)} aria-current={screen===target?'page':undefined} title={TASO_SCREEN_LABELS[target]}><NavGlyph screen={target}/><span>{TASO_SCREEN_LABELS[target]}</span><i aria-hidden="true"/></button>;
-  const visibleScreens: TasoScreen[]=workspaceMode?['Workspace','Projects','Studio','Tasks','Knowledge','Notifications']: [...TASO_PRIMARY_SCREENS];
+  const visibleScreens: TasoScreen[]=workspaceMode? [...TASO_WORKSPACE_SCREENS] : [...TASO_ADMIN_SCREENS];
   return <div className={expanded?'ds2-shell ds2-expanded':'ds2-shell'} data-screen={screen}>
     <aside className="ds2-sidebar" aria-label="Uygulama menüsü">
       <div className="ds2-identity"><div className="ds2-mark" aria-hidden="true"><span>T</span><i/></div><div className="ds2-identity-text"><strong>TASO</strong><span>OPERASYON SİSTEMİ</span></div></div>
@@ -64,15 +67,15 @@ export default function DashboardShellV2({children}:{children:ReactNode}) {
       <div className="ds2-sidebar-foot"><div className="ds2-foot-label">ÇALIŞMA ALANI</div><button type="button" onClick={()=>setExpanded(v=>{localStorage.setItem('taso-sidebar-expanded',String(!v));return !v})} className="ds2-collapse" aria-label={expanded?'Menüyü daralt':'Menüyü genişlet'} aria-expanded={expanded}>{expanded?'‹ Daralt':'›'}</button></div>
     </aside>
     <div className="ds2-content">
-      <header className="ds2-header"><div className="ds2-breadcrumb"><span>{workspaceMode?'TASO / WORKSPACE':'TASO / ADMIN CONSOLE'}</span><h1>{TASO_SCREEN_LABELS[screen]}</h1></div><div className="ds2-header-actions"><button type="button" className="ds2-action" onClick={()=>go('Notifications')} aria-label="Bildirimler" title="Bildirimler"><NavGlyph screen="Notifications"/></button><button type="button" className="ds2-action" onClick={()=>setTheme(v=>v==='dark'?'light':'dark')} aria-label={theme==='dark'?'Açık temaya geç':'Koyu temaya geç'} title={theme==='dark'?'Açık tema':'Koyu tema'}>{theme==='dark'?'☼':'☾'}</button><div className="ds2-session"><span title={session.email||'Oturum'}>{session.email||'Kullanıcı'}</span><button type="button" onClick={()=>void logout()}>Çıkış</button></div></div></header>
+      <header className="ds2-header"><div className="ds2-breadcrumb"><span>{workspaceMode?'TASO / WORKSPACE':'TASO / ADMIN CONSOLE'}</span><h1>{TASO_SCREEN_LABELS[screen]}</h1></div><div className="ds2-header-actions"><button type="button" className="ds2-action" onClick={()=>go(workspaceMode?'Workspace Notifications':'Notifications')} aria-label="Bildirimler" title="Bildirimler"><NavGlyph screen="Notifications"/></button><button type="button" className="ds2-action" onClick={()=>setTheme(v=>v==='dark'?'light':'dark')} aria-label={theme==='dark'?'Açık temaya geç':'Koyu temaya geç'} title={theme==='dark'?'Açık tema':'Koyu tema'}>{theme==='dark'?'☼':'☾'}</button><div className="ds2-session"><span title={session.email||'Oturum'}>{session.email||'Kullanıcı'}</span><button type="button" onClick={()=>void logout()}>Çıkış</button></div></div></header>
       <main className="ds2-main" id="taso-main">{children}</main>
     </div>
     <nav className="ds2-bottom" aria-label="Mobil ana menü">
-      {([workspaceMode?'Workspace':'Command Center','Projects'] as TasoScreen[]).map(target=><button key={target} type="button" className={screen===target?'is-active':''} aria-current={screen===target?'page':undefined} onClick={()=>go(target)}><NavGlyph screen={target}/><span>{target==='Command Center'?'Kontrol':target==='Workspace'?'Alanım':TASO_SCREEN_LABELS[target]}</span></button>)}
+      {([workspaceMode?'Workspace':'Command Center',workspaceMode?'My Projects':'Projects'] as TasoScreen[]).map(target=><button key={target} type="button" className={screen===target?'is-active':''} aria-current={screen===target?'page':undefined} onClick={()=>go(target)}><NavGlyph screen={target}/><span>{target==='Command Center'?'Kontrol':target==='Workspace'?'Alanım':TASO_SCREEN_LABELS[target]}</span></button>)}
       <button type="button" className="ds2-voice" onClick={mobileVoice} aria-label={screen==='Command Center'?'TASO Voice ile konuş':'TASO Voice ekranına git'} title="TASO Voice"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" width="22" height="22" aria-hidden="true"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3M9 21h6"/></svg><span>Ses</span></button>
       <button type="button" className={screen==='Tasks'?'is-active':''} aria-current={screen==='Tasks'?'page':undefined} onClick={()=>go('Tasks')}><NavGlyph screen="Tasks"/><span>Görevler</span></button>
       <button ref={triggerRef} type="button" onClick={()=>setMenuOpen(true)} aria-label="Tüm menüyü aç" aria-expanded={menuOpen} aria-controls="ds2-drawer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="20" height="20" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg><span>Menü</span></button>
     </nav>
-    {menuOpen&&<div className="ds2-drawer-backdrop" onMouseDown={e=>{if(e.target===e.currentTarget)setMenuOpen(false)}}><section className="ds2-drawer" id="ds2-drawer" role="dialog" aria-modal="true" aria-label="Tüm sayfalar"><header><strong>Sayfalar</strong><button ref={closeRef} type="button" onClick={()=>setMenuOpen(false)} aria-label="Menüyü kapat">×</button></header><div className="ds2-surface-switch" role="group" aria-label="Çalışma yüzeyi — yetki değiştirmez"><button type="button" className={!workspaceMode?'is-active':''} onClick={()=>go('Command Center')} aria-pressed={!workspaceMode}>Yönetim</button><button type="button" className={workspaceMode?'is-active':''} onClick={()=>go('Workspace')} aria-pressed={workspaceMode}>Alanım</button></div><nav aria-label="Tüm sayfalar">{[...visibleScreens,'Infrastructure'].map(target=>item(target as TasoScreen))}</nav><div className="ds2-drawer-bottom"><span>{session.email||'Oturum'}</span><button type="button" onClick={()=>void logout()}>Çıkış</button></div></section></div>}
+    {menuOpen&&<div className="ds2-drawer-backdrop" onMouseDown={e=>{if(e.target===e.currentTarget)setMenuOpen(false)}}><section className="ds2-drawer" id="ds2-drawer" role="dialog" aria-modal="true" aria-label="Tüm sayfalar"><header><strong>Sayfalar</strong><button ref={closeRef} type="button" onClick={()=>setMenuOpen(false)} aria-label="Menüyü kapat">×</button></header><div className="ds2-surface-switch" role="group" aria-label="Çalışma yüzeyi — yetki değiştirmez"><button type="button" className={!workspaceMode?'is-active':''} onClick={()=>go('Command Center')} aria-pressed={!workspaceMode}>Yönetim</button><button type="button" className={workspaceMode?'is-active':''} onClick={()=>go('Workspace')} aria-pressed={workspaceMode}>Alanım</button></div><nav aria-label="Tüm sayfalar">{visibleScreens.map(item)}</nav><div className="ds2-drawer-bottom"><span>{session.email||'Oturum'}</span><button type="button" onClick={()=>void logout()}>Çıkış</button></div></section></div>}
   </div>;
 }
