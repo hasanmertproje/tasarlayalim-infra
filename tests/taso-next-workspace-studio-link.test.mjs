@@ -7,6 +7,7 @@ test('Workspace project cards open Core-backed Studio with project-scoped hint',
  const studio=read('taso-ui/src/TasoStudioV1.tsx');
  const route=read('taso-ui/src/main.tsx');
  const navigation=read('taso-ui/src/navigation.ts');
+ const shell=read('taso-ui/src/DashboardShellV2.tsx');
  assert.match(workspace,/const openProjectStudio=/);
  assert.match(workspace,/projects\.some\(project=>project\.id===id\)/);
  assert.match(workspace,/sessionStorage\.setItem\('taso-studio-project',id\)/);
@@ -16,4 +17,6 @@ test('Workspace project cards open Core-backed Studio with project-scoped hint',
  assert.match(studio,/p\.projects\?\.find\(x=>x\.id===sessionStorage/);
  assert.match(route,/activeScreen==='Workspace Studio'/);
  assert.match(navigation,/'Workspace Studio'/);
+ assert.match(shell,/screen==='Workspace'\|\|screen==='Workspace Studio'/);
+ assert.match(shell,/workspaceMode\?\['Workspace','Projects','Workspace Studio'/);
 });
