@@ -18,3 +18,8 @@ Reference: `TASO-NEXT-Publisher-Desktop.png` and the TASO NEXT Studio/Admin refe
 
 ## Safety & promotion policy
 PR #232 remains DRAFT and unmerged; no changes in `main`, `taso-ui/`, `taso/` or Coolify production. The isolated UI is NOT production-ready. The next architectural step is to migrate the reference-aligned UI to the real Core-backed `taso-ui/` while preserving existing auth, session, mission approvals and Studio revision store.
+
+## M3 hardening (project-scoped data)
+- Each selected project now has an independent Studio document in `studioDocuments`; previously `blocks` was incorrectly shared across projects. The legacy `blocks` value is preserved only as a backward-compatible default for `pr-1`.
+- Local Publisher version save/restore targets only the active project document. Cross-project browser isolation checks passed (8/8 M3 groups).
+- Explicit note: this is browser-local demo isolation, **not** production authorization/RBAC or backend tenant isolation.
