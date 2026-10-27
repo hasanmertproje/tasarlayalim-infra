@@ -5,7 +5,8 @@ export interface Task {id:string;projectId:string;title:string;agent:string;stat
 export interface Approval {id:string;taskId:string;projectId:string;note:string;decision:'pending'|'approved'|'rejected';reason:string}
 export interface Event {id:string;at:number;message:string;type:string}
 export interface StudioBlock{id:string;type:'hero'|'text'|'feature';label:string;value:string}
-export interface WorkspaceData{projects:Project[];tasks:Task[];approvals:Approval[];events:Event[];blocks:StudioBlock[];notices:{id:string;title:string;read:boolean}[];issues:{id:string;title:string;severity:'critical'|'warning'|'info';resolved:boolean}[];releases:{id:string;label:string;environment:'draft'|'preview'|'production';at:number}[];messages:{role:'user'|'assistant';text:string}[];team:{id:string;name:string;role:string}[];settings:{sound:boolean;reducedMotion:boolean};}
+import type {SavedRevision} from './PublisherStudio';
+export interface WorkspaceData{publisherVersions:SavedRevision[];projects:Project[];tasks:Task[];approvals:Approval[];events:Event[];blocks:StudioBlock[];notices:{id:string;title:string;read:boolean}[];issues:{id:string;title:string;severity:'critical'|'warning'|'info';resolved:boolean}[];releases:{id:string;label:string;environment:'draft'|'preview'|'production';at:number}[];messages:{role:'user'|'assistant';text:string}[];team:{id:string;name:string;role:string}[];settings:{sound:boolean;reducedMotion:boolean};}
 export const ADMIN_GROUPS = [
   {label:'KOMUTA',items:['Genel Bakış','Komuta Merkezi','Görevler','Projeler','Onaylar']},
   {label:'YÜRÜTME',items:['Ajanlar','İzleme','Altyapı','Dağıtımlar','Bilgi Merkezi']},
@@ -18,6 +19,7 @@ export const WORKSPACE_GROUPS = [
   {label:'HESAP',items:['Ekip','Bildirimler','Ayarlar','Kişiselleştirme','Voice']}
 ] as const;
 export const INITIAL:WorkspaceData = {
+ publisherVersions:[],
  projects:[
   {id:'pr-1',name:'TASO NEXT',code:'TAS',description:'Otonom üretim ve operasyon deneyimi',progress:68,stage:'active',owner:'Ürün ekibi'},
   {id:'pr-2',name:'EntegrePilot',code:'ENT',description:'Çok kanallı ticaret operasyonları',progress:42,stage:'review',owner:'Commerce'},
@@ -38,5 +40,5 @@ export const INITIAL:WorkspaceData = {
  team:[{id:'tm-1',name:'Platform ekibi',role:'Yönetici'},{id:'tm-2',name:'Tasarım ekibi',role:'Editör'}],
  settings:{sound:false,reducedMotion:false}
 };
-export function loadData():WorkspaceData{try{const raw=localStorage.getItem('taso-next-rebuild-v1');if(raw){const v=JSON.parse(raw);if(v&&Array.isArray(v.projects)&&Array.isArray(v.tasks)&&Array.isArray(v.approvals))return {...INITIAL,...v};}}catch{}return JSON.parse(JSON.stringify(INITIAL));}
+export function loadData():WorkspaceData{try{const raw=localStorage.getItem('taso-next-rebuild-v1');if(raw){const v=JSON.parse(raw);if(v&&Array.isArray(v.projects)&&Array.isArray(v.tasks)&&Array.isArray(v.approvals))return {...INITIAL,...v,publisherVersions:Array.isArray(v.publisherVersions)?v.publisherVersions:[]};}}catch{}return JSON.parse(JSON.stringify(INITIAL));}
 export function saveData(data:WorkspaceData){try{localStorage.setItem('taso-next-rebuild-v1',JSON.stringify(data));}catch{}}
