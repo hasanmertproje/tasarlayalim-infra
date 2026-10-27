@@ -1,0 +1,19 @@
+import {readFileSync} from 'node:fs';
+import {strict as assert} from 'node:assert';
+import {test} from 'node:test';
+const read=(path)=>readFileSync(new URL('../'+path,import.meta.url),'utf8');
+test('Workspace project cards open Core-backed Studio with project-scoped hint',()=>{
+ const workspace=read('taso-ui/src/NextWorkspace.tsx');
+ const studio=read('taso-ui/src/TasoStudioV1.tsx');
+ const route=read('taso-ui/src/main.tsx');
+ const navigation=read('taso-ui/src/navigation.ts');
+ assert.match(workspace,/const openProjectStudio=/);
+ assert.match(workspace,/projects\.some\(project=>project\.id===id\)/);
+ assert.match(workspace,/sessionStorage\.setItem\('taso-studio-project',id\)/);
+ assert.match(workspace,/navigateTaso\('Workspace Studio'\)/);
+ assert.match(workspace,/onClick=\{\(\)=>openProjectStudio\(p\.id\)\}/);
+ assert.match(studio,/sessionStorage\.getItem\('taso-studio-project'\)/);
+ assert.match(studio,/p\.projects\?\.find\(x=>x\.id===sessionStorage/);
+ assert.match(route,/activeScreen==='Workspace Studio'/);
+ assert.match(navigation,/'Workspace Studio'/);
+});
