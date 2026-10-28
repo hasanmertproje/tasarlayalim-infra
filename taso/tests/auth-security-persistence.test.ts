@@ -87,3 +87,41 @@ test('a failed storage write restores recovery-code and trusted-device state in 
     rmSync(dir,{recursive:true,force:true});
   }
 });
+
+test('legacy gateway-derived TOTP remains verifiable after explicit auth key is introduced', () => {
+  const dir=mkdtempSync(join(tmpdir(),'taso-auth-legacy-key-'));
+  const file=join(dir,'auth.json');
+  const originalFile=process.env.TASO_AUTH_SECURITY_FILE;
+  const originalKey=process.env.TASO_AUTH_ENCRYPTION_KEY;
+  const originalGateway=process.env.TASO_GATEWAY_SECRET;
+  try{
+    process.env.TASO_AUTH_SECURITY_FILE=file;
+    process.env.TASO_GATEWAY_SECRET='stable-production-gateway-fixture';
+    delete process.env.TASO_AUTH_ENCRYPTION_KEY;
+    const initial=new AuthSecurityStore('owner');
+    initial.setTotpSecret('owner','JBSWY3DPEHPK3PXP');
+    const encryptedBefore=readFileSync(file,'utf8');
+    assert.equal(encryptedBefore.includes('JBSWY3DPEHPK3PXP'),false);
+
+    // Later deployment introduces a dedicated key while keeping gateway stable.
+    process.env.TASO_AUTH_ENCRYPTION_KEY='d'.repeat(64);
+    const upgraded=new AuthSecurityStore('owner');
+    assert.equal(upgraded.getTotpSecret('owner'),'JBSWY3DPEHPK3PXP');
+    assert.equal(readFileSync(file,'utf8'),encryptedBefore,'read fallback must not rotate or rewrite enrolled 2FA');
+
+    // Wrong gateway key MUST NOT authenticate ciphertext or silently reset it.
+    process.env.TASO_GATEWAY_SECRET='unrelated-gateway-secret';
+    const wrong=new AuthSecurityStore('owner');
+    assert.throws(()=>wrong.getTotpSecret('owner'));
+    assert.equal(readFileSync(file,'utf8'),encryptedBefore);
+
+    process.env.TASO_GATEWAY_SECRET='stable-production-gateway-fixture';
+    const restored=new AuthSecurityStore('owner');
+    assert.equal(restored.getTotpSecret('owner'),'JBSWY3DPEHPK3PXP');
+  }finally{
+    if(originalFile===undefined)delete process.env.TASO_AUTH_SECURITY_FILE;else process.env.TASO_AUTH_SECURITY_FILE=originalFile;
+    if(originalKey===undefined)delete process.env.TASO_AUTH_ENCRYPTION_KEY;else process.env.TASO_AUTH_ENCRYPTION_KEY=originalKey;
+    if(originalGateway===undefined)delete process.env.TASO_GATEWAY_SECRET;else process.env.TASO_GATEWAY_SECRET=originalGateway;
+    rmSync(dir,{recursive:true,force:true});
+  }
+});
