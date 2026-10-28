@@ -6,7 +6,7 @@ const patterns={
   security_storage:/auth\.(?:trusted_device_persist_failed|recovery_persist_failed)|EACCES|EPERM|ENOSPC|EROFS|permission denied|read.only file system|no space left on device/i,
   missing_state:/auth\.totp_missing|ENOENT|no such file or directory/i,
   auth_verify:/\/(?:api\/)?auth\/2fa\/verify/i,
-  server_500:/(?:statusCode|status_code|status)"?\s*:\s*500|internal server error/i,
+  server_500:/(?:statusCode|status_code|status)"?\s*:\s*500|internal server error|\/(?:api\/)?auth\/2fa\/verify[^\n]{0,100}\b500\b/i,
 };
 function timestamp(line){
   try{
