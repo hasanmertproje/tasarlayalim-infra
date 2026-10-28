@@ -132,7 +132,12 @@ export class AuthSecurityStore {
     const index = state.recoveryCodeHashes.indexOf(digest);
     if (index < 0) return false;
     state.recoveryCodeHashes.splice(index, 1);
-    this.save();
+    try { this.save(); }
+    catch (error) {
+      // Preserve the one-time recovery code if a write/rename fails.
+      state.recoveryCodeHashes.splice(index, 0, digest);
+      throw error;
+    }
     return true;
   }
 
@@ -152,7 +157,12 @@ export class AuthSecurityStore {
       expiresAt: now + state.trustedDeviceDays * 24 * 60 * 60 * 1000,
     };
     state.trustedDevices.push(record);
-    this.save();
+    try { this.save(); }
+    catch (error) {
+      // Failed persistence must never leave a phantom trusted device in memory.
+      state.trustedDevices = state.trustedDevices.filter((item) => item !== record);
+      throw error;
+    }
     return record;
   }
 
