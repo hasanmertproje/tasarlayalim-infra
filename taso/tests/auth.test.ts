@@ -151,6 +151,39 @@ test('TOTP enrollment trusts a device, skips repeat 2FA, and supports revoke', a
 
     const secret = auth.security.getTotpSecret();
     assert.ok(secret);
+    const originalRead = auth.security.getTotpSecret;
+    const originalCreate = auth.security.createTrustedDevice;
+    try {
+      // Persisted secret encrypted with a different key must NEVER be treated
+      // as a bad Authenticator code or an invitation to reset the enrolled TOTP.
+      auth.security.getTotpSecret = () => { throw new Error('Injected AES-GCM decryption failure'); };
+      const unavailable = await app.inject({
+        method: 'POST', url: '/auth/2fa/verify',
+        payload: { challengeId: challenge.challengeId, code: currentTotp(secret!), deviceName: 'Replacement device' },
+      });
+      assert.equal(unavailable.statusCode, 503);
+      assert.equal(unavailable.json().code, 'AUTH_TOTP_UNAVAILABLE');
+      assert.equal(unavailable.json().authenticated, undefined);
+      assert.equal(unavailable.headers['set-cookie'], undefined);
+      assert.equal(auth.security.hasTotp(), true);
+      auth.security.getTotpSecret = originalRead;
+
+      // Correct code + unavailable /data storage must not issue a session.
+      auth.security.createTrustedDevice = () => { throw new Error('Injected read-only filesystem failure'); };
+      const storeUnavailable = await app.inject({
+        method: 'POST', url: '/auth/2fa/verify',
+        payload: { challengeId: challenge.challengeId, code: currentTotp(secret!), deviceName: 'Replacement device' },
+      });
+      assert.equal(storeUnavailable.statusCode, 503);
+      assert.equal(storeUnavailable.json().code, 'AUTH_SECURITY_STORAGE_UNAVAILABLE');
+      assert.equal(storeUnavailable.headers['set-cookie'], undefined);
+      assert.equal(auth.security.hasTotp(), true);
+    } finally {
+      auth.security.getTotpSecret = originalRead;
+      auth.security.createTrustedDevice = originalCreate;
+    }
+
+    // The same challenge can succeed once server-side security is restored.
     const secondFactor = await app.inject({
       method: 'POST', url: '/auth/2fa/verify',
       payload: { challengeId: challenge.challengeId, code: currentTotp(secret!), deviceName: 'Replacement device' },
