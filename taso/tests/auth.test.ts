@@ -151,6 +151,39 @@ test('TOTP enrollment trusts a device, skips repeat 2FA, and supports revoke', a
 
     const secret = auth.security.getTotpSecret();
     assert.ok(secret);
+    const originalRead = auth.security.getTotpSecret;
+    const originalCreate = auth.security.createTrustedDevice;
+    try {
+      // Persisted secret encrypted with a different key must NEVER be treated
+      // as a bad Authenticator code or an invitation to reset the enrolled TOTP.
+      auth.security.getTotpSecret = () => { throw new Error('Injected AES-GCM decryption failure'); };
+      const unavailable = await app.inject({
+        method: 'POST', url: '/auth/2fa/verify',
+        payload: { challengeId: challenge.challengeId, code: currentTotp(secret!), deviceName: 'Replacement device' },
+      });
+      assert.equal(unavailable.statusCode, 503);
+      assert.equal(unavailable.json().code, 'AUTH_TOTP_UNAVAILABLE');
+      assert.equal(unavailable.json().authenticated, undefined);
+      assert.equal(unavailable.headers['set-cookie'], undefined);
+      assert.equal(auth.security.hasTotp(), true);
+      auth.security.getTotpSecret = originalRead;
+
+      // Correct code + unavailable /data storage must not issue a session.
+      auth.security.createTrustedDevice = () => { throw new Error('Injected read-only filesystem failure'); };
+      const storeUnavailable = await app.inject({
+        method: 'POST', url: '/auth/2fa/verify',
+        payload: { challengeId: challenge.challengeId, code: currentTotp(secret!), deviceName: 'Replacement device' },
+      });
+      assert.equal(storeUnavailable.statusCode, 503);
+      assert.equal(storeUnavailable.json().code, 'AUTH_SECURITY_STORAGE_UNAVAILABLE');
+      assert.equal(storeUnavailable.headers['set-cookie'], undefined);
+      assert.equal(auth.security.hasTotp(), true);
+    } finally {
+      auth.security.getTotpSecret = originalRead;
+      auth.security.createTrustedDevice = originalCreate;
+    }
+
+    // The same challenge can succeed once server-side security is restored.
     const secondFactor = await app.inject({
       method: 'POST', url: '/auth/2fa/verify',
       payload: { challengeId: challenge.challengeId, code: currentTotp(secret!), deviceName: 'Replacement device' },
@@ -158,6 +191,38 @@ test('TOTP enrollment trusts a device, skips repeat 2FA, and supports revoke', a
     assert.equal(secondFactor.statusCode, 200);
     assert.equal(secondFactor.json().authenticated, true);
     assert.equal(secondFactor.json().trustedDevice, true);
+
+    // A previously issued, single-use recovery code must remain usable even
+    // if the persisted TOTP encryption key has become unreadable.
+    const recoveryLogin = await app.inject({
+      method: 'POST', url: '/auth/login',
+      payload: { email: 'owner@example.test', password: 'correct-horse-battery-staple' },
+    });
+    assert.equal(recoveryLogin.json().requiresTwoFactor, true);
+    const previousGet = auth.security.getTotpSecret;
+    try {
+      auth.security.getTotpSecret = () => { throw new Error('Simulated key mismatch'); };
+      const recovered = await app.inject({
+        method: 'POST', url: '/auth/2fa/verify',
+        payload: { challengeId: recoveryLogin.json().challengeId, code: enrolled.recoveryCodes[0], deviceName: 'Recovery phone' },
+      });
+      assert.equal(recovered.statusCode, 200);
+      assert.equal(recovered.json().authenticated, true);
+      assert.equal(recovered.json().recoveryCodeUsed, true);
+      assert.ok(cookieValue(cookiesFrom(recovered.headers['set-cookie']), 'taso_session'));
+      const reusedLogin = await app.inject({
+        method: 'POST', url: '/auth/login',
+        payload: { email: 'owner@example.test', password: 'correct-horse-battery-staple' },
+      });
+      const reused = await app.inject({
+        method: 'POST', url: '/auth/2fa/verify',
+        payload: { challengeId: reusedLogin.json().challengeId, code: enrolled.recoveryCodes[0], deviceName: 'Replay attack' },
+      });
+      assert.equal(reused.statusCode, 401);
+      assert.equal(reused.headers['set-cookie'], undefined);
+    } finally {
+      auth.security.getTotpSecret = previousGet;
+    }
   } finally {
     await app.close();
     for (const key of keys) {

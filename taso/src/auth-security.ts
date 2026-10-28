@@ -54,6 +54,16 @@ function deriveKey() {
   return undefined;
 }
 
+// Older TASO Core deployments derived their encryption key from the gateway
+// secret when a dedicated auth key wasn't configured. Keep a decrypt-only
+// fallback so enrollment survives adding TASO_AUTH_ENCRYPTION_KEY later.
+// Never create new secrets or silently reset 2FA.
+function legacyGatewayKey() {
+  const gateway = process.env.TASO_GATEWAY_SECRET?.trim();
+  if (!gateway) return undefined;
+  return Buffer.from(hkdfSync('sha256', Buffer.from(gateway), Buffer.from('taso-auth-v30'), Buffer.from('totp-at-rest'), 32));
+}
+
 function hash(value: string) {
   return createHash('sha256').update(value).digest('hex');
 }
@@ -66,6 +76,7 @@ export class AuthSecurityStore {
   private state: AuthSecurityStateV2;
   private readonly file = process.env.TASO_AUTH_SECURITY_FILE?.trim() || (process.env.NODE_ENV === 'production' ? '/data/taso-auth-security.json' : undefined);
   private readonly key = deriveKey();
+  private readonly legacyKey = process.env.TASO_AUTH_ENCRYPTION_KEY?.trim() ? legacyGatewayKey() : undefined;
 
   constructor(private readonly ownerUserId = 'user_owner') {
     this.state = this.load();
@@ -109,12 +120,21 @@ export class AuthSecurityStore {
   getTotpSecret(userId = this.ownerUserId) {
     const value = this.user(userId).totpSecret;
     if (!value || !this.key) return undefined;
-    const decipher = createDecipheriv('aes-256-gcm', this.key, Buffer.from(value.iv, 'base64'));
-    decipher.setAuthTag(Buffer.from(value.tag, 'base64'));
-    return Buffer.concat([
-      decipher.update(Buffer.from(value.ciphertext, 'base64')),
-      decipher.final(),
-    ]).toString('utf8');
+    const decrypt = (key: Buffer) => {
+      const decipher = createDecipheriv('aes-256-gcm', key, Buffer.from(value.iv, 'base64'));
+      decipher.setAuthTag(Buffer.from(value.tag, 'base64'));
+      return Buffer.concat([
+        decipher.update(Buffer.from(value.ciphertext, 'base64')),
+        decipher.final(),
+      ]).toString('utf8');
+    };
+    try { return decrypt(this.key); }
+    catch (primaryError) {
+      // AES-GCM must authenticate under the historical gateway-derived key;
+      // a random or corrupted ciphertext cannot pass this check.
+      if (!this.legacyKey || this.legacyKey.equals(this.key)) throw primaryError;
+      return decrypt(this.legacyKey);
+    }
   }
 
   setRecoveryCodes(userIdOrCodes: string | string[], maybeCodes?: string[]) {
@@ -132,7 +152,12 @@ export class AuthSecurityStore {
     const index = state.recoveryCodeHashes.indexOf(digest);
     if (index < 0) return false;
     state.recoveryCodeHashes.splice(index, 1);
-    this.save();
+    try { this.save(); }
+    catch (error) {
+      // Preserve the one-time recovery code if a write/rename fails.
+      state.recoveryCodeHashes.splice(index, 0, digest);
+      throw error;
+    }
     return true;
   }
 
@@ -152,7 +177,12 @@ export class AuthSecurityStore {
       expiresAt: now + state.trustedDeviceDays * 24 * 60 * 60 * 1000,
     };
     state.trustedDevices.push(record);
-    this.save();
+    try { this.save(); }
+    catch (error) {
+      // Failed persistence must never leave a phantom trusted device in memory.
+      state.trustedDevices = state.trustedDevices.filter((item) => item !== record);
+      throw error;
+    }
     return record;
   }
 

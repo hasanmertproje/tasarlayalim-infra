@@ -59,3 +59,69 @@ test('corrupt persisted auth security state fails closed rather than reenrolling
     rmSync(dir,{recursive:true,force:true});
   }
 });
+
+test('a failed storage write restores recovery-code and trusted-device state in memory', () => {
+  const dir=mkdtempSync(join(tmpdir(),'taso-auth-failure-'));
+  const beforeFile=process.env.TASO_AUTH_SECURITY_FILE, beforeKey=process.env.TASO_AUTH_ENCRYPTION_KEY;
+  try {
+    process.env.TASO_AUTH_SECURITY_FILE=join(dir,'auth.json');
+    process.env.TASO_AUTH_ENCRYPTION_KEY='e'.repeat(64);
+    const security=new AuthSecurityStore('owner');
+    security.setRecoveryCodes('owner',['VALID-RECOVERY-CODE']);
+    const withSave=security as unknown as {save:()=>void};
+    const original=withSave.save;
+    try {
+      withSave.save=()=>{throw new Error('Synthetic disk write failure')};
+      assert.throws(()=>security.consumeRecoveryCode('owner','VALID-RECOVERY-CODE'),/Synthetic disk write failure/);
+      assert.throws(()=>security.createTrustedDevice('owner',{token:'test-token',label:'Test Android'}),/Synthetic disk write failure/);
+      assert.equal(security.listTrustedDevices('owner').length,0);
+    } finally {
+      withSave.save=original;
+    }
+    assert.equal(security.consumeRecoveryCode('owner','VALID-RECOVERY-CODE'),true);
+    assert.equal(security.consumeRecoveryCode('owner','VALID-RECOVERY-CODE'),false);
+    assert.equal(security.listTrustedDevices('owner').length,0);
+  } finally {
+    if(beforeFile===undefined)delete process.env.TASO_AUTH_SECURITY_FILE;else process.env.TASO_AUTH_SECURITY_FILE=beforeFile;
+    if(beforeKey===undefined)delete process.env.TASO_AUTH_ENCRYPTION_KEY;else process.env.TASO_AUTH_ENCRYPTION_KEY=beforeKey;
+    rmSync(dir,{recursive:true,force:true});
+  }
+});
+
+test('legacy gateway-derived TOTP remains verifiable after explicit auth key is introduced', () => {
+  const dir=mkdtempSync(join(tmpdir(),'taso-auth-legacy-key-'));
+  const file=join(dir,'auth.json');
+  const originalFile=process.env.TASO_AUTH_SECURITY_FILE;
+  const originalKey=process.env.TASO_AUTH_ENCRYPTION_KEY;
+  const originalGateway=process.env.TASO_GATEWAY_SECRET;
+  try{
+    process.env.TASO_AUTH_SECURITY_FILE=file;
+    process.env.TASO_GATEWAY_SECRET='stable-production-gateway-fixture';
+    delete process.env.TASO_AUTH_ENCRYPTION_KEY;
+    const initial=new AuthSecurityStore('owner');
+    initial.setTotpSecret('owner','JBSWY3DPEHPK3PXP');
+    const encryptedBefore=readFileSync(file,'utf8');
+    assert.equal(encryptedBefore.includes('JBSWY3DPEHPK3PXP'),false);
+
+    // Later deployment introduces a dedicated key while keeping gateway stable.
+    process.env.TASO_AUTH_ENCRYPTION_KEY='d'.repeat(64);
+    const upgraded=new AuthSecurityStore('owner');
+    assert.equal(upgraded.getTotpSecret('owner'),'JBSWY3DPEHPK3PXP');
+    assert.equal(readFileSync(file,'utf8'),encryptedBefore,'read fallback must not rotate or rewrite enrolled 2FA');
+
+    // Wrong gateway key MUST NOT authenticate ciphertext or silently reset it.
+    process.env.TASO_GATEWAY_SECRET='unrelated-gateway-secret';
+    const wrong=new AuthSecurityStore('owner');
+    assert.throws(()=>wrong.getTotpSecret('owner'));
+    assert.equal(readFileSync(file,'utf8'),encryptedBefore);
+
+    process.env.TASO_GATEWAY_SECRET='stable-production-gateway-fixture';
+    const restored=new AuthSecurityStore('owner');
+    assert.equal(restored.getTotpSecret('owner'),'JBSWY3DPEHPK3PXP');
+  }finally{
+    if(originalFile===undefined)delete process.env.TASO_AUTH_SECURITY_FILE;else process.env.TASO_AUTH_SECURITY_FILE=originalFile;
+    if(originalKey===undefined)delete process.env.TASO_AUTH_ENCRYPTION_KEY;else process.env.TASO_AUTH_ENCRYPTION_KEY=originalKey;
+    if(originalGateway===undefined)delete process.env.TASO_GATEWAY_SECRET;else process.env.TASO_GATEWAY_SECRET=originalGateway;
+    rmSync(dir,{recursive:true,force:true});
+  }
+});
