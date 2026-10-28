@@ -191,6 +191,38 @@ test('TOTP enrollment trusts a device, skips repeat 2FA, and supports revoke', a
     assert.equal(secondFactor.statusCode, 200);
     assert.equal(secondFactor.json().authenticated, true);
     assert.equal(secondFactor.json().trustedDevice, true);
+
+    // A previously issued, single-use recovery code must remain usable even
+    // if the persisted TOTP encryption key has become unreadable.
+    const recoveryLogin = await app.inject({
+      method: 'POST', url: '/auth/login',
+      payload: { email: 'owner@example.test', password: 'correct-horse-battery-staple' },
+    });
+    assert.equal(recoveryLogin.json().requiresTwoFactor, true);
+    const previousGet = auth.security.getTotpSecret;
+    try {
+      auth.security.getTotpSecret = () => { throw new Error('Simulated key mismatch'); };
+      const recovered = await app.inject({
+        method: 'POST', url: '/auth/2fa/verify',
+        payload: { challengeId: recoveryLogin.json().challengeId, code: enrolled.recoveryCodes[0], deviceName: 'Recovery phone' },
+      });
+      assert.equal(recovered.statusCode, 200);
+      assert.equal(recovered.json().authenticated, true);
+      assert.equal(recovered.json().recoveryCodeUsed, true);
+      assert.ok(cookieValue(cookiesFrom(recovered.headers['set-cookie']), 'taso_session'));
+      const reusedLogin = await app.inject({
+        method: 'POST', url: '/auth/login',
+        payload: { email: 'owner@example.test', password: 'correct-horse-battery-staple' },
+      });
+      const reused = await app.inject({
+        method: 'POST', url: '/auth/2fa/verify',
+        payload: { challengeId: reusedLogin.json().challengeId, code: enrolled.recoveryCodes[0], deviceName: 'Replay attack' },
+      });
+      assert.equal(reused.statusCode, 401);
+      assert.equal(reused.headers['set-cookie'], undefined);
+    } finally {
+      auth.security.getTotpSecret = previousGet;
+    }
   } finally {
     await app.close();
     for (const key of keys) {
