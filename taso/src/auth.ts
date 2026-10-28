@@ -42,31 +42,31 @@ export class AuthService{
   if(!user||!user.active)return reply.code(403).send({error:'Account is disabled or no longer exists.'});
   if(challenge.attempts>=5){this.challenges.delete(challenge.id);return reply.code(429).send({error:'Too many invalid Authenticator codes.'})}
   const code=input.code?.trim()||'';
-  let secret:string|undefined;
-  try{
-    // A lost/rotated encryption key is a server fault, not an invalid user code.
-    // Fail closed without consuming an attempt, modifying the enrolled TOTP, or exposing secrets.
-    secret=this.security.getTotpSecret(user.id);
-  }catch{
-    request.log.error({event:'auth.totp_decryption_unavailable',userId:user.id},'TOTP material cannot be decrypted; verify stable encryption key and persisted /data volume');
-    return reply.code(503).send({code:'AUTH_TOTP_UNAVAILABLE',error:'Authenticator doğrulaması sunucu yapılandırması nedeniyle kullanılamıyor. Güvenlik ayarlarınızı sıfırlamayın; sistem yöneticisinin kontrol etmesi gerekiyor.'});
-  }
-  if(!secret){
-    request.log.error({event:'auth.totp_missing',userId:user.id},'Stored TOTP material is missing for an enrolled verification challenge');
-    return reply.code(503).send({code:'AUTH_TOTP_UNAVAILABLE',error:'Kayıtlı Authenticator bilgisi sunucuda bulunamadı. Sistem yöneticisinin kontrol etmesi gerekiyor.'});
-  }
-  const totpOk=verifyTotp(secret,code);
-  // Invalid input consumes one of the challenge's bounded verification attempts.
-  challenge.attempts+=1;
-  if(challenge.attempts>5){this.challenges.delete(challenge.id);return reply.code(429).send({error:'Too many invalid Authenticator codes.'})}
-  let recoveryOk=false;
-  if(!totpOk&&code.length>=10){
+  let totpOk=false,recoveryOk=false;
+  // A one-time recovery code is a legitimate second factor independent of the
+  // encrypted TOTP secret. A changed encryption key must not lock out recovery.
+  if(code.length>=10){
     try{recoveryOk=this.security.consumeRecoveryCode(user.id,code)}
     catch{
       request.log.error({event:'auth.recovery_persist_failed',userId:user.id},'Recovery code consumption could not be committed');
       return reply.code(503).send({code:'AUTH_SECURITY_STORAGE_UNAVAILABLE',error:'Güvenlik verileri kaydedilemiyor. Sistem yöneticisinin depolama alanını kontrol etmesi gerekiyor.'});
     }
   }
+  if(!recoveryOk&&/^\d{6}$/.test(code.replace(/\s/g,''))){
+    let secret:string|undefined;
+    try{secret=this.security.getTotpSecret(user.id)}
+    catch{
+      request.log.error({event:'auth.totp_decryption_unavailable',userId:user.id},'TOTP material cannot be decrypted; verify stable encryption key and persisted /data volume');
+      return reply.code(503).send({code:'AUTH_TOTP_UNAVAILABLE',error:'Authenticator şifresi sunucuda çözülemiyor. Kayıtlı kurtarma kodunuzla giriş yapabilir veya sistem yöneticisinden şifreleme anahtarını kontrol etmesini isteyebilirsiniz.'});
+    }
+    if(!secret){
+      request.log.error({event:'auth.totp_missing',userId:user.id},'Stored TOTP material is missing for an enrolled verification challenge');
+      return reply.code(503).send({code:'AUTH_TOTP_UNAVAILABLE',error:'Kayıtlı Authenticator bilgisi sunucuda bulunamadı. Sistem yöneticisinin kontrol etmesi gerekiyor.'});
+    }
+    totpOk=verifyTotp(secret,code);
+  }
+  challenge.attempts+=1;
+  if(challenge.attempts>5){this.challenges.delete(challenge.id);return reply.code(429).send({error:'Too many invalid Authenticator codes.'})}
   if(!totpOk&&!recoveryOk)return reply.code(401).send({error:'Authenticator veya kurtarma kodu doğrulanamadı.'});
   let trusted:ReturnType<AuthService['issueTrustedDevice']>;
   try{
