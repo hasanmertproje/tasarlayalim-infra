@@ -1,5 +1,6 @@
 /** Read-only, redacted Coolify production auth evidence. Never print raw logs or environment values. */
 import {pathToFileURL} from 'node:url';
+import {request} from 'node:https';
 const base='https://coolify.tasarlayalim.com/api/v1/';
 const patterns={
   totp_decrypt:/unable to authenticate data|ERR_OSSL_EVP_BAD_DECRYPT|auth\.totp_decryption_unavailable|Unsupported state|bad decrypt|invalid auth(?:entication)? tag/i,
@@ -35,12 +36,55 @@ export function analyze(logText){
   const iso=n=>n===null?'UNAVAILABLE':new Date(n).toISOString().slice(0,16)+'Z';
   return {rows,timestamped:timed,firstUTC:iso(first),lastUTC:iso(last),summary,windowCounts,windowUTC:'2026-10-28 07:05-07:35 UTC'};
 }
+// Fallback uses only the repository's preconfigured server IPv4. TLS hostname and
+// certificate verification still target coolify.tasarlayalim.com. No redirects.
+const pinnedAddress='45.74.243.96';
+let pinned=false;
+function getPinned(path,token){
+  return new Promise(resolve=>{
+    let settled=false;
+    const finish=value=>{if(settled)return;settled=true;resolve(value)};
+    const req=request({
+      protocol:'https:',hostname:'coolify.tasarlayalim.com',port:443,
+      path:'/api/v1/'+path,method:'GET',servername:'coolify.tasarlayalim.com',
+      lookup:(hostname,options,done)=>done(null,pinnedAddress,4),
+      rejectUnauthorized:true,timeout:18000,
+      headers:{Authorization:'Bearer '+token,Accept:'application/json'},
+    },res=>{
+      const code=res.statusCode||0;
+      let data='',overflow=false;
+      res.on('data',chunk=>{
+        data+=String(chunk);
+        if(data.length>14000000){overflow=true;req.destroy()}
+      });
+      res.on('end',()=>{
+        if(overflow){finish({code:'RESPONSE_TOO_LARGE',data:null});return}
+        if(code!==200){finish({code,data:null});return}
+        try{finish({code,data:JSON.parse(data)})}
+        catch{finish({code:'BAD_JSON',data:null})}
+      });
+    });
+    req.on('timeout',()=>req.destroy());
+    req.on('error',e=>{
+      const c=String(e?.code||e?.name||'UNKNOWN').replace(/[^A-Z_]/gi,'').slice(0,35);
+      finish({code:'PINNED_TLS_OR_NETWORK_'+c,data:null})
+    });
+    req.end();
+  })
+}
 async function get(path,token){
+  if(pinned)return getPinned(path,token);
   try{
-    const res=await fetch(base+path,{headers:{Authorization:'Bearer '+token,Accept:'application/json'},redirect:'error',signal:AbortSignal.timeout(25000)});
+    const res=await fetch(base+path,{headers:{Authorization:'Bearer '+token,Accept:'application/json'},redirect:'error',signal:AbortSignal.timeout(12000)});
     if(!res.ok)return {code:res.status,data:null};
     return {code:res.status,data:await res.json().catch(()=>null)};
-  }catch{return {code:'NETWORK_OR_TIMEOUT',data:null}}
+  }catch(e){
+    const c=String(e?.cause?.code||e?.code||e?.name||'UNKNOWN').replace(/[^A-Z_]/gi,'').slice(0,35);
+    console.log('dns_transport_failed='+c);
+    const alternate=await getPinned(path,token);
+    if(alternate.code===200){pinned=true;console.log('coolify_transport=PINNED_IPV4_WITH_TLS_HOSTNAME_VERIFICATION')}
+    return alternate;
+  }
 }
 export async function main(){
   const token=process.env.COOLIFY_API_TOKEN?.trim();
