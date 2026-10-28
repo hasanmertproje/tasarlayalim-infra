@@ -59,3 +59,31 @@ test('corrupt persisted auth security state fails closed rather than reenrolling
     rmSync(dir,{recursive:true,force:true});
   }
 });
+
+test('a failed storage write restores recovery-code and trusted-device state in memory', () => {
+  const dir=mkdtempSync(join(tmpdir(),'taso-auth-failure-'));
+  const beforeFile=process.env.TASO_AUTH_SECURITY_FILE, beforeKey=process.env.TASO_AUTH_ENCRYPTION_KEY;
+  try {
+    process.env.TASO_AUTH_SECURITY_FILE=join(dir,'auth.json');
+    process.env.TASO_AUTH_ENCRYPTION_KEY='e'.repeat(64);
+    const security=new AuthSecurityStore('owner');
+    security.setRecoveryCodes('owner',['VALID-RECOVERY-CODE']);
+    const withSave=security as unknown as {save:()=>void};
+    const original=withSave.save;
+    try {
+      withSave.save=()=>{throw new Error('Synthetic disk write failure')};
+      assert.throws(()=>security.consumeRecoveryCode('owner','VALID-RECOVERY-CODE'),/Synthetic disk write failure/);
+      assert.throws(()=>security.createTrustedDevice('owner',{token:'test-token',label:'Test Android'}),/Synthetic disk write failure/);
+      assert.equal(security.listTrustedDevices('owner').length,0);
+    } finally {
+      withSave.save=original;
+    }
+    assert.equal(security.consumeRecoveryCode('owner','VALID-RECOVERY-CODE'),true);
+    assert.equal(security.consumeRecoveryCode('owner','VALID-RECOVERY-CODE'),false);
+    assert.equal(security.listTrustedDevices('owner').length,0);
+  } finally {
+    if(beforeFile===undefined)delete process.env.TASO_AUTH_SECURITY_FILE;else process.env.TASO_AUTH_SECURITY_FILE=beforeFile;
+    if(beforeKey===undefined)delete process.env.TASO_AUTH_ENCRYPTION_KEY;else process.env.TASO_AUTH_ENCRYPTION_KEY=beforeKey;
+    rmSync(dir,{recursive:true,force:true});
+  }
+});
