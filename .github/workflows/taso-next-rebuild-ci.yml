@@ -1,0 +1,38 @@
+name: TASO NEXT Rebuild (isolated)
+on:
+  pull_request:
+    paths:
+      - 'taso-next-rebuild/**'
+      - '.github/workflows/taso-next-rebuild-ci.yml'
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: taso-next-rebuild
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install deps (lockfile pending)
+        run: npm install --no-audit --no-fund
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Publisher document contract (escaping, CSP, technology manifests)
+        run: node scripts/test_publisher_document.cjs
+      - name: Standard Vite build
+        run: npm run build
+      - name: Offline single HTML build
+        run: npm run build:offline
+      - name: Verify offline payload
+        run: |
+          test -s dist/index.html
+          grep -q 'TASO NEXT' dist/index.html
+          ! grep -q 'type="module" src="/' dist/index.html
+      - uses: actions/upload-artifact@v4
+        with:
+          name: taso-next-m1-offline-html
+          path: taso-next-rebuild/dist/index.html
