@@ -49,6 +49,9 @@ jobs:
       - name: Test redacted preview deployment diagnostics
         run: node --test tests/taso-preview-deployment-diagnostic.test.mjs
 
+      - name: Verify Workspace to Core Studio project navigation contract
+        run: node --test tests/taso-next-workspace-studio-link.test.mjs
+
       - name: Validate shell scripts
         run: |
           sh -n scripts/healthcheck.sh

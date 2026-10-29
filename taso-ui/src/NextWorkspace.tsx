@@ -55,6 +55,14 @@ export default function NextWorkspace(){
   const recent=[...missions].sort((a,b)=>(b.updatedAt||'').localeCompare(a.updatedAt||'')).slice(0,5);
   const projectName=(id:string)=>projects.find(p=>p.id===id)?.name||'İlgili proje';
   const go=(screen:'Projects'|'Tasks'|'Approvals'|'Command Center'|'Knowledge')=>navigateTaso(screen);
+  // Pass only a project ID returned by the authenticated Core project list.
+  // Studio validates access again against Core; this client hint grants no permission.
+  const openProjectStudio=(id:string)=>{
+    if(!projects.some(project=>project.id===id)){setError('Proje artık erişilebilir değil. Listeyi yenile.');return}
+    try{sessionStorage.setItem('taso-studio-project',id)}
+    catch{setError('Tarayıcı proje bağlamını kaydedemedi; Studio açılmadı.');return}
+    navigateTaso('Workspace Studio');
+  };
   return <section className="tn-workspace" aria-label="TASO Çalışma Alanı">
     <header className="tn-workspace__welcome">
       <span className="tn-eyebrow">TASO / ÇALIŞMA ALANI</span>
@@ -99,10 +107,10 @@ export default function NextWorkspace(){
     <div className="tn-workspace__grid">
       <section className="tn-workspace__panel tn-workspace__projects"><header><div><span className="tn-eyebrow">PROJE EVRENİ</span><h3>Projelerim</h3></div><button type="button" onClick={()=>go('Projects')}>Tümünü gör ↗</button></header>
         <div className="tn-workspace__project-grid">
-          {projects.slice(0,3).map((p,index)=><button className="tn-workspace__project" type="button" key={p.id} onClick={()=>go('Projects')}>
+          {projects.slice(0,3).map((p,index)=><button className="tn-workspace__project" type="button" key={p.id} onClick={()=>openProjectStudio(p.id)} aria-label={p.name+" projesini Studio\u0027da aç"}>
             <div className={'tn-workspace__project-art tn-workspace__project-art--'+index} aria-hidden="true"><NextOrb size="small"/></div>
             <strong>{p.name}</strong><small title={p.repository}>{p.repository}</small>
-            <span>{missions.filter(m=>m.projectId===p.id&&ACTIVE.has(m.status)).length} aktif görev <span aria-hidden="true">↗</span></span>
+            <span>{missions.filter(m=>m.projectId===p.id&&ACTIVE.has(m.status)).length} aktif görev · Studio\u0027da aç <span aria-hidden="true">↗</span></span>
           </button>)}
           {!loading&&!projects.length&&<div className="tn-workspace__empty">Henüz aktif proje yok. <button type="button" onClick={()=>go('Projects')}>Yeni proje oluştur →</button></div>}
           {loading&&<p className="tn-workspace__empty">Projeler yükleniyor…</p>}
